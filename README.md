@@ -19,7 +19,7 @@ Parse Terraform configurations into an HCL AST and build a graph of module and p
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.1.0**. Not yet published to the PowerShell Gallery.
+Source version **0.2.0**. Not yet published to the PowerShell Gallery.
 
 ---
 

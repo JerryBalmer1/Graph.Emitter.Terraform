@@ -146,6 +146,37 @@ Describe "TerraformGraph" {
         }
     }
 
+    Context "Expression values" {
+
+        BeforeAll {
+            $blocks = @(Get-TerraformAST -Path $Infra -ErrorAction Stop)
+            $module = $blocks | Where-Object { $_.Type -eq "module" -and $_.Labels[0] -eq "network" }
+            $instanceCount = $blocks | Where-Object { $_.Type -eq "variable" -and $_.Labels[0] -eq "instance_count" }
+            Set-Variable -Name NetworkModule -Value $module -Scope Script
+            Set-Variable -Name InstanceCount -Value $instanceCount -Scope Script
+        }
+
+        It "reads module network source as a literal template" {
+            $expr = $NetworkModule.Body.Attributes.source.Expr
+            $expr.Kind | Should -Be "TemplateExpr"
+            $expr.IsLiteral | Should -BeTrue
+            $expr.Value | Should -Be "./modules/network"
+        }
+
+        It "reads variable instance_count default as a number literal" {
+            $expr = $InstanceCount.Body.Attributes.default.Expr
+            $expr.Kind | Should -Be "LiteralValueExpr"
+            $expr.Value | Should -Be 2
+            $expr.ValueType | Should -Be "number"
+        }
+
+        It "reads module network aws_region as a scope traversal" {
+            $expr = $NetworkModule.Body.Attributes.aws_region.Expr
+            $expr.Kind | Should -Be "ScopeTraversalExpr"
+            $expr.Traversal | Should -Be "var.aws_region"
+        }
+    }
+
     Context "ConvertTo-TerraformJson / ConvertFrom-TerraformJson" {
 
         BeforeAll {
