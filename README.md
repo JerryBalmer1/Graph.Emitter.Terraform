@@ -19,7 +19,7 @@ Parse Terraform configurations into an HCL AST and build graphs of module calls 
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.6.0**. Not yet published to the PowerShell Gallery.
+Source version **0.7.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -231,8 +231,10 @@ $graph.Nodes | Where-Object Kind -eq 'Resource' | Select-Object Path, Id
 | Variable | `<module>/var/<name>`, where `<module>` is the ModuleAddress (`root` for the root module), e.g. `module.network/var/aws_region` |
 | Local | `<module>/local/<name>` |
 | Output | `<module>/output/<name>` |
+| Resource instance | `<module>/resource/<type>.<name>`, e.g. `root/resource/null_resource.marker` |
+| DataSource instance | `<module>/data/<type>.<name>`, e.g. `root/data/local_file.readme` |
 
-The last three are `ConvertTo-TerraformVariableGraph` node Ids; the rest are `ConvertTo-TerraformSchemaGraph` node Ids.
+Variable, Local and Output are `ConvertTo-TerraformVariableGraph` node Ids; the two instance rows are `ConvertTo-TerraformResourceGraph` node Ids; the rest are `ConvertTo-TerraformSchemaGraph` node Ids. A schema Id names a resource *type* under a provider (`<address>/resource/null_resource`), so it appears once per document; a resource graph Id names one *block* in one module (`module.network/resource/null_resource.subnet`) and has no provider in it. Each resource node's `SchemaId` holds the schema Id it joins to.
 
 ### Variable graph (`ConvertTo-TerraformVariableGraph`)
 
@@ -270,6 +272,35 @@ $trace = $graph | Get-TerraformVariableTrace -Id 'module.network.module.endpoint
 $trace.Nodes
 $trace.Edges | Format-Table From, To, Kind, Via
 ```
+
+### Resource graph (`ConvertTo-TerraformResourceGraph`)
+
+Inventory every `resource` and `data` block in a module graph and, optionally, join each one to its provider schema. Every block becomes a `TerraformGraph.ResourceNode` with `ResourceAddress` (`module.network.null_resource.subnet`, `data.local_file.readme`), the provider it resolves to (`ProviderLocalName`, `ProviderAlias`, `ProviderAddress`) and `SchemaId`, the `ConvertTo-TerraformSchemaGraph` Id it should be an instance of. `Providers` counts nodes per provider address. Nothing is parsed again; modules the module graph did not parse are listed in `Skipped`.
+
+Pass one or more schema graphs with `-SchemaGraph` and each node whose `SchemaId` is present gets `SchemaMatched` `$true` and an `InstanceOf` edge, and its top-level arguments are checked: `UnknownAttributes` and `UnknownBlocks` (a `dynamic "x"` block counts as `x`) list what the schema does not declare, `MissingRequired` lists required attributes and `min_items >= 1` blocks that are not set. `Findings` counts nodes with any of the three. Unmatched nodes carry `Reason` `NoSchemaGraph`, `ProviderNotInSchemaGraph` or `TypeNotInProvider`.
+
+```powershell
+# Inventory with no schema.
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph
+$graph.Nodes
+$graph.Providers
+
+# Join with a directory's schema and list what did not match.
+$schema = Get-TerraformProviderSchema -Path .\infra | ConvertTo-TerraformSchemaGraph
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph -SchemaGraph $schema
+$graph.Nodes | Where-Object { -not $_.SchemaMatched } | Format-Table ResourceAddress, ProviderAddress, Reason
+
+# Join with several schema graphs and show the nodes counted in Findings.
+$schemas = @(
+    Get-TerraformProviderSchema -Provider null -Cleanup | ConvertTo-TerraformSchemaGraph
+    Get-TerraformProviderSchema -Provider local -Cleanup | ConvertTo-TerraformSchemaGraph
+)
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph -SchemaGraph $schemas
+$graph.Nodes | Where-Object { $_.UnknownAttributes -or $_.UnknownBlocks -or $_.MissingRequired } |
+    Format-List ResourceAddress, UnknownAttributes, UnknownBlocks, MissingRequired
+```
+
+The provider is resolved per module, the way Terraform does it: the local name is the type up to its first underscore (`aws_instance` → `aws`), or the name in a `provider = aws.west` argument (which also sets `ProviderAlias`). It maps through that module's own `required_providers` sources; an undeclared name falls back to `terraform.io/builtin/terraform` for `terraform` and `registry.terraform.io/hashicorp/<name>` otherwise. Child modules do not inherit their parent's `required_providers`. Only the top level of each block is checked, not the contents of nested blocks; the meta-arguments `count`, `for_each`, `provider`, `depends_on` and the `lifecycle`, `connection`, `provisioner` blocks are never reported.
 
 ---
 

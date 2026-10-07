@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.6.0
+Module version: 0.7.0
 Last updated: 2026-10-06
 
 ## 0 Setup
@@ -17,7 +17,7 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.6.0`, then eight names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema, Get-TerraformVariableTrace.
+Expect: `0.7.0`, then nine names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema, Get-TerraformVariableTrace.
 
 Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph"
 
@@ -986,3 +986,75 @@ $graph | Get-TerraformVariableTrace -Id 'module.network.module.endpoint/var/aws_
 Expect: `Node 'module.network.module.endpoint/var/aws_region' is not in the variable graph. Nodes named 'aws_region': root/var/aws_region, module.network/var/aws_region.`
 
 Pester: "throws for an unknown Id and names the same-named nodes"
+
+## 9 ConvertTo-TerraformResourceGraph
+
+### 9.1 Inventory with no schema
+
+Lists every resource and data source in the infra tree with its resolved provider.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph
+$graph | Format-Table
+$graph.Nodes | Format-Table Kind, ResourceAddress, ProviderAddress, SchemaMatched, Reason
+$graph.Providers
+```
+
+Expect: Root `C:\__Code\TerraformGraph\infra`, NodeCount 5, MatchedCount 0, UnmatchedCount 5, Findings 0; five rows null_resource.marker, terraform_data.placeholder, data.local_file.readme (DataSource), module.network.null_resource.subnet, module.network.module.endpoint.terraform_data.listener, all SchemaMatched False with Reason NoSchemaGraph; Providers lists registry.terraform.io/hashicorp/null 2, terraform.io/builtin/terraform 2, registry.terraform.io/hashicorp/local 1.
+
+Pester: "has one node per resource and data block in infra, in module then source order", "marks every node NoSchemaGraph without -SchemaGraph", "counts nodes per provider address"
+
+### 9.2 Join with the builtin schema and show unmatched
+
+Joins infra with the built-in provider schema and lists the nodes that did not match, with the Reason.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-resgraph-builtin'
+New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
+try {
+    $null = terraform "-chdir=$dir" init -input=false -no-color
+    $schema = Get-TerraformProviderSchema -Path $dir | ConvertTo-TerraformSchemaGraph
+    $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph -SchemaGraph $schema
+    $graph | Format-Table
+    $graph.Nodes | Where-Object { -not $_.SchemaMatched } | Format-Table ResourceAddress, ProviderAddress, Reason
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: NodeCount 5, MatchedCount 2, UnmatchedCount 3, Findings 0; three rows null_resource.marker, data.local_file.readme and module.network.null_resource.subnet, each with Reason ProviderNotInSchemaGraph.
+
+Pester: "matches terraform_data.placeholder to the builtin schema", "reports null_resource.marker as ProviderNotInSchemaGraph with only the builtin graph"
+
+### 9.3 Findings: unknown attribute
+
+A resource sets an argument the schema does not declare.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-resgraph-finding'
+New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value "resource `"terraform_data`" `"x`" {`n  bogus = 1`n}" -Force | Out-Null
+try {
+    $null = terraform "-chdir=$dir" init -input=false -no-color
+    $schema = Get-TerraformProviderSchema -Path $dir | ConvertTo-TerraformSchemaGraph
+    $graph = Get-TerraformModuleGraph -Path $dir | ConvertTo-TerraformResourceGraph -SchemaGraph $schema
+    $graph | Format-Table
+    $graph.Nodes | Format-List ResourceAddress, SchemaMatched, UnknownAttributes, UnknownBlocks, MissingRequired
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: NodeCount 1, MatchedCount 1, UnmatchedCount 0, Findings 1; terraform_data.x with SchemaMatched True, UnknownAttributes {bogus}, UnknownBlocks {} and MissingRequired {}.
+
+Pester: "lists an attribute the schema does not declare in UnknownAttributes"

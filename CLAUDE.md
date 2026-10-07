@@ -30,12 +30,21 @@ Exported functions:
 - `ConvertTo-TerraformSchemaGraph` — provider schema (dictionary, Json text, or PSCustomObject) to a graph of SchemaNodes (Providers, Nodes, Edges, Summary); `-Provider` filter (throws if absent), `-IncludeFunctions`; attribute `Type` rendered by private `ConvertTo-TerraformTypeString`.
 - `ConvertTo-TerraformVariableGraph` — ModuleGraph to a graph of variables, locals and outputs (Nodes, Edges, Unresolved, Skipped, Summary); edges Reference, Argument, OutputReference from declaration expressions and module call arguments only; references found by private `Get-TerraformExpressionReferences`; never reparses.
 - `Get-TerraformVariableTrace` — breadth-first walk of a VariableGraph from `-Id` (`-Direction Upstream|Downstream|Both`, `-MaxDepth`); nodes copied with `Distance`, negative upstream under Both.
+- `ConvertTo-TerraformResourceGraph` — ModuleGraph (plus optional `-SchemaGraph` array) to an inventory of resource/data blocks (Nodes, Edges, Skipped, Providers, MatchedCount, UnmatchedCount, Findings); `InstanceOf` edge to the schema node when matched; top-level-only `UnknownAttributes`, `UnknownBlocks`, `MissingRequired`; Reason `NoSchemaGraph|ProviderNotInSchemaGraph|TypeNotInProvider`; never reparses.
 
 Planned: none.
 
 ## Canonical ids
 
-`ConvertTo-TerraformSchemaGraph` node Ids, where `<address>` is the provider_schemas key: Provider `<address>`; provider config Attribute/Block `<address>/config/<name>` (Path `<provider short name>.<name>`, Depth 1, emitted before resources); Resource `<address>/resource/<type>`; DataSource `<address>/data/<type>`; Function `<address>/function/<name>`; Block `<parent Id>/<block name>`; Attribute `<parent Id>/<attribute name>`. `ConvertTo-TerraformVariableGraph` node Ids, where `<module>` is the ModuleAddress (`root` for the root module): Variable `<module>/var/<name>`; Local `<module>/local/<name>`; Output `<module>/output/<name>`. `Id` is unique per document; `Path` (`<type>.<block>.<attr>`) is display only and may collide across providers.
+`ConvertTo-TerraformSchemaGraph` node Ids, where `<address>` is the provider_schemas key: Provider `<address>`; provider config Attribute/Block `<address>/config/<name>` (Path `<provider short name>.<name>`, Depth 1, emitted before resources); Resource `<address>/resource/<type>`; DataSource `<address>/data/<type>`; Function `<address>/function/<name>`; Block `<parent Id>/<block name>`; Attribute `<parent Id>/<attribute name>`. `ConvertTo-TerraformVariableGraph` node Ids, where `<module>` is the ModuleAddress (`root` for the root module): Variable `<module>/var/<name>`; Local `<module>/local/<name>`; Output `<module>/output/<name>`. `ConvertTo-TerraformResourceGraph` node Ids: Resource `<module>/resource/<type>.<name>`; DataSource `<module>/data/<type>.<name>` (one per block, no provider in the Id; `SchemaId` holds the schema graph's `<address>/resource/<type>` or `/data/<type>`). `Id` is unique per document; `Path` (`<type>.<block>.<attr>`) is display only and may collide across providers.
+
+## Provider resolution
+
+`ConvertTo-TerraformResourceGraph` resolves each block per module, as Terraform does: local name = type up to the first underscore, or the part before the dot of a `provider = name.alias` argument (sets `ProviderAlias`). It maps through that module's own `terraform { required_providers }` `source` via `ConvertTo-TerraformProviderAddress` (lowercased); undeclared names fall back to `terraform.io/builtin/terraform` for `terraform`, else `registry.terraform.io/hashicorp/<name>`. Child modules never inherit the parent's `required_providers`.
+
+## Naming
+
+Node types never have a property named `Address`, `Count`, `Length`, or any other member of `System.Array` (member access on an array of nodes would hit the array's own member); use a qualified name (`ModuleAddress`, `ResourceAddress`).
 
 ## AST
 

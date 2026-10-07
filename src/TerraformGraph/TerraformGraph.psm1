@@ -106,6 +106,27 @@ Update-TypeData -TypeName $variableGraphTypeName -MemberType ScriptProperty -Mem
 } -Force
 Update-TypeData -TypeName $variableGraphTypeName -DefaultDisplayPropertySet Root, NodeCount, EdgeCount, UnresolvedCount -Force
 
+# Resource graph views.
+Update-TypeData -TypeName 'TerraformGraph.ResourceNode' -DefaultDisplayPropertySet Kind, ResourceAddress, ProviderAddress, SchemaMatched, Reason -Force
+
+$resourceGraphTypeName = 'TerraformGraph.ResourceGraph'
+Update-TypeData -TypeName $resourceGraphTypeName -MemberType ScriptProperty -MemberName NodeCount -Value {
+    @($this.Nodes).Count
+} -Force
+Update-TypeData -TypeName $resourceGraphTypeName -MemberType ScriptProperty -MemberName EdgeCount -Value {
+    @($this.Edges).Count
+} -Force
+Update-TypeData -TypeName $resourceGraphTypeName -MemberType ScriptProperty -MemberName MatchedCount -Value {
+    @($this.Nodes | Where-Object SchemaMatched).Count
+} -Force
+Update-TypeData -TypeName $resourceGraphTypeName -MemberType ScriptProperty -MemberName UnmatchedCount -Value {
+    @($this.Nodes | Where-Object { -not $_.SchemaMatched }).Count
+} -Force
+Update-TypeData -TypeName $resourceGraphTypeName -MemberType ScriptProperty -MemberName Findings -Value {
+    @($this.Nodes | Where-Object { @($_.UnknownAttributes).Count -or @($_.UnknownBlocks).Count -or @($_.MissingRequired).Count }).Count
+} -Force
+Update-TypeData -TypeName $resourceGraphTypeName -DefaultDisplayPropertySet Root, NodeCount, MatchedCount, UnmatchedCount, Findings -Force
+
 function ConvertTo-TerraformGraphBlock {
     param($Block)
     $Block.PSObject.TypeNames.Insert(0, 'TerraformGraph.Block')
@@ -2174,6 +2195,322 @@ function Get-TerraformVariableTrace {
             Direction  = $Direction
             Nodes      = $resultNodes.ToArray()
             Edges      = $resultEdges.ToArray()
+        }
+    }
+}
+
+function ConvertTo-TerraformResourceGraph {
+    <#
+    .SYNOPSIS
+        Builds an inventory of resources and data sources and joins it to provider schemas.
+
+    .DESCRIPTION
+        ConvertTo-TerraformResourceGraph reads the blocks Get-TerraformModuleGraph already
+        parsed and returns one TerraformGraph.ResourceGraph. Every resource and data block in
+        every parsed module becomes a TerraformGraph.ResourceNode with its Terraform address,
+        the provider it resolves to and the schema node it should be an instance of
+        (SchemaId). Nothing is parsed again.
+
+        With -SchemaGraph, each node is joined to the schema: a node whose SchemaId is in one
+        of the schema graphs gets SchemaMatched $true and one InstanceOf edge to it, and its
+        top-level arguments are checked against the schema. UnknownAttributes lists
+        arguments the schema does not declare, UnknownBlocks lists nested blocks it does not
+        declare (a dynamic block is checked by its label), and MissingRequired lists required
+        attributes and blocks with min_items of 1 or more that the block does not set. Only
+        the top level of each block is checked; the contents of nested blocks are not.
+
+        An unmatched node has a Reason: NoSchemaGraph when -SchemaGraph was not given,
+        ProviderNotInSchemaGraph when no schema graph has its provider, TypeNotInProvider
+        when the provider is there but has no such resource or data source type.
+
+        Module nodes whose Blocks are $null (not parsed without -Recurse, unresolved, or
+        Cycle) contribute nothing and are listed in Skipped.
+
+    .PARAMETER ModuleGraph
+        A TerraformGraph.ModuleGraph from Get-TerraformModuleGraph. Use -Recurse there to
+        include every module in the tree.
+
+    .PARAMETER SchemaGraph
+        Zero or more TerraformGraph.SchemaGraph objects from ConvertTo-TerraformSchemaGraph,
+        from one call or several. Their nodes are indexed by Id together, so a configuration
+        that uses several providers can be checked against one graph per provider. When
+        omitted, every node gets SchemaMatched $false and Reason NoSchemaGraph.
+
+    .EXAMPLE
+        $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph
+        $graph.Nodes
+        $graph.Providers
+
+        Inventory with no schema: every resource and data source with its address and
+        resolved provider, and how many nodes each provider has.
+
+    .EXAMPLE
+        $schema = Get-TerraformProviderSchema -Path .\infra | ConvertTo-TerraformSchemaGraph
+        $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph -SchemaGraph $schema
+        $graph.Nodes | Where-Object { -not $_.SchemaMatched } | Format-Table ResourceAddress, ProviderAddress, Reason
+
+        Join with the schema of an initialized directory and list the nodes that did not
+        match, with the Reason. With only the built-in provider installed, null_resource and
+        local_file show ProviderNotInSchemaGraph.
+
+    .EXAMPLE
+        $schemas = @(
+            Get-TerraformProviderSchema -Provider null -Cleanup | ConvertTo-TerraformSchemaGraph
+            Get-TerraformProviderSchema -Provider local -Cleanup | ConvertTo-TerraformSchemaGraph
+        )
+        $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph -SchemaGraph $schemas
+        $graph.Nodes | Where-Object { $_.UnknownAttributes -or $_.UnknownBlocks -or $_.MissingRequired } |
+            Format-List ResourceAddress, UnknownAttributes, UnknownBlocks, MissingRequired
+
+        Join with two schema graphs fetched on demand and show the nodes counted in
+        Findings.
+
+    .OUTPUTS
+        TerraformGraph.ResourceGraph with Root, Nodes, Edges, Skipped and Providers (ordered
+        ProviderAddress -> node count), plus NodeCount, EdgeCount, MatchedCount,
+        UnmatchedCount and Findings (nodes with any UnknownAttributes, UnknownBlocks or
+        MissingRequired). Default view is Root, NodeCount, MatchedCount, UnmatchedCount,
+        Findings. Nodes are TerraformGraph.ResourceNode (default view Kind, ResourceAddress,
+        ProviderAddress, SchemaMatched, Reason), edges TerraformGraph.ResourceEdge.
+
+    .NOTES
+        Id scheme, where <module> is the ModuleAddress ('root' for the root module):
+            Resource    <module>/resource/<type>.<name>
+            DataSource  <module>/data/<type>.<name>
+        SchemaId is <ProviderAddress>/resource/<type> or <ProviderAddress>/data/<type>, the
+        ConvertTo-TerraformSchemaGraph Id, and is set even when it does not match.
+
+        Provider resolution, per module: the local name is the type up to its first
+        underscore (aws_instance -> aws), or the part of a provider = <name>.<alias>
+        argument before the dot, which also sets ProviderAlias. The local name maps to an
+        address through that module's own terraform { required_providers } sources. A
+        local name not declared there is terraform.io/builtin/terraform for 'terraform',
+        otherwise registry.terraform.io/hashicorp/<name>. A child module does not inherit
+        its parent's required_providers, as in Terraform.
+
+        Only top-level attributes and blocks are checked. The meta-arguments count,
+        for_each, provider, depends_on, lifecycle, connection and provisioner are never
+        unknown, and lifecycle, connection and provisioner blocks are not checked.
+
+    .LINK
+        Get-TerraformModuleGraph
+
+    .LINK
+        ConvertTo-TerraformSchemaGraph
+
+    .LINK
+        https://github.com/JerryBalmer1/TerraformGraph
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0, ValueFromPipeline)]
+        [object]
+        $ModuleGraph,
+
+        [object[]]
+        $SchemaGraph
+    )
+
+    begin {
+        $metaAttributes = 'count', 'for_each', 'provider', 'depends_on', 'lifecycle', 'connection', 'provisioner'
+        $metaBlocks = 'lifecycle', 'connection', 'provisioner', 'dynamic'
+
+        # Every schema node by Id, the provider addresses present, and the direct children
+        # of each Resource and DataSource node in schema order. Built once for all input.
+        $hasSchema = @($SchemaGraph | Where-Object { $null -ne $_ }).Count -gt 0
+        $schemaById = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+        $schemaProviders = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $schemaChildren = [System.Collections.Generic.Dictionary[string, System.Collections.Generic.List[object]]]::new([System.StringComparer]::Ordinal)
+        foreach ($graph in @($SchemaGraph)) {
+            if ($null -eq $graph) { continue }
+            foreach ($node in @($graph.Nodes)) {
+                $schemaById[[string]$node.Id] = $node
+                if ($node.Kind -eq 'Provider') { $null = $schemaProviders.Add([string]$node.Id) }
+                $parent = $null
+                if ($null -ne $node.ParentId -and $schemaById.TryGetValue([string]$node.ParentId, [ref]$parent) -and
+                    $parent.Kind -in 'Resource', 'DataSource') {
+                    if (-not $schemaChildren.ContainsKey($parent.Id)) {
+                        $schemaChildren[$parent.Id] = [System.Collections.Generic.List[object]]::new()
+                    }
+                    $schemaChildren[$parent.Id].Add($node)
+                }
+            }
+        }
+    }
+
+    process {
+        $nodes = [System.Collections.Generic.List[object]]::new()
+        $edges = [System.Collections.Generic.List[object]]::new()
+        $skipped = [System.Collections.Generic.List[string]]::new()
+        $providers = [ordered]@{}
+
+        foreach ($module in @($ModuleGraph.Nodes)) {
+            $address = [string]$module.ModuleAddress
+            if ($null -eq $module.Blocks) {
+                $skipped.Add($address)
+                continue
+            }
+            $blocks = @($module.Blocks)
+
+            # Local name -> provider address from this module's own required_providers.
+            $declared = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::Ordinal)
+            foreach ($terraform in @($blocks | Where-Object Type -eq 'terraform')) {
+                foreach ($required in @($terraform.Body.Blocks | Where-Object Type -eq 'required_providers')) {
+                    if ($null -eq $required.Body.Attributes) { continue }
+                    foreach ($attribute in @($required.Body.Attributes.PSObject.Properties.Value)) {
+                        $source = $null
+                        foreach ($item in @($attribute.Expr.Items)) {
+                            if ($null -ne $item -and ([string]$item.Key.Raw).Trim('"') -ceq 'source') {
+                                $source = Get-TerraformExpressionLiteral -Expr $item.Value
+                            }
+                        }
+                        if ($source -isnot [string]) { continue }
+                        try {
+                            $declared[[string]$attribute.Name] = (ConvertTo-TerraformProviderAddress -Provider $source).Address.ToLowerInvariant()
+                        }
+                        catch {
+                            Write-Verbose "$address required_providers $($attribute.Name): $($_.Exception.Message)"
+                        }
+                    }
+                }
+            }
+
+            # Resource and data blocks in source order: file, then line.
+            $sorted = [System.Collections.Generic.List[object]]::new()
+            foreach ($block in $blocks) { if ($block.Type -in 'resource', 'data') { $sorted.Add($block) } }
+            $sorted.Sort([System.Comparison[object]] {
+                    param($a, $b)
+                    $byFile = [string]::CompareOrdinal([string]$a.File, [string]$b.File)
+                    if ($byFile) { return $byFile }
+                    ([int]$a.Line).CompareTo([int]$b.Line)
+                })
+
+            foreach ($block in $sorted) {
+                $isData = $block.Type -eq 'data'
+                $kind = $isData ? 'DataSource' : 'Resource'
+                $segment = $isData ? 'data' : 'resource'
+                $type = [string]$block.Labels[0]
+                $name = [string]$block.Labels[1]
+                $attributes = $block.Body.Attributes
+
+                $localName = $type.Split('_')[0]
+                $alias = $null
+                $providerAttribute = if ($null -ne $attributes) { $attributes.PSObject.Properties['provider'] }
+                if ($providerAttribute) {
+                    $expr = $providerAttribute.Value.Expr
+                    $parts = ([string]($expr.Traversal ?? $expr.Raw)).Split('.', 2)
+                    $localName = $parts[0]
+                    if ($parts.Count -gt 1) { $alias = $parts[1] }
+                }
+
+                $providerAddress = $null
+                if (-not $declared.TryGetValue($localName, [ref]$providerAddress)) {
+                    $providerAddress = if ($localName -eq 'terraform') {
+                        'terraform.io/builtin/terraform'
+                    }
+                    else {
+                        "registry.terraform.io/hashicorp/$localName".ToLowerInvariant()
+                    }
+                }
+                $providers[$providerAddress] = 1 + [int]$providers[$providerAddress]
+
+                $id = "$address/$segment/$type.$name"
+                $schemaId = "$providerAddress/$segment/$type"
+                $terraformAddress = ($isData ? 'data.' : '') + "$type.$name"
+                if ($address -ne 'root') { $terraformAddress = "$address.$terraformAddress" }
+
+                $reason = if (-not $hasSchema) { 'NoSchemaGraph' }
+                elseif (-not $schemaProviders.Contains($providerAddress)) { 'ProviderNotInSchemaGraph' }
+                elseif (-not $schemaById.ContainsKey($schemaId)) { 'TypeNotInProvider' }
+                $matched = $null -eq $reason
+
+                $unknownAttributes = [System.Collections.Generic.List[string]]::new()
+                $unknownBlocks = [System.Collections.Generic.List[string]]::new()
+                $missingRequired = [System.Collections.Generic.List[string]]::new()
+                if ($matched) {
+                    $children = $null
+                    if (-not $schemaChildren.TryGetValue($schemaId, [ref]$children)) { $children = @() }
+                    $childByName = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+                    foreach ($child in $children) { $childByName[[string]$child.Name] = $child }
+
+                    # Attributes in source order (the parser keys them by name).
+                    $setAttributes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+                    if ($null -ne $attributes) {
+                        foreach ($attribute in @($attributes.PSObject.Properties.Value) | Sort-Object { $_.SrcRange.Start.Byte }) {
+                            $attributeName = [string]$attribute.Name
+                            $null = $setAttributes.Add($attributeName)
+                            if ($metaAttributes -ccontains $attributeName) { continue }
+                            $child = $null
+                            if (-not ($childByName.TryGetValue($attributeName, [ref]$child) -and $child.Kind -eq 'Attribute')) {
+                                $unknownAttributes.Add($attributeName)
+                            }
+                        }
+                    }
+
+                    # A dynamic "x" block stands for an x block.
+                    $setBlocks = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+                    foreach ($nested in @($block.Body.Blocks)) {
+                        if ($null -eq $nested) { continue }
+                        $blockName = [string]$nested.Type
+                        if ($blockName -ceq 'dynamic') { $blockName = [string]$nested.Labels[0] }
+                        elseif ($metaBlocks -ccontains $blockName) { continue }
+                        $null = $setBlocks.Add($blockName)
+                        $child = $null
+                        $known = $childByName.TryGetValue($blockName, [ref]$child) -and (
+                            $child.Kind -eq 'Block' -or
+                            ($child.Kind -eq 'Attribute' -and $null -ne (Get-TerraformSchemaMember -InputObject $child.Raw -Name 'nested_type')))
+                        if (-not $known -and -not $unknownBlocks.Contains($blockName)) { $unknownBlocks.Add($blockName) }
+                    }
+
+                    foreach ($child in $children) {
+                        $childName = [string]$child.Name
+                        if ($child.Kind -eq 'Attribute' -and $child.Required -and -not $setAttributes.Contains($childName)) {
+                            $missingRequired.Add($childName)
+                        }
+                        elseif ($child.Kind -eq 'Block' -and [int]$child.MinItems -ge 1 -and -not $setBlocks.Contains($childName)) {
+                            $missingRequired.Add($childName)
+                        }
+                    }
+
+                    $edges.Add([pscustomobject]@{
+                        PSTypeName = 'TerraformGraph.ResourceEdge'
+                        From       = $id
+                        To         = $schemaId
+                        Kind       = 'InstanceOf'
+                    })
+                }
+
+                $nodes.Add([pscustomobject]@{
+                    PSTypeName        = 'TerraformGraph.ResourceNode'
+                    Id                = $id
+                    Kind              = $kind
+                    Module            = $address
+                    Type              = $type
+                    Name              = $name
+                    ResourceAddress   = $terraformAddress
+                    ProviderLocalName = $localName
+                    ProviderAlias     = $alias
+                    ProviderAddress   = $providerAddress
+                    SchemaId          = $schemaId
+                    SchemaMatched     = $matched
+                    Reason            = $reason
+                    UnknownAttributes = $unknownAttributes.ToArray()
+                    UnknownBlocks     = $unknownBlocks.ToArray()
+                    MissingRequired   = $missingRequired.ToArray()
+                    File              = $block.File
+                    Line              = $block.Line
+                    Block             = $block
+                })
+            }
+        }
+
+        [pscustomobject]@{
+            PSTypeName = 'TerraformGraph.ResourceGraph'
+            Root       = $ModuleGraph.Root
+            Nodes      = $nodes.ToArray()
+            Edges      = $edges.ToArray()
+            Skipped    = $skipped.ToArray()
+            Providers  = $providers
         }
     }
 }

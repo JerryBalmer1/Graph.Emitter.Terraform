@@ -1112,4 +1112,193 @@ locals {
                 Should -Be @('Distance', 'Kind', 'Module', 'Name', 'Binding', 'Literal')
         }
     }
+
+    Context "ConvertTo-TerraformResourceGraph" {
+
+        BeforeAll {
+            # The built-in provider: terraform init downloads nothing.
+            $dir = Join-Path $TestDrive 'resgraph-builtin'
+            New-Item -ItemType Directory -Path $dir | Out-Null
+            Set-Content -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}'
+            $null = terraform "-chdir=$dir" init -input=false -no-color
+            $builtin = Get-TerraformProviderSchema -Path $dir -ErrorAction Stop | ConvertTo-TerraformSchemaGraph -ErrorAction Stop
+            Set-Variable -Name BuiltinGraph -Value $builtin -Scope Script
+
+            $moduleGraph = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop
+            Set-Variable -Name InfraModuleGraph -Value $moduleGraph -Scope Script
+            Set-Variable -Name ResGraph -Scope Script -Value (
+                $moduleGraph | ConvertTo-TerraformResourceGraph -SchemaGraph $builtin -ErrorAction Stop)
+
+            # One single-file root per case, joined with the builtin schema graph.
+            $cases = [ordered]@{
+                acme     = "terraform {`n  required_providers {`n    foo = {`n      source = `"acme/foo`"`n    }`n  }`n}`n`nresource `"foo_thing`" `"x`" {}"
+                bogus    = "resource `"terraform_data`" `"x`" {`n  bogus = 1`n}"
+                count    = "resource `"terraform_data`" `"x`" {`n  count = 2`n}"
+                alias    = "resource `"terraform_data`" `"x`" {`n  provider = terraform.alt`n}"
+                block    = "resource `"terraform_data`" `"x`" {`n  nope {}`n}"
+                nope     = "resource `"terraform_nope`" `"x`" {}"
+            }
+            $single = @{}
+            foreach ($name in $cases.Keys) {
+                $root = Join-Path $TestDrive "resgraph-$name"
+                New-Item -ItemType Directory -Path $root | Out-Null
+                Set-Content -Path (Join-Path $root 'main.tf') -Value $cases[$name]
+                $graph = Get-TerraformModuleGraph -Path $root -ErrorAction Stop |
+                    ConvertTo-TerraformResourceGraph -SchemaGraph $builtin -ErrorAction Stop
+                $single[$name] = $graph.Nodes[0]
+            }
+            Set-Variable -Name SingleNode -Value $single -Scope Script
+        }
+
+        It "is exported from TerraformGraph" {
+            (Get-Command ConvertTo-TerraformResourceGraph -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        }
+
+        It "has one node per resource and data block in infra, in module then source order" {
+            # main.tf: null_resource.marker, terraform_data.placeholder, data.local_file.readme;
+            # modules/network: null_resource.subnet; modules/network/modules/endpoint: terraform_data.listener.
+            $ResGraph.NodeCount | Should -Be 5
+            $ResGraph.Nodes.ResourceAddress | Should -Be @(
+                'null_resource.marker'
+                'terraform_data.placeholder'
+                'data.local_file.readme'
+                'module.network.null_resource.subnet'
+                'module.network.module.endpoint.terraform_data.listener'
+            )
+            $ResGraph.Nodes.Id | Should -Be @(
+                'root/resource/null_resource.marker'
+                'root/resource/terraform_data.placeholder'
+                'root/data/local_file.readme'
+                'module.network/resource/null_resource.subnet'
+                'module.network.module.endpoint/resource/terraform_data.listener'
+            )
+        }
+
+        It "matches terraform_data.placeholder to the builtin schema" {
+            $node = $ResGraph.Nodes | Where-Object ResourceAddress -eq 'terraform_data.placeholder'
+            $node.ProviderAddress | Should -Be 'terraform.io/builtin/terraform'
+            $node.SchemaMatched | Should -BeTrue
+            $node.Reason | Should -BeNullOrEmpty
+            @($node.UnknownAttributes).Count | Should -Be 0
+            $edges = @($ResGraph.Edges | Where-Object From -eq $node.Id)
+            $edges.Count | Should -Be 1
+            $edges[0].To | Should -Be 'terraform.io/builtin/terraform/resource/terraform_data'
+            $edges[0].Kind | Should -Be 'InstanceOf'
+        }
+
+        It "reports null_resource.marker as ProviderNotInSchemaGraph with only the builtin graph" {
+            $node = $ResGraph.Nodes | Where-Object ResourceAddress -eq 'null_resource.marker'
+            $node.ProviderAddress | Should -BeLike '*hashicorp/null'
+            $node.SchemaMatched | Should -BeFalse
+            $node.Reason | Should -Be 'ProviderNotInSchemaGraph'
+            $node.SchemaId | Should -Be 'registry.terraform.io/hashicorp/null/resource/null_resource'
+        }
+
+        It "builds data.local_file.readme as a DataSource" {
+            $node = $ResGraph.Nodes | Where-Object Type -eq 'local_file'
+            $node.Kind | Should -Be 'DataSource'
+            $node.Id | Should -Be 'root/data/local_file.readme'
+            $node.ResourceAddress | Should -Be 'data.local_file.readme'
+            $node.SchemaId | Should -Be 'registry.terraform.io/hashicorp/local/data/local_file'
+        }
+
+        It "marks every node NoSchemaGraph without -SchemaGraph" {
+            $graph = $InfraModuleGraph | ConvertTo-TerraformResourceGraph -ErrorAction Stop
+            $graph.NodeCount | Should -Be $ResGraph.NodeCount
+            @($graph.Nodes | Where-Object Reason -ne 'NoSchemaGraph').Count | Should -Be 0
+            @($graph.Edges).Count | Should -Be 0
+            $graph.MatchedCount | Should -Be 0
+        }
+
+        It "counts nodes per provider address" {
+            $ResGraph.Providers['terraform.io/builtin/terraform'] | Should -Be 2
+            $ResGraph.Providers['registry.terraform.io/hashicorp/null'] | Should -Be 2
+            $ResGraph.Providers['registry.terraform.io/hashicorp/local'] | Should -Be 1
+            $ResGraph.Providers.Count | Should -Be 3
+        }
+
+        It "resolves a required_providers source in the same module" {
+            $node = $SingleNode['acme']
+            $node.ProviderAddress | Should -Be 'registry.terraform.io/acme/foo'
+            $node.Reason | Should -Be 'ProviderNotInSchemaGraph'
+        }
+
+        It "lists an attribute the schema does not declare in UnknownAttributes" {
+            $node = $SingleNode['bogus']
+            $node.SchemaMatched | Should -BeTrue
+            $node.UnknownAttributes | Should -Contain 'bogus'
+        }
+
+        It "does not report the count meta-argument" {
+            @($SingleNode['count'].UnknownAttributes).Count | Should -Be 0
+        }
+
+        It "reads the provider local name and alias from a provider argument" {
+            $node = $SingleNode['alias']
+            $node.ProviderAlias | Should -Be 'alt'
+            $node.ProviderLocalName | Should -Be 'terraform'
+            @($node.UnknownAttributes).Count | Should -Be 0
+        }
+
+        It "lists a block the schema does not declare in UnknownBlocks" {
+            $SingleNode['block'].UnknownBlocks | Should -Contain 'nope'
+        }
+
+        It "reports a type the provider does not have as TypeNotInProvider" {
+            $node = $SingleNode['nope']
+            $node.Reason | Should -Be 'TypeNotInProvider'
+            $node.SchemaId | Should -Be 'terraform.io/builtin/terraform/resource/terraform_nope'
+        }
+
+        It "lists module.network in Skipped without -Recurse and has no module.network nodes" {
+            $graph = Get-TerraformModuleGraph -Path $Infra -ErrorAction Stop | ConvertTo-TerraformResourceGraph -SchemaGraph $BuiltinGraph -ErrorAction Stop
+            @($graph.Skipped) | Should -Be @('module.network')
+            @($graph.Nodes | Where-Object Module -ne 'root').Count | Should -Be 0
+        }
+
+        It "gives the same Ids and edges on every run" {
+            $again = $InfraModuleGraph | ConvertTo-TerraformResourceGraph -SchemaGraph $BuiltinGraph -ErrorAction Stop
+            $again.Nodes.Id | Should -Be $ResGraph.Nodes.Id
+            @($again.Edges | ForEach-Object { "$($_.From)>$($_.To)" }) | Should -Be @($ResGraph.Edges | ForEach-Object { "$($_.From)>$($_.To)" })
+        }
+
+        It "sets the default display properties" {
+            (Get-TypeData TerraformGraph.ResourceNode).DefaultDisplayPropertySet.ReferencedProperties |
+                Should -Be @('Kind', 'ResourceAddress', 'ProviderAddress', 'SchemaMatched', 'Reason')
+            (Get-TypeData TerraformGraph.ResourceGraph).DefaultDisplayPropertySet.ReferencedProperties |
+                Should -Be @('Root', 'NodeCount', 'MatchedCount', 'UnmatchedCount', 'Findings')
+        }
+
+        Context "null and local schemas (registry)" -Skip:(-not (Test-Connection registry.terraform.io -Count 1 -Quiet)) {
+
+            BeforeAll {
+                $schemas = @(
+                    $BuiltinGraph
+                    Get-TerraformProviderSchema -Provider null -Version '= 3.2.3' -Cleanup -ErrorAction Stop | ConvertTo-TerraformSchemaGraph -ErrorAction Stop
+                    Get-TerraformProviderSchema -Provider local -Version '= 2.5.2' -Cleanup -ErrorAction Stop | ConvertTo-TerraformSchemaGraph -ErrorAction Stop
+                )
+                Set-Variable -Name AllSchemas -Value $schemas -Scope Script
+                Set-Variable -Name FullGraph -Scope Script -Value (
+                    $InfraModuleGraph | ConvertTo-TerraformResourceGraph -SchemaGraph $schemas -ErrorAction Stop)
+            }
+
+            It "matches every infra node with no findings" {
+                @($FullGraph.Nodes | Where-Object { -not $_.SchemaMatched }).Count | Should -Be 0
+                $FullGraph.UnmatchedCount | Should -Be 0
+                $FullGraph.EdgeCount | Should -Be 5
+                $FullGraph.Findings | Should -Be 0
+            }
+
+            It "lists filename in MissingRequired for an empty local_file" {
+                # local 2.5.2: filename is the only required local_file attribute.
+                $root = Join-Path $TestDrive 'resgraph-local-file'
+                New-Item -ItemType Directory -Path $root | Out-Null
+                Set-Content -Path (Join-Path $root 'main.tf') -Value 'resource "local_file" "x" {}'
+                $graph = Get-TerraformModuleGraph -Path $root -ErrorAction Stop | ConvertTo-TerraformResourceGraph -SchemaGraph $AllSchemas -ErrorAction Stop
+                $graph.Nodes[0].SchemaMatched | Should -BeTrue
+                $graph.Nodes[0].MissingRequired | Should -Be @('filename')
+                $graph.Findings | Should -Be 1
+            }
+        }
+    }
 }
