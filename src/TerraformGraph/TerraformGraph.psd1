@@ -1,15 +1,15 @@
 @{
 
     RootModule        = 'TerraformGraph.psm1'
-    ModuleVersion     = '0.4.0'
+    ModuleVersion     = '0.5.0'
     GUID              = '852206b0-33a6-4dc3-91eb-e9fd6166b17d'
     Author            = 'Jerry Balmer'
     CompanyName       = 'Jerry Balmer'
     Copyright         = '(c) Jerry Balmer. All rights reserved.'
-    Description       = 'Parse Terraform configurations into an HCL AST and build a graph of module and provider relationships. Graph layer in progress; AST, JSON and provider-schema cmdlets are available.'
+    Description       = 'Parse Terraform configurations into an HCL AST and build graphs of module calls and provider schemas.'
     PowerShellVersion = '7.4'
 
-    FunctionsToExport = @('Get-TerraformAST', 'ConvertTo-TerraformJson', 'ConvertFrom-TerraformJson', 'Get-TerraformProviderSchema', 'Get-TerraformModuleGraph')
+    FunctionsToExport = @('Get-TerraformAST', 'ConvertTo-TerraformJson', 'ConvertFrom-TerraformJson', 'Get-TerraformProviderSchema', 'Get-TerraformModuleGraph', 'ConvertTo-TerraformSchemaGraph')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()
@@ -22,7 +22,7 @@
             Tags                       = @('Terraform', 'HCL', 'Graph', 'AST', 'PowerShell', 'PowerShell74')
             ProjectUri                 = 'https://github.com/JerryBalmer1/TerraformGraph'
             LicenseUri                 = 'https://github.com/JerryBalmer1/TerraformGraph'
-            ReleaseNotes               = '0.4.0: Get-TerraformProviderSchema -Provider set fetches a provider schema on demand. 0.3.0: Add Get-TerraformModuleGraph. 0.2.0: Breaking. Expression nodes now carry Kind, Raw and values. 0.1.0: Initial release. Get-TerraformAST, ConvertTo-TerraformJson, ConvertFrom-TerraformJson, Get-TerraformProviderSchema.'
+            ReleaseNotes               = '0.5.0: Add ConvertTo-TerraformSchemaGraph. 0.4.0: Get-TerraformProviderSchema -Provider set fetches a provider schema on demand. 0.3.0: Add Get-TerraformModuleGraph. 0.2.0: Breaking. Expression nodes now carry Kind, Raw and values. 0.1.0: Initial release. Get-TerraformAST, ConvertTo-TerraformJson, ConvertFrom-TerraformJson, Get-TerraformProviderSchema.'
             RequireLicenseAcceptance   = $false
             ExternalModuleDependencies = @()
         }

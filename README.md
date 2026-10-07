@@ -13,13 +13,13 @@
   <sub><a href="https://github.com/kyechan99/capsule-render">Above was created by capsule-render</a></sub>
 </p>
 
-Parse Terraform configurations into an HCL AST and build a graph of module and provider relationships. Graph layer in progress; AST, JSON and provider-schema cmdlets are available.
+Parse Terraform configurations into an HCL AST and build graphs of module calls and provider schemas.
 
 > **Requires PowerShell 7.4+.** Agents, skills, and tool runners should use 7.4 (or later) so `$ErrorActionPreference = 'Stop'` is a first-class default you can rely on. On older hosts a failed parse is often a *non-terminating* error: the pipeline keeps going, the agent reads “success,” and it never gets a chance to correct the path or the HCL. 7.4 is the line this module draws so an agent actually *sees* the failure and can fix it.
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.4.0**. Not yet published to the PowerShell Gallery.
+Source version **0.5.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -198,6 +198,35 @@ Get-TerraformModuleGraph -Path .\infra
 ```
 
 `-GroupBy` only decides `Id`, and so the `From`/`To` of each edge: `Call` (default) uses `ModuleAddress` such as `module.network.module.endpoint`, `Source` uses the source string such as `./modules/endpoint`, so calls to the same module share an Id (edges are not deduplicated). Calls that cannot be resolved stay in the graph with `Resolved` `$false` and a `Reason` — `NonLiteralSource`, `LocalPathMissing`, or `NotInitialized` for a registry, git, http, s3 or gcs source with no entry in `.terraform/modules/modules.json` — and are collected in `Unresolved` for a quick check. A call whose directory is already one of its own ancestors keeps `Resolved` `$true` and its `Dir`, gets `Reason` `Cycle`, and is not followed; a module called from two places is otherwise walked once per call. `terraform init` is never run; local sources need no init at all.
+
+### Schema graph (`ConvertTo-TerraformSchemaGraph`)
+
+Turn the output of `Get-TerraformProviderSchema` into a graph: every provider, resource, data source, block and attribute becomes a `TerraformGraph.SchemaNode` with one `Contains` edge from its parent. Attributes carry `Type` rendered in Terraform syntax (`map(string)`, `set(object({ a = string }))`, `dynamic` as `any`) plus `Required`, `Optional`, `Computed`, `Sensitive`, `WriteOnly`. Attributes declared with `nested_type` get child Attribute nodes just like blocks do. Input can be the default dictionary, the `-OutputFormat Json` text, or that text through `ConvertFrom-TerraformJson`.
+
+```powershell
+# Fetch hashicorp/null and convert it.
+Get-TerraformProviderSchema -Provider null -Cleanup | ConvertTo-TerraformSchemaGraph
+
+# Keep one provider out of a multi-provider directory schema.
+$graph = Get-TerraformProviderSchema -Path .\infra | ConvertTo-TerraformSchemaGraph -Provider aws
+$graph.Nodes | Where-Object Path -like 'aws_s3_bucket.*'
+
+# Count by Kind, then list resources with their canonical Id.
+$graph = Get-TerraformProviderSchema -Path .\infra | ConvertTo-TerraformSchemaGraph
+$graph.Summary
+$graph.Nodes | Where-Object Kind -eq 'Resource' | Select-Object Path, Id
+```
+
+`Id` is canonical and unique within the document; `Path` is the short dotted form (`null_resource.triggers`) and can repeat across providers. `-Provider` that is not in the document throws and lists the providers that are. `-IncludeFunctions` adds provider functions as Function nodes.
+
+| Kind | Id |
+|---|---|
+| Provider | `<address>`, e.g. `registry.terraform.io/hashicorp/aws` |
+| Resource | `<address>/resource/<type>` |
+| DataSource | `<address>/data/<type>` |
+| Function | `<address>/function/<name>` |
+| Block | `<parent Id>/<block name>` |
+| Attribute | `<parent Id>/<attribute name>` |
 
 ---
 

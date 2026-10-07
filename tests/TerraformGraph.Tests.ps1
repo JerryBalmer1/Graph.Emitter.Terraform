@@ -631,4 +631,155 @@ Describe "TerraformGraph" {
                 Should -Throw "*is not an existing directory*"
         }
     }
+
+    Context "ConvertTo-TerraformSchemaGraph" {
+
+        BeforeAll {
+            # The built-in provider: terraform init downloads nothing.
+            $dir = Join-Path $TestDrive 'schema-builtin'
+            New-Item -ItemType Directory -Path $dir | Out-Null
+            Set-Content -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}'
+            $null = terraform "-chdir=$dir" init -input=false -no-color
+            $schema = Get-TerraformProviderSchema -Path $dir -ErrorAction Stop
+            Set-Variable -Name SchemaDir   -Value $dir -Scope Script
+            Set-Variable -Name SchemaDoc   -Value $schema -Scope Script
+            Set-Variable -Name SchemaGraph -Value ($schema | ConvertTo-TerraformSchemaGraph -ErrorAction Stop) -Scope Script
+        }
+
+        It "is exported from TerraformGraph" {
+            (Get-Command ConvertTo-TerraformSchemaGraph -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        }
+
+        It "lists only the built-in provider" {
+            $SchemaGraph.Providers | Should -Be @('terraform.io/builtin/terraform')
+        }
+
+        It "has one Provider node at Depth 0 with no parent" {
+            $providers = @($SchemaGraph.Nodes | Where-Object Kind -eq 'Provider')
+            $providers.Count | Should -Be 1
+            $providers[0].Depth | Should -Be 0
+            $providers[0].ParentId | Should -BeNullOrEmpty
+        }
+
+        It "builds the terraform_data Resource node" {
+            $resource = $SchemaGraph.Nodes | Where-Object { $_.Kind -eq 'Resource' -and $_.Path -eq 'terraform_data' }
+            $resource.Id | Should -Be 'terraform.io/builtin/terraform/resource/terraform_data'
+            $resource.Depth | Should -Be 1
+        }
+
+        It "builds the terraform_data Attribute nodes with types and flags" {
+            $parentId = 'terraform.io/builtin/terraform/resource/terraform_data'
+            $attributes = @($SchemaGraph.Nodes | Where-Object { $_.Kind -eq 'Attribute' -and $_.ParentId -eq $parentId })
+            $attributes.Name | Should -Be @('id', 'input', 'output', 'triggers_replace')
+            ($attributes | Where-Object Name -eq 'input').Type | Should -Be 'any'
+            ($attributes | Where-Object Name -eq 'id').Computed | Should -BeTrue
+        }
+
+        It "puts terraform_remote_state under /data/ as a DataSource" {
+            $data = $SchemaGraph.Nodes | Where-Object Path -eq 'terraform_remote_state'
+            $data.Kind | Should -Be 'DataSource'
+            $data.Id | Should -Be 'terraform.io/builtin/terraform/data/terraform_remote_state'
+        }
+
+        It "gives every non-Provider node exactly one incoming edge from its ParentId" {
+            foreach ($node in @($SchemaGraph.Nodes | Where-Object Kind -ne 'Provider')) {
+                $incoming = @($SchemaGraph.Edges | Where-Object To -eq $node.Id)
+                $incoming.Count | Should -Be 1 -Because $node.Id
+                $incoming[0].From | Should -Be $node.ParentId
+                $incoming[0].Kind | Should -Be 'Contains'
+            }
+            $SchemaGraph.EdgeCount | Should -Be ($SchemaGraph.NodeCount - 1)
+        }
+
+        It "summarizes counts by Kind" {
+            $SchemaGraph.Summary.Keys | Should -Contain 'Provider'
+            $SchemaGraph.Summary.Keys | Should -Contain 'Resource'
+            $SchemaGraph.Summary.Keys | Should -Contain 'DataSource'
+            $SchemaGraph.Summary.Keys | Should -Contain 'Attribute'
+            $SchemaGraph.Summary.Keys | Should -Not -Contain 'Function'
+        }
+
+        It "returns the same Id sequence on every run" {
+            $again = $SchemaDoc | ConvertTo-TerraformSchemaGraph -ErrorAction Stop
+            $again.Nodes.Id | Should -Be $SchemaGraph.Nodes.Id
+        }
+
+        It "returns the same graph with -Provider 'terraform.io/builtin/terraform'" {
+            $filtered = $SchemaDoc | ConvertTo-TerraformSchemaGraph -Provider 'terraform.io/builtin/terraform' -ErrorAction Stop
+            $filtered.Nodes.Id | Should -Be $SchemaGraph.Nodes.Id
+        }
+
+        It "throws for a -Provider that is not in the document" {
+            { $SchemaDoc | ConvertTo-TerraformSchemaGraph -Provider 'hashicorp/null' -ErrorAction Stop } |
+                Should -Throw "Provider 'registry.terraform.io/hashicorp/null' is not in provider_schemas. Available: terraform.io/builtin/terraform."
+        }
+
+        It "adds Function nodes with -IncludeFunctions" {
+            $graph = $SchemaDoc | ConvertTo-TerraformSchemaGraph -IncludeFunctions -ErrorAction Stop
+            $functions = @($graph.Nodes | Where-Object Kind -eq 'Function')
+            $functions.Id | Should -Contain 'terraform.io/builtin/terraform/function/encode_expr'
+            $functions | ForEach-Object Depth | Select-Object -Unique | Should -Be 1
+        }
+
+        It "gives the same NodeCount for -OutputFormat Json text and for its PSCustomObject form" {
+            $json = Get-TerraformProviderSchema -Path $SchemaDir -OutputFormat Json -ErrorAction Stop
+            ($json | ConvertTo-TerraformSchemaGraph -ErrorAction Stop).NodeCount | Should -Be $SchemaGraph.NodeCount
+            ($json | ConvertFrom-TerraformJson | ConvertTo-TerraformSchemaGraph -ErrorAction Stop).NodeCount | Should -Be $SchemaGraph.NodeCount
+        }
+
+        It "throws when the input has no provider_schemas" {
+            { @{} | ConvertTo-TerraformSchemaGraph -ErrorAction Stop } | Should -Throw '*no top-level provider_schemas*'
+        }
+
+        It "sets the default display properties" {
+            (Get-TypeData TerraformGraph.SchemaNode).DefaultDisplayPropertySet.ReferencedProperties |
+                Should -Be @('Kind', 'Path', 'Type', 'Required', 'Depth')
+            (Get-TypeData TerraformGraph.SchemaGraph).DefaultDisplayPropertySet.ReferencedProperties |
+                Should -Be @('Providers', 'NodeCount', 'EdgeCount')
+        }
+
+        It "renders cty type JSON as Terraform type syntax" {
+            InModuleScope TerraformGraph {
+                $cases = [ordered]@{
+                    '"string"'                                         = 'string'
+                    '["list","string"]'                                = 'list(string)'
+                    '["map",["list","string"]]'                        = 'map(list(string))'
+                    '["set",["object",{"a":"string","b":"number"}]]'   = 'set(object({ a = string, b = number }))'
+                    '["object",{"a":"string","b":"number"},["b"]]'     = 'object({ a = string, b = optional(number) })'
+                    '["tuple",["string","number"]]'                    = 'tuple([string, number])'
+                    '"dynamic"'                                        = 'any'
+                }
+                foreach ($json in $cases.Keys) {
+                    $type = $json | ConvertFrom-TerraformJson -AsHashtable -NoEnumerate
+                    ConvertTo-TerraformTypeString -Type $type | Should -Be $cases[$json] -Because $json
+                }
+            }
+        }
+
+        It "renders a nested_type as its implied type" {
+            InModuleScope TerraformGraph {
+                $nested = '{"nesting_mode":"list","attributes":{"x":{"type":"string","required":true},"y":{"type":["list","number"],"optional":true}}}' |
+                    ConvertFrom-TerraformJson -AsHashtable
+                $type = ConvertTo-TerraformNestedTypeJson -NestedType $nested
+                ConvertTo-TerraformTypeString -Type $type | Should -Be 'list(object({ x = string, y = optional(list(number)) }))'
+                [TerraformGraph.Json]::Serialize($type, 1024, $true) | Should -Be '["list",["object",{"x":"string","y":["list","number"]},["y"]]]'
+            }
+        }
+
+        It "rejects an invalid -Provider" {
+            { $SchemaDoc | ConvertTo-TerraformSchemaGraph -Provider 'not//valid' -ErrorAction Stop } |
+                Should -Throw "*is not a provider address*"
+        }
+
+        Context "-Provider null (registry)" -Skip:(-not (Test-Connection registry.terraform.io -Count 1 -Quiet)) {
+
+            It "renders null_resource.triggers as map(string)" {
+                $graph = Get-TerraformProviderSchema -Provider null -Cleanup -ErrorAction Stop | ConvertTo-TerraformSchemaGraph -ErrorAction Stop
+                $resource = $graph.Nodes | Where-Object { $_.Kind -eq 'Resource' -and $_.Path -eq 'null_resource' }
+                $resource | Should -Not -BeNullOrEmpty
+                $triggers = $graph.Nodes | Where-Object { $_.Kind -eq 'Attribute' -and $_.ParentId -eq $resource.Id -and $_.Name -eq 'triggers' }
+                $triggers.Type | Should -Be 'map(string)'
+            }
+        }
+    }
 }

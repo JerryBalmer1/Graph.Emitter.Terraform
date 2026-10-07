@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.4.0
+Module version: 0.5.0
 Last updated: 2026-10-06
 
 ## 0 Setup
@@ -17,7 +17,7 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.4.0`, then five names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema.
+Expect: `0.5.0`, then six names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformSchemaGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema.
 
 Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph"
 
@@ -745,3 +745,120 @@ Get-TerraformModuleGraph -Path .\does-not-exist-dir
 Expect: `Cannot validate argument on parameter 'Path'. Path '.\does-not-exist-dir' is not an existing directory.`
 
 Pester: "rejects a missing directory" (Get-TerraformModuleGraph context)
+
+## 6 ConvertTo-TerraformSchemaGraph
+
+### 6.1 Builtin fixture and Summary
+
+Converts the builtin terraform provider schema into a graph and counts nodes by Kind.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-schemagraph'
+New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
+try {
+    terraform "-chdir=$dir" init -input=false -no-color | Out-Null
+    $graph = Get-TerraformProviderSchema -Path $dir | ConvertTo-TerraformSchemaGraph
+    $graph | Format-Table
+    $graph.Summary
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: Providers `{terraform.io/builtin/terraform}`, NodeCount 12, EdgeCount 11; Summary lists Provider 1, Resource 1, DataSource 1, Attribute 9 in that order.
+
+Pester: "lists only the built-in provider", "summarizes counts by Kind", "gives every non-Provider node exactly one incoming edge from its ParentId"
+
+### 6.2 One resource's attributes
+
+Lists the attribute nodes of the terraform_remote_state data source with their rendered Type and flags.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-schemagraph'
+New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
+try {
+    terraform "-chdir=$dir" init -input=false -no-color | Out-Null
+    $graph = Get-TerraformProviderSchema -Path $dir | ConvertTo-TerraformSchemaGraph
+    $graph.Nodes | Where-Object { $_.Kind -eq 'Attribute' -and $_.Path -like 'terraform_remote_state.*' } | Format-Table Path, Type, Required, Optional, Computed, Depth
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: Five rows at Depth 2: backend `string` Required True; config and defaults `any` Optional True; outputs `any` Computed True; workspace `string` Optional True.
+
+Pester: "builds the terraform_data Attribute nodes with types and flags", "puts terraform_remote_state under /data/ as a DataSource"
+
+### 6.3 -Provider filter
+
+Filters to a provider that is in the document, then to one that is not.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-schemagraph'
+New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
+try {
+    terraform "-chdir=$dir" init -input=false -no-color | Out-Null
+    $schema = Get-TerraformProviderSchema -Path $dir
+    ($schema | ConvertTo-TerraformSchemaGraph -Provider 'terraform.io/builtin/terraform').NodeCount
+    $schema | ConvertTo-TerraformSchemaGraph -Provider hashicorp/null
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: `12`, then the terminating error `Provider 'registry.terraform.io/hashicorp/null' is not in provider_schemas. Available: terraform.io/builtin/terraform.`
+
+Pester: "returns the same graph with -Provider 'terraform.io/builtin/terraform'", "throws for a -Provider that is not in the document"
+
+### 6.4 JSON string input
+
+Pipes the -OutputFormat Json text, and the same text through ConvertFrom-TerraformJson, into the converter.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-schemagraph'
+New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
+try {
+    terraform "-chdir=$dir" init -input=false -no-color | Out-Null
+    $json = Get-TerraformProviderSchema -Path $dir -OutputFormat Json
+    $json.GetType().FullName
+    ($json | ConvertTo-TerraformSchemaGraph).NodeCount
+    ($json | ConvertFrom-TerraformJson | ConvertTo-TerraformSchemaGraph).NodeCount
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: `System.String`, then `12` and `12`.
+
+Pester: "gives the same NodeCount for -OutputFormat Json text and for its PSCustomObject form"
+
+### 6.5 Error: no provider_schemas
+
+Input without a top-level provider_schemas is rejected.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+@{} | ConvertTo-TerraformSchemaGraph
+```
+
+Expect: `Schema has no top-level provider_schemas. Pass the output of Get-TerraformProviderSchema, its -OutputFormat Json text, or that text through ConvertFrom-TerraformJson.`
+
+Pester: "throws when the input has no provider_schemas"

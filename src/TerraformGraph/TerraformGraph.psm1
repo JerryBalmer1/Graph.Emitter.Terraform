@@ -58,6 +58,28 @@ Update-TypeData -TypeName $moduleGraphTypeName -MemberType ScriptProperty -Membe
 } -Force
 Update-TypeData -TypeName $moduleGraphTypeName -DefaultDisplayPropertySet Root, GroupBy, NodeCount, EdgeCount, UnresolvedCount -Force
 
+# Schema graph views.
+Update-TypeData -TypeName 'TerraformGraph.SchemaNode' -DefaultDisplayPropertySet Kind, Path, Type, Required, Depth -Force
+
+$schemaGraphTypeName = 'TerraformGraph.SchemaGraph'
+Update-TypeData -TypeName $schemaGraphTypeName -MemberType ScriptProperty -MemberName NodeCount -Value {
+    @($this.Nodes).Count
+} -Force
+Update-TypeData -TypeName $schemaGraphTypeName -MemberType ScriptProperty -MemberName EdgeCount -Value {
+    @($this.Edges).Count
+} -Force
+Update-TypeData -TypeName $schemaGraphTypeName -MemberType ScriptProperty -MemberName Summary -Value {
+    # Kinds in a fixed order; only kinds present in the graph.
+    $counts = @{}
+    foreach ($node in $this.Nodes) { $counts[$node.Kind] = 1 + [int]$counts[$node.Kind] }
+    $summary = [ordered]@{}
+    foreach ($kind in 'Provider', 'Resource', 'DataSource', 'Function', 'Block', 'Attribute') {
+        if ($counts.ContainsKey($kind)) { $summary[$kind] = $counts[$kind] }
+    }
+    $summary
+} -Force
+Update-TypeData -TypeName $schemaGraphTypeName -DefaultDisplayPropertySet Providers, NodeCount, EdgeCount -Force
+
 function ConvertTo-TerraformGraphBlock {
     param($Block)
     $Block.PSObject.TypeNames.Insert(0, 'TerraformGraph.Block')
@@ -529,6 +551,39 @@ function Read-TerraformProviderSchemaFromDirectory {
     }
 }
 
+function ConvertTo-TerraformProviderAddress {
+    # Not exported. Normalizes 'name', 'namespace/name' or 'host/namespace/name' to the
+    # address terraform keys provider_schemas and the lock file on. A bare name means the
+    # hashicorp namespace; a missing host means registry.terraform.io. Source is what
+    # required_providers takes: the host is dropped only for registry.terraform.io.
+    param(
+        [Parameter(Mandatory)]
+        [string]
+        $Provider
+    )
+
+    $trimmed = $Provider.Trim()
+    if ($trimmed -notmatch '^([\w.-]+/)?[\w-]+/[\w-]+$|^[\w-]+$') {
+        throw "Provider '$Provider' is not a provider address. Use 'name', 'namespace/name', or 'host/namespace/name'."
+    }
+
+    $segments = $trimmed.Split('/')
+    switch ($segments.Count) {
+        1 { $hostName = 'registry.terraform.io'; $namespace = 'hashicorp';   $name = $segments[0] }
+        2 { $hostName = 'registry.terraform.io'; $namespace = $segments[0]; $name = $segments[1] }
+        3 { $hostName = $segments[0];            $namespace = $segments[1]; $name = $segments[2] }
+    }
+    $address = "$hostName/$namespace/$name"
+
+    [pscustomobject]@{
+        Host      = $hostName
+        Namespace = $namespace
+        Name      = $name
+        Address   = $address
+        Source    = if ($hostName -eq 'registry.terraform.io') { "$namespace/$name" } else { $address }
+    }
+}
+
 function Get-TerraformProviderSchema {
     <#
     .SYNOPSIS
@@ -637,9 +692,7 @@ function Get-TerraformProviderSchema {
 
         [Parameter(ParameterSetName = 'Provider', Mandatory)]
         [ValidateScript({
-            if ($_.Trim() -notmatch '^([\w.-]+/)?[\w-]+/[\w-]+$|^[\w-]+$') {
-                throw "Provider '$_' is not a provider address. Use 'name', 'namespace/name', or 'host/namespace/name'."
-            }
+            $null = ConvertTo-TerraformProviderAddress -Provider $_
             $true
         })]
         [string]
@@ -678,14 +731,12 @@ function Get-TerraformProviderSchema {
     # The lock file keys on host/namespace/name; required_providers drops the host only
     # when it is the public registry. Both comparisons below are case-insensitive, as
     # terraform lowercases the address it writes to the lock file.
-    $segments = $Provider.Trim().Split('/')
-    switch ($segments.Count) {
-        1 { $hostName = 'registry.terraform.io'; $namespace = 'hashicorp';   $name = $segments[0] }
-        2 { $hostName = 'registry.terraform.io'; $namespace = $segments[0]; $name = $segments[1] }
-        3 { $hostName = $segments[0];            $namespace = $segments[1]; $name = $segments[2] }
-    }
-    $address = "$hostName/$namespace/$name"
-    $source = if ($hostName -eq 'registry.terraform.io') { "$namespace/$name" } else { $address }
+    $providerAddress = ConvertTo-TerraformProviderAddress -Provider $Provider
+    $hostName  = $providerAddress.Host
+    $namespace = $providerAddress.Namespace
+    $name      = $providerAddress.Name
+    $address   = $providerAddress.Address
+    $source    = $providerAddress.Source
 
     if (-not $WorkingDirectory) {
         $slug = if ($Version) { $Version -replace '[^A-Za-z0-9.]', '_' } else { 'latest' }
@@ -1026,5 +1077,472 @@ function Get-TerraformModuleGraph {
         Nodes      = $nodes.ToArray()
         Edges      = $edges.ToArray()
         Unresolved = @($nodes | Where-Object { -not $_.Resolved })
+    }
+}
+
+function Get-TerraformSchemaMember {
+    # Not exported. Reads one key from a schema fragment, whether it is a dictionary
+    # (Get-TerraformProviderSchema, ConvertFrom-TerraformJson -AsHashtable) or a
+    # PSCustomObject (ConvertFrom-TerraformJson). A missing key returns $null. The
+    # leading comma keeps array values (cty types) from being unrolled.
+    param(
+        [AllowNull()]
+        $InputObject,
+
+        [string]
+        $Name
+    )
+
+    if ($null -eq $InputObject) { return $null }
+    if ($InputObject -is [System.Collections.IDictionary]) {
+        if ($InputObject.Contains($Name)) { return , $InputObject[$Name] }
+        return $null
+    }
+    $property = $InputObject.PSObject.Properties[$Name]
+    if ($property) { return , $property.Value }
+    $null
+}
+
+function Get-TerraformSchemaKeys {
+    # Not exported. Keys of a schema map in document order, or sorted ordinally with -Sort
+    # so the order never depends on culture.
+    param(
+        [AllowNull()]
+        $InputObject,
+
+        [switch]
+        $Sort
+    )
+
+    if ($null -eq $InputObject) { return }
+    [string[]]$keys = if ($InputObject -is [System.Collections.IDictionary]) {
+        @($InputObject.Keys)
+    }
+    else {
+        @($InputObject.PSObject.Properties.Name)
+    }
+    if ($Sort) { [Array]::Sort($keys, [System.StringComparer]::Ordinal) }
+    $keys
+}
+
+function ConvertTo-TerraformTypeString {
+    # Not exported. Renders cty type JSON as Terraform type syntax:
+    # ["set",["object",{"a":"string"},["a"]]] -> set(object({ a = optional(string) })).
+    # "dynamic" renders as any. An unknown shape comes back as compact JSON.
+    param(
+        [AllowNull()]
+        $Type
+    )
+
+    if ($null -eq $Type) { return $null }
+    if ($Type -is [string]) {
+        if ($Type -eq 'dynamic') { return 'any' }
+        return $Type
+    }
+
+    $kind = [string]$Type[0]
+    switch ($kind) {
+        { $_ -in 'list', 'set', 'map' } {
+            return "$kind($(ConvertTo-TerraformTypeString -Type $Type[1]))"
+        }
+        'tuple' {
+            $elements = foreach ($element in @($Type[1])) { ConvertTo-TerraformTypeString -Type $element }
+            return "tuple([$(@($elements) -join ', ')])"
+        }
+        'object' {
+            $optional = if ($Type.Count -gt 2) { @($Type[2]) } else { @() }
+            $members = foreach ($name in Get-TerraformSchemaKeys -InputObject $Type[1]) {
+                $rendered = ConvertTo-TerraformTypeString -Type (Get-TerraformSchemaMember -InputObject $Type[1] -Name $name)
+                if ($optional -ccontains $name) { $rendered = "optional($rendered)" }
+                "$name = $rendered"
+            }
+            if (-not $members) { return 'object({})' }
+            return "object({ $(@($members) -join ', ') })"
+        }
+    }
+
+    [TerraformGraph.Json]::Serialize($Type, 1024, $true)
+}
+
+function ConvertTo-TerraformNestedTypeJson {
+    # Not exported. Builds the cty type JSON an attribute's nested_type implies, with
+    # optional members listed the way cty lists them, so a nested attribute renders and
+    # serializes exactly like a plain typed one.
+    param(
+        [Parameter(Mandatory)]
+        $NestedType
+    )
+
+    $members = [ordered]@{}
+    $optional = [System.Collections.Generic.List[string]]::new()
+    $attributes = Get-TerraformSchemaMember -InputObject $NestedType -Name 'attributes'
+    foreach ($name in Get-TerraformSchemaKeys -InputObject $attributes) {
+        $attribute = Get-TerraformSchemaMember -InputObject $attributes -Name $name
+        $nested = Get-TerraformSchemaMember -InputObject $attribute -Name 'nested_type'
+        $members[$name] = if ($null -ne $nested) {
+            ConvertTo-TerraformNestedTypeJson -NestedType $nested
+        }
+        else {
+            Get-TerraformSchemaMember -InputObject $attribute -Name 'type'
+        }
+        if (Get-TerraformSchemaMember -InputObject $attribute -Name 'optional') {
+            $optional.Add($name)
+        }
+    }
+
+    $object = if ($optional.Count) {
+        [object[]]('object', $members, $optional.ToArray())
+    }
+    else {
+        [object[]]('object', $members)
+    }
+
+    $mode = [string](Get-TerraformSchemaMember -InputObject $NestedType -Name 'nesting_mode')
+    if ($mode -in 'list', 'set', 'map') {
+        return , [object[]]($mode, $object)
+    }
+    , $object
+}
+
+function New-TerraformSchemaNode {
+    # Not exported. Builds one TerraformGraph.SchemaNode under $Parent, derives Id, Path and
+    # Depth from it, and records the Contains edge. Every kind-specific property is set on
+    # every node; the ones that do not apply stay $null.
+    param(
+        [Parameter(Mandatory)]
+        $Graph,
+
+        [Parameter(Mandatory)]
+        [string]
+        $Kind,
+
+        [Parameter(Mandatory)]
+        [string]
+        $Name,
+
+        $Parent,
+        $Raw,
+        $Description,
+        [bool]$Deprecated,
+        $SchemaVersion,
+        $NestingMode,
+        $MinItems,
+        $MaxItems,
+        $TypeJson
+    )
+
+    switch ($Kind) {
+        'Resource'   { $id = "$($Parent.Id)/resource/$Name"; $path = $Name }
+        'DataSource' { $id = "$($Parent.Id)/data/$Name";     $path = $Name }
+        'Function'   { $id = "$($Parent.Id)/function/$Name"; $path = $Name }
+        default      { $id = "$($Parent.Id)/$Name";          $path = "$($Parent.Path).$Name" }
+    }
+
+    $isAttribute = $Kind -eq 'Attribute'
+    $flag = { param($key) if ($isAttribute) { [bool](Get-TerraformSchemaMember -InputObject $Raw -Name $key) } else { $null } }
+
+    $node = [pscustomobject]@{
+        PSTypeName    = 'TerraformGraph.SchemaNode'
+        Id            = $id
+        Kind          = $Kind
+        Name          = $Name
+        Path          = $path
+        Provider      = $Parent.Provider
+        ParentId      = $Parent.Id
+        Depth         = $Parent.Depth + 1
+        Description   = $Description
+        Deprecated    = $Deprecated
+        SchemaVersion = $SchemaVersion
+        NestingMode   = $NestingMode
+        MinItems      = $MinItems
+        MaxItems      = $MaxItems
+        Type          = if ($isAttribute) { ConvertTo-TerraformTypeString -Type $TypeJson } else { $null }
+        TypeJson      = if ($isAttribute -and $null -ne $TypeJson) { [TerraformGraph.Json]::Serialize($TypeJson, 1024, $true) } else { $null }
+        Required      = & $flag 'required'
+        Optional      = & $flag 'optional'
+        Computed      = & $flag 'computed'
+        Sensitive     = & $flag 'sensitive'
+        WriteOnly     = & $flag 'write_only'
+        Raw           = $Raw
+    }
+
+    $Graph.Nodes.Add($node)
+    $Graph.Edges.Add([pscustomobject]@{
+        PSTypeName = 'TerraformGraph.SchemaEdge'
+        From       = $Parent.Id
+        To         = $id
+        Kind       = 'Contains'
+    })
+    $node
+}
+
+function Add-TerraformSchemaChildNodes {
+    # Not exported. Walks a schema block, or an attribute's nested_type, depth-first:
+    # attributes sorted by name, then blocks sorted by name, each followed by its subtree.
+    param(
+        [Parameter(Mandatory)]
+        $Graph,
+
+        [AllowNull()]
+        $Container,
+
+        [Parameter(Mandatory)]
+        $Parent
+    )
+
+    if ($null -eq $Container) { return }
+
+    $attributes = Get-TerraformSchemaMember -InputObject $Container -Name 'attributes'
+    foreach ($name in Get-TerraformSchemaKeys -InputObject $attributes -Sort) {
+        $attribute = Get-TerraformSchemaMember -InputObject $attributes -Name $name
+        $nested = Get-TerraformSchemaMember -InputObject $attribute -Name 'nested_type'
+        $typeJson = if ($null -ne $nested) {
+            ConvertTo-TerraformNestedTypeJson -NestedType $nested
+        }
+        else {
+            Get-TerraformSchemaMember -InputObject $attribute -Name 'type'
+        }
+
+        $node = New-TerraformSchemaNode -Graph $Graph -Kind Attribute -Name $name -Parent $Parent -Raw $attribute `
+            -Description (Get-TerraformSchemaMember -InputObject $attribute -Name 'description') `
+            -Deprecated ([bool](Get-TerraformSchemaMember -InputObject $attribute -Name 'deprecated')) `
+            -TypeJson $typeJson
+
+        if ($null -ne $nested) {
+            Add-TerraformSchemaChildNodes -Graph $Graph -Container $nested -Parent $node
+        }
+    }
+
+    $blockTypes = Get-TerraformSchemaMember -InputObject $Container -Name 'block_types'
+    foreach ($name in Get-TerraformSchemaKeys -InputObject $blockTypes -Sort) {
+        $blockType = Get-TerraformSchemaMember -InputObject $blockTypes -Name $name
+        $inner = Get-TerraformSchemaMember -InputObject $blockType -Name 'block'
+
+        $node = New-TerraformSchemaNode -Graph $Graph -Kind Block -Name $name -Parent $Parent -Raw $blockType `
+            -Description (Get-TerraformSchemaMember -InputObject $inner -Name 'description') `
+            -Deprecated ([bool](Get-TerraformSchemaMember -InputObject $inner -Name 'deprecated')) `
+            -NestingMode (Get-TerraformSchemaMember -InputObject $blockType -Name 'nesting_mode') `
+            -MinItems (Get-TerraformSchemaMember -InputObject $blockType -Name 'min_items') `
+            -MaxItems (Get-TerraformSchemaMember -InputObject $blockType -Name 'max_items')
+
+        Add-TerraformSchemaChildNodes -Graph $Graph -Container $inner -Parent $node
+    }
+}
+
+function ConvertTo-TerraformSchemaGraph {
+    <#
+    .SYNOPSIS
+        Converts a provider schema into a graph of canonical schema nodes.
+
+    .DESCRIPTION
+        ConvertTo-TerraformSchemaGraph walks the output of Get-TerraformProviderSchema and
+        returns one TerraformGraph.SchemaGraph per input document. Every provider, resource,
+        data source, block and attribute becomes a TerraformGraph.SchemaNode, and every
+        node other than a provider gets one Contains edge from its parent.
+
+        Each node has two names. Id is canonical and unique within the document: it starts
+        with the full provider address and adds one segment per level, such as
+        registry.terraform.io/hashicorp/null/resource/null_resource/triggers. Use it to
+        join nodes and edges. Path is the short dotted form a configuration author writes,
+        such as null_resource.triggers. It drops the provider, so two providers can share
+        a Path; it is for reading and filtering, not for joins.
+
+        Attributes declared with nested_type are rendered as the type they imply and also
+        get child Attribute nodes, exactly like block_types get child nodes, so the graph
+        has the same shape whether a provider used blocks or nested attributes.
+
+        Nodes are ordered depth-first and the same input always gives the same order:
+        each provider, then its resources sorted by type, each followed by its
+        attributes (sorted) and blocks (sorted) and their subtrees, then data sources,
+        then functions.
+
+    .PARAMETER Schema
+        The provider schema document. Accepts the ordered dictionary Get-TerraformProviderSchema
+        returns by default, the -OutputFormat Json text (piped lines are joined), or that text
+        passed through ConvertFrom-TerraformJson. It must have a top-level provider_schemas.
+
+    .PARAMETER Provider
+        Only include these providers: 'aws', 'hashicorp/aws', or
+        'registry.terraform.io/hashicorp/aws', normalized the same way as
+        Get-TerraformProviderSchema -Provider. Matched against the provider_schemas keys
+        without regard to case. A provider that is not in the document is a terminating
+        error that lists the providers that are. Default: every provider in the document.
+
+    .PARAMETER IncludeFunctions
+        Add provider functions (the functions map in newer schemas) as Function nodes
+        under their provider. Off by default.
+
+    .EXAMPLE
+        Get-TerraformProviderSchema -Provider null -Cleanup | ConvertTo-TerraformSchemaGraph
+
+        Fetch the hashicorp/null schema and convert it. The default view is Providers,
+        NodeCount and EdgeCount.
+
+    .EXAMPLE
+        $graph = Get-TerraformProviderSchema -Path .\infra | ConvertTo-TerraformSchemaGraph -Provider aws
+        $graph.Nodes | Where-Object Path -like 'aws_s3_bucket.*'
+
+        Keep only registry.terraform.io/hashicorp/aws out of a directory that uses several
+        providers, then list one resource's attributes and blocks.
+
+    .EXAMPLE
+        $graph = Get-TerraformProviderSchema -Path .\infra | ConvertTo-TerraformSchemaGraph
+        $graph.Summary
+        $graph.Nodes | Where-Object Kind -eq 'Resource' | Select-Object Path, Id
+
+        Count nodes by Kind, then list every resource with its canonical Id.
+
+    .OUTPUTS
+        TerraformGraph.SchemaGraph. Default view is Providers, NodeCount, EdgeCount; Summary
+        is an ordered Kind -> count table. Nodes are TerraformGraph.SchemaNode (default view
+        Kind, Path, Type, Required, Depth), edges TerraformGraph.SchemaEdge.
+
+    .NOTES
+        Id scheme, where <address> is the provider_schemas key:
+            Provider    <address>
+            Resource    <address>/resource/<type>
+            DataSource  <address>/data/<type>
+            Function    <address>/function/<name>
+            Block       <parent Id>/<block name>
+            Attribute   <parent Id>/<attribute name>
+
+    .LINK
+        Get-TerraformProviderSchema
+
+    .LINK
+        https://github.com/JerryBalmer1/TerraformGraph
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0, ValueFromPipeline)]
+        [object]
+        $Schema,
+
+        [ValidateScript({
+            $null = ConvertTo-TerraformProviderAddress -Provider $_
+            $true
+        })]
+        [string[]]
+        $Provider,
+
+        [switch]
+        $IncludeFunctions
+    )
+
+    begin {
+        $wanted = @(foreach ($p in $Provider) { (ConvertTo-TerraformProviderAddress -Provider $p).Address })
+        $jsonLines = [System.Collections.Generic.List[string]]::new()
+
+        $convert = {
+            param($Document)
+
+            $providerSchemas = Get-TerraformSchemaMember -InputObject $Document -Name 'provider_schemas'
+            if ($null -eq $providerSchemas) {
+                $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                    [System.ArgumentException]::new('Schema has no top-level provider_schemas. Pass the output of Get-TerraformProviderSchema, its -OutputFormat Json text, or that text through ConvertFrom-TerraformJson.'),
+                    'SchemaMissingProviderSchemas',
+                    [System.Management.Automation.ErrorCategory]::InvalidData,
+                    $Document))
+            }
+
+            $addresses = @(Get-TerraformSchemaKeys -InputObject $providerSchemas -Sort)
+            if ($wanted.Count) {
+                $missing = @($wanted | Where-Object { $addresses -notcontains $_ })
+                if ($missing.Count) {
+                    $available = if ($addresses.Count) { $addresses -join ', ' } else { '(none)' }
+                    $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                        [System.ArgumentException]::new("Provider '$($missing -join "', '")' is not in provider_schemas. Available: $available."),
+                        'SchemaProviderNotFound',
+                        [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                        $missing))
+                }
+                $addresses = @($addresses | Where-Object { $wanted -contains $_ })
+            }
+
+            $graph = [pscustomobject]@{
+                Nodes = [System.Collections.Generic.List[object]]::new()
+                Edges = [System.Collections.Generic.List[object]]::new()
+            }
+
+            foreach ($address in $addresses) {
+                $entry = Get-TerraformSchemaMember -InputObject $providerSchemas -Name $address
+                $config = Get-TerraformSchemaMember -InputObject (Get-TerraformSchemaMember -InputObject $entry -Name 'provider') -Name 'block'
+                $shortName = $address.Split('/')[-1]
+
+                $providerNode = [pscustomobject]@{
+                    PSTypeName    = 'TerraformGraph.SchemaNode'
+                    Id            = $address
+                    Kind          = 'Provider'
+                    Name          = $shortName
+                    Path          = $shortName
+                    Provider      = $address
+                    ParentId      = $null
+                    Depth         = 0
+                    Description   = Get-TerraformSchemaMember -InputObject $config -Name 'description'
+                    Deprecated    = [bool](Get-TerraformSchemaMember -InputObject $config -Name 'deprecated')
+                    SchemaVersion = $null
+                    NestingMode   = $null
+                    MinItems      = $null
+                    MaxItems      = $null
+                    Type          = $null
+                    TypeJson      = $null
+                    Required      = $null
+                    Optional      = $null
+                    Computed      = $null
+                    Sensitive     = $null
+                    WriteOnly     = $null
+                    Raw           = $entry
+                }
+                $graph.Nodes.Add($providerNode)
+
+                foreach ($section in @(
+                        @{ Key = 'resource_schemas';    Kind = 'Resource' }
+                        @{ Key = 'data_source_schemas'; Kind = 'DataSource' }
+                    )) {
+                    $schemas = Get-TerraformSchemaMember -InputObject $entry -Name $section.Key
+                    foreach ($type in Get-TerraformSchemaKeys -InputObject $schemas -Sort) {
+                        $resource = Get-TerraformSchemaMember -InputObject $schemas -Name $type
+                        $block = Get-TerraformSchemaMember -InputObject $resource -Name 'block'
+                        $node = New-TerraformSchemaNode -Graph $graph -Kind $section.Kind -Name $type -Parent $providerNode -Raw $resource `
+                            -Description (Get-TerraformSchemaMember -InputObject $block -Name 'description') `
+                            -Deprecated ([bool](Get-TerraformSchemaMember -InputObject $block -Name 'deprecated')) `
+                            -SchemaVersion (Get-TerraformSchemaMember -InputObject $resource -Name 'version')
+                        Add-TerraformSchemaChildNodes -Graph $graph -Container $block -Parent $node
+                    }
+                }
+
+                if ($IncludeFunctions) {
+                    $functions = Get-TerraformSchemaMember -InputObject $entry -Name 'functions'
+                    foreach ($name in Get-TerraformSchemaKeys -InputObject $functions -Sort) {
+                        $function = Get-TerraformSchemaMember -InputObject $functions -Name $name
+                        $null = New-TerraformSchemaNode -Graph $graph -Kind Function -Name $name -Parent $providerNode -Raw $function `
+                            -Description (Get-TerraformSchemaMember -InputObject $function -Name 'description') `
+                            -Deprecated ($null -ne (Get-TerraformSchemaMember -InputObject $function -Name 'deprecation_message'))
+                    }
+                }
+            }
+
+            [pscustomobject]@{
+                PSTypeName = 'TerraformGraph.SchemaGraph'
+                Providers  = [string[]]$addresses
+                Nodes      = $graph.Nodes.ToArray()
+                Edges      = $graph.Edges.ToArray()
+            }
+        }
+    }
+
+    process {
+        # JSON text is collected and parsed once in end, so piped lines work.
+        if ($Schema -is [string]) {
+            $jsonLines.Add($Schema)
+            return
+        }
+        & $convert $Schema
+    }
+
+    end {
+        if ($jsonLines.Count -eq 0) { return }
+        $document = ($jsonLines -join [Environment]::NewLine) | ConvertFrom-TerraformJson -AsHashtable -ErrorAction Stop
+        & $convert $document
     }
 }
