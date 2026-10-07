@@ -19,7 +19,7 @@ Parse Terraform configurations into an HCL AST and build a graph of module and p
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.3.0**. Not yet published to the PowerShell Gallery.
+Source version **0.4.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -167,6 +167,19 @@ $schema = Get-TerraformProviderSchema -Path .\infra
 $schema['provider_schemas'].Keys
 
 Get-TerraformProviderSchema -Path .\infra -OutputFormat Json | Set-Content .\schema.json
+```
+
+#### On demand (`-Provider`)
+
+Fetch one provider's schema without an existing configuration. It writes a throwaway `main.tf`, runs `terraform init` (needs registry access), and reads the schema. The working directory under `$env:TEMP\TerraformGraph\providers` is kept so repeat calls skip init; `-Cleanup` removes it, `-Force` runs init again.
+
+```powershell
+# Latest hashicorp/null, working directory removed afterwards.
+$schema = Get-TerraformProviderSchema -Provider null -Cleanup
+$schema.provider_schemas['registry.terraform.io/hashicorp/null'].resource_schemas.Keys
+
+# Pinned version, kept for reuse; the second run skips terraform init.
+$schema = Get-TerraformProviderSchema -Provider hashicorp/aws -Version '= 5.60.0' -Verbose
 ```
 
 ### Module graph (`Get-TerraformModuleGraph`)

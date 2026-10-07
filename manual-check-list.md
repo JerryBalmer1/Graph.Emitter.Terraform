@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.3.0
+Module version: 0.4.0
 Last updated: 2026-10-06
 
 ## 0 Setup
@@ -17,7 +17,7 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.3.0`, then five names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema.
+Expect: `0.4.0`, then five names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema.
 
 Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph"
 
@@ -501,6 +501,107 @@ Get-TerraformProviderSchema -Path .\does-not-exist-dir
 Expect: `Cannot validate argument on parameter 'Path'. Path '.\does-not-exist-dir' is not an existing directory.`
 
 Pester: "rejects a missing directory" (Get-TerraformProviderSchema context)
+
+### 4.6 -Provider -Cleanup (quick fetch)
+
+Fetches the latest hashicorp/null schema with no configuration and removes the working directory afterwards. Needs registry access.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$schema = Get-TerraformProviderSchema -Provider null -Cleanup
+$schema.provider_schemas.Keys
+$schema.provider_schemas['registry.terraform.io/hashicorp/null'].resource_schemas.Keys
+Test-Path (Join-Path $env:TEMP 'TerraformGraph\providers\hashicorp-null-latest')
+```
+
+Expect: `registry.terraform.io/hashicorp/null`, then `null_resource`, then `False`.
+
+Pester: "removes the working directory with -Cleanup and still returns the schema"
+
+### 4.7 -Provider -Version (pinned, kept for reuse)
+
+The default working directory is kept, so the second identical call skips terraform init. The block removes the directory at the end.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'TerraformGraph\providers\hashicorp-null-__3.2.3'
+try {
+    Measure-Command { Get-TerraformProviderSchema -Provider hashicorp/null -Version '= 3.2.3' -Verbose } | Select-Object TotalSeconds
+    Measure-Command { Get-TerraformProviderSchema -Provider hashicorp/null -Version '= 3.2.3' -Verbose } | Select-Object TotalSeconds
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+}
+```
+
+Expect: the first run shows `VERBOSE: terraform -chdir=<temp>\TerraformGraph\providers\hashicorp-null-__3.2.3 init ...` and `VERBOSE: Provider registry.terraform.io/hashicorp/null 3.2.3 in ...`. The second run shows `VERBOSE: Skipping terraform init; ...\.terraform.lock.hcl exists. Use -Force to run it again.` instead of init and is much faster (about 1.4 s, then about 0.2 s).
+
+Pester: "writes the resolved version with -Verbose", "skips terraform init when the lock file exists"
+
+### 4.8 -Provider -Force
+
+-Force deletes the lock file and runs terraform init again even though the working directory is already initialized.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-schema-force'
+try {
+    $null = Get-TerraformProviderSchema -Provider null -Version '= 3.2.3' -WorkingDirectory $dir
+    $before = (Get-Item (Join-Path $dir '.terraform.lock.hcl')).LastWriteTime
+    $null = Get-TerraformProviderSchema -Provider null -Version '= 3.2.3' -WorkingDirectory $dir -Force -Verbose
+    $after = (Get-Item (Join-Path $dir '.terraform.lock.hcl')).LastWriteTime
+    "Lock file rewritten: $($after -ne $before)"
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+}
+```
+
+Expect: `VERBOSE: terraform -chdir=<temp>\tg-check-schema-force init -backend=false -input=false -no-color` (no "Skipping terraform init" line), the `Provider registry.terraform.io/hashicorp/null 3.2.3` verbose line, then `Lock file rewritten: True`.
+
+Pester: "re-runs terraform init with -Force"
+
+### 4.9 Error: invalid -Provider
+
+A malformed provider address fails parameter validation before terraform runs.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformProviderSchema -Provider 'not//valid'
+```
+
+Expect: `Cannot validate argument on parameter 'Provider'. Provider 'not//valid' is not a provider address. Use 'name', 'namespace/name', or 'host/namespace/name'.`
+
+Pester: "rejects an invalid -Provider before running terraform"
+
+### 4.10 Error: nonexistent provider
+
+terraform init fails; its stderr is in the error and -Cleanup still removes the working directory.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-schema-missing'
+try {
+    Get-TerraformProviderSchema -Provider hashicorp/definitely-not-a-provider-xyz -WorkingDirectory $dir -Cleanup
+}
+finally {
+    "Working directory left behind: $(Test-Path -LiteralPath $dir)"
+}
+```
+
+Expect: `Working directory left behind: False`, then `terraform init failed with exit code 1 for provider 'hashicorp/definitely-not-a-provider-xyz' in '<temp>\tg-check-schema-missing'.` followed by terraform's `Error: Failed to query available provider packages ... provider registry registry.terraform.io does not have a provider named registry.terraform.io/hashicorp/definitely-not-a-provider-xyz`.
+
+Pester: "throws terraform's stderr for a nonexistent provider and cleans up"
 
 ## 5 Get-TerraformModuleGraph
 

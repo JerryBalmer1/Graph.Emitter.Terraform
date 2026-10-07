@@ -25,7 +25,7 @@ Exported functions:
 - `Get-TerraformAST` — parse `.tf` files into HCL blocks; `-Path` directory (optional `-Recurse`) or `-FilePath` one `.tf` file.
 - `ConvertTo-TerraformJson` — serialize objects to JSON with no 100-level depth cap (`-Depth`, `-Compress`, `-AsArray`).
 - `ConvertFrom-TerraformJson` — parse deep JSON into PSCustomObjects or ordered dictionaries (`-Depth`, `-AsHashtable`, `-NoEnumerate`).
-- `Get-TerraformProviderSchema` — run `terraform providers schema -json` in `-Path` (`-OutputFormat OrderedHashtable|Json`).
+- `Get-TerraformProviderSchema` — run `terraform providers schema -json` in `-Path`, or fetch one provider on demand with `-Provider` (`-Version`, `-WorkingDirectory`, `-Cleanup`, `-Force`; init only when no lock file); `-OutputFormat OrderedHashtable|Json`.
 - `Get-TerraformModuleGraph` — module-call graph (Nodes, Edges, Unresolved) from `module` blocks in `-Path`; `-Recurse`, `-GroupBy Call|Source`; non-local sources via `.terraform/modules/modules.json`, never runs init.
 
 Planned: none.

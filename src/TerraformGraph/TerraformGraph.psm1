@@ -474,6 +474,61 @@ function ConvertFrom-TerraformJson {
     }
 }
 
+function Invoke-TerraformCli {
+    # Not exported. Runs terraform with stdout read as UTF-8 (schema descriptions
+    # contain non-ASCII text) and splits stdout from stderr.
+    param(
+        [Parameter(Mandatory)]
+        [string[]]
+        $ArgumentList
+    )
+
+    $previousEncoding = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    try {
+        $output = & terraform @ArgumentList 2>&1
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        [Console]::OutputEncoding = $previousEncoding
+    }
+
+    [pscustomobject]@{
+        ExitCode = $exitCode
+        Stdout   = @($output | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+        Stderr   = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+    }
+}
+
+function Read-TerraformProviderSchemaFromDirectory {
+    # Not exported. The Directory-set body of Get-TerraformProviderSchema; the
+    # Provider set calls it against its own working directory.
+    param(
+        [Parameter(Mandatory)]
+        [string]
+        $WorkingDirectory,
+
+        [string]
+        $OutputFormat = 'OrderedHashtable'
+    )
+
+    Write-Verbose "terraform -chdir=$WorkingDirectory providers schema -json"
+
+    $result = Invoke-TerraformCli -ArgumentList "-chdir=$WorkingDirectory", 'providers', 'schema', '-json'
+
+    if ($result.ExitCode -ne 0) {
+        $message = (@($result.Stderr) + @($result.Stdout) | ForEach-Object { "$_" }) -join [Environment]::NewLine
+        throw "terraform providers schema failed with exit code $($result.ExitCode) in '$WorkingDirectory'. Run terraform init first if providers are not installed.$([Environment]::NewLine)$message"
+    }
+
+    $schema = $result.Stdout | ConvertFrom-TerraformJson -AsHashtable -ErrorAction Stop
+
+    switch ($OutputFormat) {
+        'OrderedHashtable' { $schema }
+        'Json'             { $schema | ConvertTo-TerraformJson -ErrorAction Stop }
+    }
+}
+
 function Get-TerraformProviderSchema {
     <#
     .SYNOPSIS
@@ -484,6 +539,11 @@ function Get-TerraformProviderSchema {
         Terraform working directory. The directory must already be initialized
         (`terraform init`) for any provider other than the built-in one.
 
+        With -Provider it fetches one provider's schema on demand instead: it writes a
+        throwaway main.tf that requires only that provider, runs `terraform init` there,
+        and reads the schema. The working directory is kept by default so repeat calls
+        skip the download.
+
         Provider schemas (AWS in particular) nest deeper than ConvertFrom-Json and
         ConvertTo-Json handle, so the output goes through ConvertFrom-TerraformJson and
         ConvertTo-TerraformJson.
@@ -493,6 +553,33 @@ function Get-TerraformProviderSchema {
 
     .PARAMETER Path
         Terraform working directory. Defaults to the current location.
+
+    .PARAMETER Provider
+        Provider to fetch: 'aws', 'hashicorp/aws', or 'registry.terraform.io/hashicorp/aws'.
+        A bare name means the hashicorp namespace.
+        The source written to required_providers drops the host only when it is
+        registry.terraform.io; any other host is kept, as in 'example.com/acme/thing'.
+
+    .PARAMETER Version
+        Version constraint written verbatim into required_providers, such as '~> 5.0',
+        '= 5.60.0', or '>= 4'. Omit it to let terraform init pick the latest release.
+
+    .PARAMETER WorkingDirectory
+        Directory for the throwaway configuration. Created if missing. Defaults to
+        $env:TEMP\TerraformGraph\providers\<namespace>-<name>-<version> for
+        registry.terraform.io, and $env:TEMP\TerraformGraph\providers\<host>-<namespace>-<name>-<version>
+        for any other host, with '.' and ':' in <host> replaced by '_'. <version> is the
+        constraint with every character other than letters, digits, and dots replaced
+        by '_', or 'latest' when -Version is omitted.
+
+    .PARAMETER Cleanup
+        Remove -WorkingDirectory after reading the schema, even when a step fails.
+        Without it the directory is kept so the next call skips terraform init.
+
+    .PARAMETER Force
+        Run terraform init even when .terraform.lock.hcl already exists. The lock file
+        is deleted first so terraform selects versions again, which picks up a newer
+        release for an omitted or ranged -Version.
 
     .PARAMETER OutputFormat
         OrderedHashtable (default) or Json.
@@ -508,9 +595,26 @@ function Get-TerraformProviderSchema {
 
         Save the schema as indented JSON.
 
+    .EXAMPLE
+        $schema = Get-TerraformProviderSchema -Provider null -Cleanup
+        $schema.provider_schemas['registry.terraform.io/hashicorp/null'].resource_schemas.Keys
+
+        Fetch the latest hashicorp/null schema without an existing configuration, then
+        remove the working directory.
+
+    .EXAMPLE
+        $schema = Get-TerraformProviderSchema -Provider hashicorp/aws -Version '= 5.60.0' -Verbose
+
+        Fetch a pinned AWS provider schema. The working directory is kept, so running
+        the same command again skips terraform init and only reads the schema.
+
     .OUTPUTS
         System.Collections.Specialized.OrderedDictionary
         System.String
+
+    .NOTES
+        The Provider set needs terraform on PATH and network access to the provider
+        registry whenever it runs terraform init.
 
     .LINK
         ConvertFrom-TerraformJson
@@ -518,10 +622,10 @@ function Get-TerraformProviderSchema {
     .LINK
         ConvertTo-TerraformJson
     #>
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'Directory')]
     [OutputType([System.Collections.Specialized.OrderedDictionary], [string])]
     param(
-        [Parameter(Position = 0)]
+        [Parameter(ParameterSetName = 'Directory', Position = 0)]
         [ValidateScript({
             if (-not (Test-Path -LiteralPath $_ -PathType Container)) {
                 throw "Path '$_' is not an existing directory."
@@ -531,43 +635,125 @@ function Get-TerraformProviderSchema {
         [string]
         $Path = './',
 
+        [Parameter(ParameterSetName = 'Provider', Mandatory)]
+        [ValidateScript({
+            if ($_.Trim() -notmatch '^([\w.-]+/)?[\w-]+/[\w-]+$|^[\w-]+$') {
+                throw "Provider '$_' is not a provider address. Use 'name', 'namespace/name', or 'host/namespace/name'."
+            }
+            $true
+        })]
+        [string]
+        $Provider,
+
+        [Parameter(ParameterSetName = 'Provider')]
+        [string]
+        $Version,
+
+        [Parameter(ParameterSetName = 'Provider')]
+        [string]
+        $WorkingDirectory,
+
+        [Parameter(ParameterSetName = 'Provider')]
+        [switch]
+        $Cleanup,
+
+        [Parameter(ParameterSetName = 'Provider')]
+        [switch]
+        $Force,
+
         [ValidateSet('OrderedHashtable', 'Json')]
         [string]
         $OutputFormat = 'OrderedHashtable'
     )
 
-    $workingDirectory = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
-
     if (-not (Get-Command terraform -CommandType Application -ErrorAction SilentlyContinue)) {
         throw "terraform is not on PATH."
     }
 
-    Write-Verbose "terraform -chdir=$workingDirectory providers schema -json"
+    if ($PSCmdlet.ParameterSetName -eq 'Directory') {
+        $directory = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
+        return Read-TerraformProviderSchemaFromDirectory -WorkingDirectory $directory -OutputFormat $OutputFormat
+    }
 
-    # Schema descriptions contain non-ASCII text; read terraform's stdout as UTF-8.
-    $previousEncoding = [Console]::OutputEncoding
-    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    # The lock file keys on host/namespace/name; required_providers drops the host only
+    # when it is the public registry. Both comparisons below are case-insensitive, as
+    # terraform lowercases the address it writes to the lock file.
+    $segments = $Provider.Trim().Split('/')
+    switch ($segments.Count) {
+        1 { $hostName = 'registry.terraform.io'; $namespace = 'hashicorp';   $name = $segments[0] }
+        2 { $hostName = 'registry.terraform.io'; $namespace = $segments[0]; $name = $segments[1] }
+        3 { $hostName = $segments[0];            $namespace = $segments[1]; $name = $segments[2] }
+    }
+    $address = "$hostName/$namespace/$name"
+    $source = if ($hostName -eq 'registry.terraform.io') { "$namespace/$name" } else { $address }
+
+    if (-not $WorkingDirectory) {
+        $slug = if ($Version) { $Version -replace '[^A-Za-z0-9.]', '_' } else { 'latest' }
+        $tempRoot = $env:TEMP ?? [System.IO.Path]::GetTempPath()
+        # Public-registry directories keep the unprefixed name so existing ones still work.
+        $prefix = if ($hostName -eq 'registry.terraform.io') { '' } else { ($hostName -replace '[.:]', '_') + '-' }
+        $WorkingDirectory = Join-Path $tempRoot "TerraformGraph\providers\$prefix$namespace-$name-$slug"
+    }
+
     try {
-        $output = & terraform "-chdir=$workingDirectory" providers schema -json 2>&1
-        $exitCode = $LASTEXITCODE
+        $directory = (New-Item -ItemType Directory -Path $WorkingDirectory -Force -ErrorAction Stop).FullName
+
+        $requirement = if ($Version) {
+            "      source  = `"$source`"", "      version = `"$Version`""
+        }
+        else {
+            "      source = `"$source`""
+        }
+        $mainTf = @(
+            'terraform {'
+            '  required_providers {'
+            "    $name = {"
+            $requirement
+            '    }'
+            '  }'
+            '}'
+        )
+        Set-Content -LiteralPath (Join-Path $directory 'main.tf') -Value $mainTf -ErrorAction Stop
+
+        $lockFile = Join-Path $directory '.terraform.lock.hcl'
+        if ($Force -and (Test-Path -LiteralPath $lockFile)) {
+            # terraform init leaves an up-to-date lock file alone; remove it so versions are selected again.
+            Remove-Item -LiteralPath $lockFile -Force -ErrorAction Stop
+        }
+
+        if (Test-Path -LiteralPath $lockFile) {
+            Write-Verbose "Skipping terraform init; $lockFile exists. Use -Force to run it again."
+        }
+        else {
+            Write-Verbose "terraform -chdir=$directory init -backend=false -input=false -no-color"
+            $init = Invoke-TerraformCli -ArgumentList "-chdir=$directory", 'init', '-backend=false', '-input=false', '-no-color'
+            if ($init.ExitCode -ne 0) {
+                $message = (@($init.Stderr) | ForEach-Object { "$_" }) -join [Environment]::NewLine
+                throw "terraform init failed with exit code $($init.ExitCode) for provider '$namespace/$name' in '$directory'.$([Environment]::NewLine)$message"
+            }
+        }
+
+        $resolvedVersion = $null
+        if (Test-Path -LiteralPath $lockFile) {
+            $inProvider = $false
+            foreach ($line in Get-Content -LiteralPath $lockFile) {
+                if ($line -match '^\s*provider\s+"([^"]+)"') {
+                    $inProvider = $Matches[1] -eq $address
+                }
+                elseif ($inProvider -and $line -match '^\s*version\s*=\s*"([^"]+)"') {
+                    $resolvedVersion = $Matches[1]
+                    break
+                }
+            }
+        }
+        Write-Verbose "Provider $address $($resolvedVersion ?? '(version not in lock file)') in $directory"
+
+        Read-TerraformProviderSchemaFromDirectory -WorkingDirectory $directory -OutputFormat $OutputFormat
     }
     finally {
-        [Console]::OutputEncoding = $previousEncoding
-    }
-
-    $stdout = @($output | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
-    $stderr = @($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
-
-    if ($exitCode -ne 0) {
-        $message = (@($stderr) + @($stdout) | ForEach-Object { "$_" }) -join [Environment]::NewLine
-        throw "terraform providers schema failed with exit code $exitCode in '$workingDirectory'. Run terraform init first if providers are not installed.$([Environment]::NewLine)$message"
-    }
-
-    $schema = $stdout | ConvertFrom-TerraformJson -AsHashtable -ErrorAction Stop
-
-    switch ($OutputFormat) {
-        'OrderedHashtable' { $schema }
-        'Json'             { $schema | ConvertTo-TerraformJson -ErrorAction Stop }
+        if ($Cleanup -and (Test-Path -LiteralPath $WorkingDirectory)) {
+            Remove-Item -LiteralPath $WorkingDirectory -Recurse -Force
+        }
     }
 }
 

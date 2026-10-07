@@ -354,6 +354,121 @@ Describe "TerraformGraph" {
             { Get-TerraformProviderSchema -Path (Join-Path $RepoRoot 'does-not-exist-dir') -ErrorAction Stop } |
                 Should -Throw "*is not an existing directory*"
         }
+
+        It "keeps a non-registry host in the required_providers source" {
+            # init fails against the fake host; only the written main.tf matters here.
+            # Inside It a throw stays terminating even with SilentlyContinue, so catch it.
+            $dir = Join-Path $TestDrive 'provider-other-host'
+            try {
+                Get-TerraformProviderSchema -Provider 'example.com/acme/thing' -WorkingDirectory $dir -ErrorAction SilentlyContinue
+            }
+            catch {
+                $_.Exception.Message | Should -BeLike '*terraform init failed*'
+            }
+            Get-Content -LiteralPath (Join-Path $dir 'main.tf') -Raw | Should -BeLike '*source = "example.com/acme/thing"*'
+        }
+
+        It "prefixes the default working directory with a non-registry host" {
+            # init fails against the fake host; the init verbose line carries the default path.
+            # Inside It a throw stays terminating even with SilentlyContinue, so catch it.
+            $verbose = [System.Collections.Generic.List[string]]::new()
+            try {
+                Get-TerraformProviderSchema -Provider 'example.com/acme/thing' -Cleanup -Verbose -ErrorAction SilentlyContinue 4>&1 |
+                    ForEach-Object { if ($_ -is [System.Management.Automation.VerboseRecord]) { $verbose.Add($_.Message) } }
+            }
+            catch {
+                $_.Exception.Message | Should -BeLike '*terraform init failed*'
+            }
+            $init = @($verbose | Where-Object { $_ -like 'terraform -chdir=* init *' })
+            $init.Count | Should -Be 1
+            $dir = ($init[0] -replace '^terraform -chdir=', '') -replace ' init .*$', ''
+            $dir | Should -BeLike '*\example_com-acme-thing-latest'
+            Test-Path -LiteralPath $dir | Should -BeFalse
+        }
+
+        Context "-Provider (registry)" -Skip:(-not (Test-Connection registry.terraform.io -Count 1 -Quiet)) {
+
+            BeforeAll {
+                # One provider download shared by every working directory in this context.
+                $previousCache = $env:TF_PLUGIN_CACHE_DIR
+                $env:TF_PLUGIN_CACHE_DIR = Join-Path $TestDrive 'plugin-cache'
+                New-Item -ItemType Directory -Path $env:TF_PLUGIN_CACHE_DIR | Out-Null
+                Set-Variable -Name PreviousCache -Value $previousCache -Scope Script
+
+                $nullDir = Join-Path $TestDrive 'provider-null'
+                $nullSchema = Get-TerraformProviderSchema -Provider 'null' -Version '= 3.2.3' -WorkingDirectory $nullDir -ErrorAction Stop
+                Set-Variable -Name NullDir    -Value $nullDir    -Scope Script
+                Set-Variable -Name NullSchema -Value $nullSchema -Scope Script
+            }
+
+            AfterAll {
+                $env:TF_PLUGIN_CACHE_DIR = $PreviousCache
+            }
+
+            It "fetches hashicorp/null with -Provider -Version -WorkingDirectory" {
+                $NullSchema | Should -BeOfType [System.Collections.Specialized.OrderedDictionary]
+                $keys = @($NullSchema['provider_schemas'].Keys)
+                $keys.Count | Should -Be 1
+                $keys[0] | Should -BeLike '*hashicorp/null'
+                $NullSchema['provider_schemas'][$keys[0]]['resource_schemas'].Keys | Should -Contain 'null_resource'
+            }
+
+            It "writes the resolved version with -Verbose" {
+                $verbose = Get-TerraformProviderSchema -Provider 'null' -Version '= 3.2.3' -WorkingDirectory $NullDir -Verbose -ErrorAction Stop 4>&1 |
+                    Where-Object { $_ -is [System.Management.Automation.VerboseRecord] }
+                ($verbose.Message -join [Environment]::NewLine) | Should -BeLike '*3.2.3*'
+            }
+
+            It "skips terraform init when the lock file exists" {
+                $mainTf = Get-Item -LiteralPath (Join-Path $NullDir 'main.tf')
+                $lock = Get-Item -LiteralPath (Join-Path $NullDir '.terraform.lock.hcl')
+                $mainBefore = $mainTf.LastWriteTimeUtc
+                $lockBefore = $lock.LastWriteTimeUtc
+                Get-TerraformProviderSchema -Provider 'null' -Version '= 3.2.3' -WorkingDirectory $NullDir -ErrorAction Stop | Out-Null
+                $mainTf.Refresh(); $lock.Refresh()
+                $mainTf.LastWriteTimeUtc | Should -Not -Be $mainBefore
+                $lock.LastWriteTimeUtc | Should -Be $lockBefore
+            }
+
+            It "re-runs terraform init with -Force" {
+                $lock = Get-Item -LiteralPath (Join-Path $NullDir '.terraform.lock.hcl')
+                $lockBefore = $lock.LastWriteTimeUtc
+                Get-TerraformProviderSchema -Provider 'null' -Version '= 3.2.3' -WorkingDirectory $NullDir -Force -ErrorAction Stop | Out-Null
+                $lock.Refresh()
+                $lock.LastWriteTimeUtc | Should -Not -Be $lockBefore
+            }
+
+            It "removes the working directory with -Cleanup and still returns the schema" {
+                $dir = Join-Path $TestDrive 'provider-null-cleanup'
+                $schema = Get-TerraformProviderSchema -Provider 'null' -Version '= 3.2.3' -WorkingDirectory $dir -Cleanup -ErrorAction Stop
+                $schema['provider_schemas'].Keys | Should -Contain 'registry.terraform.io/hashicorp/null'
+                Test-Path -LiteralPath $dir | Should -BeFalse
+            }
+
+            It "normalizes 'null', 'hashicorp/null', and 'registry.terraform.io/hashicorp/null' to one key" {
+                $keys = foreach ($spelling in 'null', 'hashicorp/null', 'registry.terraform.io/hashicorp/null') {
+                    $dir = Join-Path $TestDrive "provider-spelling-$($spelling -replace '\W', '_')"
+                    $schema = Get-TerraformProviderSchema -Provider $spelling -Version '= 3.2.3' -WorkingDirectory $dir -Cleanup -ErrorAction Stop
+                    @($schema['provider_schemas'].Keys)
+                }
+                $keys.Count | Should -Be 3
+                @($keys | Select-Object -Unique) | Should -Be @('registry.terraform.io/hashicorp/null')
+            }
+
+            It "rejects an invalid -Provider before running terraform" {
+                $dir = Join-Path $TestDrive 'provider-invalid'
+                { Get-TerraformProviderSchema -Provider 'not//valid' -WorkingDirectory $dir -ErrorAction Stop } |
+                    Should -Throw "*is not a provider address*"
+                Test-Path -LiteralPath (Join-Path $dir 'main.tf') | Should -BeFalse
+            }
+
+            It "throws terraform's stderr for a nonexistent provider and cleans up" {
+                $dir = Join-Path $TestDrive 'provider-missing'
+                { Get-TerraformProviderSchema -Provider 'hashicorp/definitely-not-a-provider-xyz' -WorkingDirectory $dir -Cleanup -ErrorAction Stop } |
+                    Should -Throw "*terraform init failed*Failed to query available provider packages*"
+                Test-Path -LiteralPath $dir | Should -BeFalse
+            }
+        }
     }
 
     Context "Get-TerraformModuleGraph" {
