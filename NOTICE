@@ -1,0 +1,7 @@
+TerraformGraph
+Copyright 2026 Jerry Balmer
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The native HCL parser (lib/TerraformGraph.dll) is built from src/go with
+github.com/hashicorp/hcl/v2, licensed under the Mozilla Public License 2.0.

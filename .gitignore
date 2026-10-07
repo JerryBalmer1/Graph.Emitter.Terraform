@@ -41,3 +41,12 @@ testResults.xml
 
 # Schema packs built by Invoke-Build BuildSchemaPack (attached to GitHub releases, not committed)
 dist/
+
+# Native build outputs in the module's lib folder: TerraformGraph.dll (BuildDLL),
+# TerraformGraph.Json.dll (BuildJson) and the TerraformGraph.h that go build generates
+# beside the DLL. *.dll and *.dll.old are covered above.
+src/TerraformGraph/lib/*.h
+
+# BuildJson intermediates
+src/json/bin/
+src/json/obj/

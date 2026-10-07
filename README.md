@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/PowerShell-7.4%2B-5391FE?style=for-the-badge&logo=powershell&logoColor=white" alt="PowerShell 7.4+" />
   <img src="https://img.shields.io/badge/Pester-6.1%2B-0078D4?style=for-the-badge" alt="Pester 6.1+" />
   <img src="https://img.shields.io/badge/HCL-v2-844FBA?style=for-the-badge" alt="HashiCorp HCL v2" />
-  <a href="https://www.powershellgallery.com/packages/TerraformGraph"><img src="https://img.shields.io/powershellgallery/v/TerraformGraph?style=for-the-badge&label=Gallery" alt="PowerShell Gallery" /></a>
+  <img src="https://img.shields.io/badge/License-Apache%202.0-D22128?style=for-the-badge" alt="Apache License 2.0" />
 </p>
 
 <p align="center">
@@ -29,36 +29,51 @@ Exit code 0: every module call is at depth 3 or less (the root module is depth 0
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.14.0**. Not yet published to the PowerShell Gallery.
+Source version **0.14.1**. Not yet published to the PowerShell Gallery: install from a clone (see [Install](#install)).
 
 ---
 
 ## Requirements
 
-- OS: Windows (native DLL is a Windows build)
+- OS: the HCL parser (`Get-TerraformAST`, `Get-TerraformModuleGraph`) runs on **Windows x64 only**, because its native DLL is a Windows x64 build. On Linux, macOS or Windows on ARM the module still imports, those two commands stop with `ParserUnavailable`, and every other command (registry, schema, docs, classifier, bundle, JSON and graph commands fed from them) works.
 - PowerShell **7.4 or later** (enforced by the module manifest)
 - ~100 MB free space if you are compiling the DLL yourself (Go + Docker)
 
 ## Setup
 
-- Clone this repo and build the DLL (see below); Gallery install will work once the module is published.
+- Clone this repo and build the DLL (see [Build the DLL](#build-the-dll-contributors)); the module is not on the PowerShell Gallery yet.
 - Install for your user account — no admin required.
 - Import the module and point `Get-TerraformAST` at `infra` or a `.tf` file.
 
 ## Downloads & Links
 
 - Homepage: https://github.com/JerryBalmer1/TerraformGraph
-- Gallery: https://www.powershellgallery.com/packages/TerraformGraph
 - Parser library: https://github.com/hashicorp/hcl
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
 ## Install
 
+From a clone, after `Invoke-Build BuildDLL` (see [Build the DLL](#build-the-dll-contributors)):
+
+```powershell
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1
+```
+
+<!--
+### Once on the Gallery
+
+Restore this, and the Gallery badge and link at the top, when TerraformGraph is published:
+
 ```powershell
 Install-Module -Name TerraformGraph -Scope CurrentUser
 Import-Module TerraformGraph
 ```
+
+<a href="https://www.powershellgallery.com/packages/TerraformGraph"><img src="https://img.shields.io/powershellgallery/v/TerraformGraph?style=for-the-badge&label=Gallery" alt="PowerShell Gallery" /></a>
+- Gallery: https://www.powershellgallery.com/packages/TerraformGraph
+-->
 
 ## Examples
 
@@ -120,17 +135,17 @@ Get-TerraformAST -FilePath .\infra\variables.tf |
 ```
 
 ```text
-Name            : aws_region
-Line            : 1
-Column          : 1
-File            : variables.tf
 Type            : variable
 Labels          : {aws_region}
-Body            : @{Attributes=System.Collections.Hashtable; Blocks=System.Object[]}
+Body            : @{Attributes=; Blocks=; SrcRange=; EndRange=}
 TypeRange       : @{Filename=C:\__Code\TerraformGraph\infra\variables.tf; Start=; End=}
 LabelRanges     : {@{Filename=C:\__Code\TerraformGraph\infra\variables.tf; Start=; End=}}
 OpenBraceRange  : @{Filename=C:\__Code\TerraformGraph\infra\variables.tf; Start=; End=}
 CloseBraceRange : @{Filename=C:\__Code\TerraformGraph\infra\variables.tf; Start=; End=}
+Name            : aws_region
+Line            : 1
+Column          : 1
+File            : variables.tf
 ```
 
 `$block.TypeRange.Start.Line` is the same value as `$block.Line`. Types at the root of `.\infra`:
@@ -143,13 +158,13 @@ Get-TerraformAST -Path .\infra |
 ```text
 terraform
 provider
-variable
 locals
 resource
 data
 module
-output
 check
+output
+variable
 ```
 
 ### JSON (`ConvertTo-TerraformJson`)
@@ -217,9 +232,9 @@ Turn the output of `Get-TerraformProviderSchema` into a graph: every provider, r
 # Fetch hashicorp/null and convert it.
 Get-TerraformProviderSchema -Provider null -Cleanup | ConvertTo-TerraformSchemaGraph
 
-# Keep one provider out of a multi-provider directory schema.
-$graph = Get-TerraformProviderSchema -Path .\infra | ConvertTo-TerraformSchemaGraph -Provider aws
-$graph.Nodes | Where-Object Path -like 'aws_s3_bucket.*'
+# Keep one provider out of a multi-provider directory schema (infra declares null and local).
+$graph = Get-TerraformProviderSchema -Path .\infra | ConvertTo-TerraformSchemaGraph -Provider null
+$graph.Nodes | Where-Object Path -like 'null_resource.*'
 
 # Count by Kind, then list resources with their canonical Id.
 $graph = Get-TerraformProviderSchema -Path .\infra | ConvertTo-TerraformSchemaGraph
@@ -338,7 +353,7 @@ Get-TerraformProviderSchema -Provider 'hashicorp/awsc*' -Cleanup
 Patterns match by shape: no slash matches the bare name in any namespace, one slash matches `namespace/name`, two slashes match the full address; case is ignored. With a wildcard, `Get-TerraformProviderSchema -Provider` resolves against the cache before running anything, and stops if the pattern is ambiguous or unknown:
 
 ```
-'aws*' matches 4 providers: hashicorp/aws, hashicorp/awscc, nullstone-io/awsex, Traceableai/awsapigateway. Specify one.
+'aws*' matches 4 providers: hashicorp/aws, hashicorp/awscc, nullstone-io/awsex, Traceableai/awsapigateway. Specify one; Get-TerraformRegistryProvider -Name 'aws*' lists them.
 'foo*' matches no provider in the registry cache (harvested 2026-10-07). Run Update-TerraformRegistryCache or pass a full address.
 ```
 
@@ -376,9 +391,9 @@ Each file is one provider version's `terraform providers schema -json` document 
 | Providers | Whatever the manifest lists | Any provider and any version |
 | Integrity | sha256 from `manifest.json`, checked before anything is written | What terraform reports |
 
-The packs shipped for a release match that module release and are attached to its GitHub release as `manifest.json` plus one `<address-slug>.<version>.json.gz` per provider (and, from 0.11.0, one `docs.<address-slug>.<version>.json.gz` per provider; see [Provider docs](#provider-docs)). Each manifest entry has a `kind`, `schema` or `docs`. `Get-TerraformSchemaPack` reads only `schema` entries, and treats an entry with no `kind` (manifests before 0.11.0) as `schema`. The author publishes the release separately: until a release has packs attached, `Get-TerraformSchemaPack` with the default `-Source` has nothing to download. Use `-SaveToCache`, or point `-Source` at a folder you built (see below).
+The packs shipped for a release match that module release and are attached to its GitHub release as `manifest.json` plus one `<address-slug>.<version>.json.gz` per provider (and, from 0.11.0, one `docs.<address-slug>.<version>.json.gz` per provider; see [Provider docs](#provider-docs)). Each manifest entry has a `kind`, `schema` or `docs`. `Get-TerraformSchemaPack` reads only `schema` entries, and treats an entry with no `kind` (manifests before 0.11.0) as `schema`. The author publishes the release separately. The latest release (v0.14.0) has the packs for azurerm 5.8.0, azuredevops 1.16.0 and vsphere 2.17.1 attached; for any other provider use `-SaveToCache`, or point `-Source` at a folder you built (see below).
 
-A private repository's release download URLs return 404 even to someone who can read the repository. Set `$env:GH_TOKEN` (or `$env:GITHUB_TOKEN`) to a token that can read it, and `Get-TerraformSchemaPack` / `Get-TerraformDocPack` fetch the release through the GitHub API instead (`releases/latest`, or `releases/tags/<tag>` for a `-Source` of `https://github.com/<owner>/<repo>/releases/download/<tag>`). They find each file among the release assets by name and download it with that token. Without a token the anonymous URL is used, and a 404 says the repository may be private and names `GH_TOKEN`.
+This repository is public, so the default `-Source` needs no token. For a private fork: a private repository's release download URLs return 404 even to someone who can read the repository. Set `$env:GH_TOKEN` (or `$env:GITHUB_TOKEN`) to a token that can read it, and `Get-TerraformSchemaPack` / `Get-TerraformDocPack` fetch the release through the GitHub API instead (`releases/latest`, or `releases/tags/<tag>` for a `-Source` of `https://github.com/<owner>/<repo>/releases/download/<tag>`). They find each file among the release assets by name and download it with that token. Without a token the anonymous URL is used, and a 404 names `GH_TOKEN` for a private fork.
 
 Worked example with azurerm, azuredevops and vsphere:
 
@@ -405,7 +420,7 @@ $graph.Nodes | Where-Object { $_.UnknownAttributes -or $_.UnknownBlocks -or $_.M
     Format-List ResourceAddress, UnknownAttributes, UnknownBlocks, MissingRequired
 ```
 
-In step 3 the `azure*` graph has 36,282 nodes (1,237 resources, 442 data sources) and builds in about 11 s. In step 4, a root module that declares the three providers in `required_providers` and also uses `random_pet` matches every azurerm, azuredevops and vsphere block. `random_pet` is not cached, so it shows `Reason` `ProviderNotInSchemaGraph`. A mistyped `colour` argument on `vsphere_folder` shows up in `UnknownAttributes`.
+In step 3 the `azure*` graph has 36,282 nodes (1,237 resources, 442 data sources) and builds in 9 to 13 s (three fresh processes on the author's machine, 2026-10-07: 9.0, 12.4 and 10.2 s). In step 4, a root module that declares the three providers in `required_providers` and also uses `random_pet` matches every azurerm, azuredevops and vsphere block. `random_pet` is not cached, so it shows `Reason` `ProviderNotInSchemaGraph`. A mistyped `colour` argument on `vsphere_folder` shows up in `UnknownAttributes`.
 
 - `ConvertTo-TerraformSchemaGraph -Provider` (no `-Schema`) loads the newest cached version of each provider, or `-Version`, and behaves exactly as if that document had been piped in. A provider that is not cached is a terminating error that names both `Get-TerraformSchemaPack` and `Get-TerraformProviderSchema -SaveToCache`.
 - `ConvertTo-TerraformResourceGraph -Provider` builds the schema graphs from the cache for the providers you name, as an alternative to `-SchemaGraph`. `-AutoSchema` takes the provider addresses the module graph resolves to, loads whichever are cached and marks the rest `ProviderNotInSchemaGraph`.
@@ -459,7 +474,7 @@ Each file is `{ address, version, harvestedOn, schemaVersion, docCount, unmatche
 
 `Update-TerraformProviderDocCache` lists the pages, fetches them in parallel (`-ThrottleLimit`, default 6, with the 429 and 5xx handling under [Bulk docs harvest](#bulk-docs-harvest)) and writes the file atomically. For a whole set of providers, see [Bulk docs harvest](#bulk-docs-harvest). If the provider has no cached schema, it still writes the docs, but builds Ids from the provider name without checking, leaves `UnmatchedCount` empty, and warns. Fill the schema cache first.
 
-The default packs, as of 2026-10-06: azurerm 5.8.0 has 1,518 pages (1.18 MB gzipped, harvested in 44 s), 1 of them unmatched: a `container_app_environment_dapr_component` data source page with no such type in the schema. azuredevops 1.16.0 has 183 pages (92 KB), 1 unmatched: `environment_kubernetes_resource`. vsphere 2.17.1 has 87 pages (104 KB), none unmatched; 7 of its slugs already carry the `vsphere_` prefix. `BuildSchemaPack` with docs takes about 80 s for the three.
+The default packs, as of 2026-10-07 (UTC): azurerm 5.8.0 has 1,518 pages (1.18 MB gzipped, harvested in 44 s), 1 of them unmatched: a `container_app_environment_dapr_component` data source page with no such type in the schema. azuredevops 1.16.0 has 183 pages (92 KB), 1 unmatched: `environment_kubernetes_resource`. vsphere 2.17.1 has 87 pages (104 KB), none unmatched; 7 of its slugs already carry the `vsphere_` prefix. `BuildSchemaPack` with docs takes about 80 s for the three.
 
 ```powershell
 # Fill both caches: schemas, then docs (packs, or harvest).
@@ -497,7 +512,7 @@ Nothing here downloads except `Get-TerraformDocPack` and `Update-TerraformProvid
 
 ## Bundle: which providers ship, and is it current
 
-`data/bundle.json` in the module names the providers the shipped data covers and records what was harvested for each. As shipped it is the registry's **official** tier (34 providers) plus `microsoft/azuredevops` and `vmware/vsphere`: 36 providers, resolved against the bundled registry cache.
+`data/bundle.json` in the module names the providers the shipped data covers and records what was harvested for each. As shipped it is the registry's **official** tier (34 providers) plus `microsoft/azuredevops` and `vmware/vsphere`: 36 providers indexed, 3 with packs attached (azurerm, azuredevops and vsphere have a schema pack, a docs pack and a bundled classifier; the other 33 are indexed from the registry only, and their docs exist only where someone harvested them). `Get-TerraformGraphBundle -Document` reports the split as `PackedEntryCount`, `ClassifiedEntryCount` and `RegistryOnlyEntryCount`.
 
 ```json
 { "formatVersion": 1, "tiers": ["official"],
@@ -517,7 +532,7 @@ Each entry's `version` is the provider's latest in that registry cache. `docsVer
 
 ```powershell
 Get-TerraformGraphBundle                     # one row per provider: ProviderAddress, Version, DocsVersion, SchemaVersion, ClassifierVersion, HarvestedOn
-Get-TerraformGraphBundle -Document           # the whole manifest: Tiers, Providers, Exclude, RegistryHarvestedOn, Sources, Entries
+Get-TerraformGraphBundle -Document           # the whole manifest: Tiers, Providers, Exclude, RegistryHarvestedOn, Sources, Entries, PackedEntryCount, RegistryOnlyEntryCount
 Get-TerraformGraphBundle -Sources            # Kind, HarvestedBy, LastPulled, Urls (and RelatedUrls)
 ```
 
@@ -541,7 +556,7 @@ New-TerraformGraphBundle -Tier official -Provider 'vmware/*' -Exclude hashicorp/
 New-TerraformGraphBundle -Tier @() -Provider hashicorp/azurerm, hashicorp/azuread -OutputPath .\bundle.json
 ```
 
-Each of `-Tier`, `-Provider` and `-Exclude` you leave out comes from the bundled manifest. Patterns match by shape and take wildcards, as for `Get-TerraformRegistryProvider`, and are stored expanded to full addresses. The registry cache used is `registry.json` in the output folder when there is one, else the usual one. The file is sorted and has no timestamp of its own, so rewriting it from the same caches gives the same bytes.
+Each of `-Tier`, `-Provider` and `-Exclude` you leave out comes from the bundled manifest. Patterns match by shape and take wildcards, as for `Get-TerraformRegistryProvider`. `-Provider` patterns are stored expanded to full addresses; `-Exclude` patterns are stored as given, so they keep excluding providers that appear in the registry later. The registry cache used is `registry.json` in the output folder when there is one, else the usual one. The file is sorted and has no timestamp of its own, so rewriting it from the same caches gives the same bytes.
 
 ### Bulk docs harvest
 
@@ -558,9 +573,9 @@ A harvest that stops part-way (a failed page, Ctrl+C) keeps the pages it fetched
 
 Every bundle run writes `$env:LOCALAPPDATA\TerraformGraph\logs\harvest-<yyyyMMdd-HHmmss>.log` (UTC): a start line, one line per provider (address, version, status, pages, elapsed, error), one per 429 and per wait, and an end line with the rate-limit totals. The path is printed at the end and returned as `LogPath`.
 
-The registry sits behind a rate limit that answers a sustained run with 429 for several minutes (about 9 on 2026-10-07), with no Retry-After. The first 429 stops every worker, waits 30 seconds (then 60, 120, 240 and 300 on repeated 429s, or the Retry-After when one is sent, at most 600), and resumes with one worker, adding one per 25 successful requests; the throttle carries over to the next provider and the next command in the same session.
+The registry sits behind a rate limit that answers a sustained run with 429 for several minutes, with no Retry-After. The block was observed once, lasting about 9 minutes, during the 2026-10-06 (local time) harvest; it was not logged, so the waits below are a working assumption. The first 429 stops every worker, waits 30 seconds (then 60, 120, 240 and 300 on repeated 429s, or the Retry-After when one is sent, at most 600), and resumes with one worker, adding one per 25 successful requests; the throttle carries over to the next provider and the next command in the same session.
 
-The bundled set, harvested on 2026-10-07 with `Invoke-Build HarvestBundleDocs`: 36 providers, 14,686 pages, 3 unmatched. The largest were awscc 1.104.0 (4,521 pages), aws 6.67.0 (2,414), google and google-beta 8.6.0 (1,685 each), azurerm 5.8.0 (1,518) and ibm 2.6.2 (1,445). The first run (12 min 28 s) got 3,374 pages from 19 providers. The registry started answering 429 just after aws, and 17 providers failed, because the backoff then was two retries at 1 and 2 seconds. The second run, `-Resume` with the backoff above, harvested the 17 in 12 min 17 s with no failures.
+The bundled set, harvested on 2026-10-07 with `Invoke-Build HarvestBundleDocs`: 36 providers, 14,686 pages, 3 unmatched. The largest were awscc 1.104.0 (4,521 pages), aws 6.67.0 (2,414), google and google-beta 8.6.0 (1,685 each), azurerm 5.8.0 (1,518) and ibm 2.6.2 (1,445). The first run (12 min 28 s) got 3,374 pages from 19 providers. The registry started answering 429 just after aws, and 17 providers failed, because the backoff then was two retries at 1 and 2 seconds. The second run, `-Resume` with the backoff above, harvested 16 of them in 12 min 17 s with no failures; the 17th, azurerm, was already cached at 5.8.0 by `BuildSchemaPack` and was skipped.
 
 ```powershell
 Invoke-Build HarvestBundleDocs            # harvest, refresh data/bundle.json, write dist/survey/subcategories.json
@@ -582,15 +597,16 @@ On the bundled set (2026-10-07): 661 distinct labels in 893 rows. Only 11 of the
 
 ### Freshness gate
 
-`Test-TerraformGraphBundle` checks the bundled data against its sources and returns one row per check: `Item`, `Status` (`Fresh`, `Stale`, `Missing`), `Detail`, and for every row that is not Fresh two pasteable commands. `InspectAction` shows what would change (a `git diff --no-index` of a candidate written under `$env:TEMP\TerraformGraph-inspect`, or the cache's state) without touching the module; `RecommendedAction` makes the change. For the bundled manifest the actions are Invoke-Build tasks (`BuildRegistry`, `BuildSchemaPack -Provider`, `BuildClassifier -Provider`, `HarvestBundleDocs -Resume`); for your own copy they are the commands that rewrite it. The default table shows `Item`, `Status` and `RecommendedAction`. It is offline unless you pass `-Online`.
+`Test-TerraformGraphBundle` checks the bundled data against its sources and returns one row per check. `-Scope` says what the rows certify: `Machine` (the default) checks the bundle against this machine's caches as well, so its docs and schema rows describe your `$env:LOCALAPPDATA`; `Repo` reads only the bundle's own folder (the `registry.json` beside it), the module's bundled classifiers and `-DistPath`, never a user cache, so it gives the same rows on any machine with the same checkout. Each row: `Item`, `Status` (`Fresh`, `Stale`, `Missing`), `Detail`, and for every row that is not Fresh two pasteable commands. `InspectAction` shows what would change (a `git diff --no-index` of a candidate written under `$env:TEMP\TerraformGraph-inspect`, or the cache's state) without touching the module; `RecommendedAction` makes the change. For the bundled manifest the actions are Invoke-Build tasks (`BuildRegistry`, `BuildSchemaPack -Provider`, `BuildClassifier -Provider`, `HarvestBundleDocs -Resume`); for your own copy they are the commands that rewrite it. The default table shows `Item`, `Status` and `RecommendedAction`. It is offline unless you pass `-Online`.
 
 | Item | Checks |
 |---|---|
 | `registry` | The bundle's `registry.harvestedOn` and provider count against the registry cache it resolves against. |
 | `sources` | The bundle has a `sources` block, and it is what rewriting the bundle from the same caches would write. |
 | `entry <address>` | The entry is in the bundle's provider set, and its version is that cache's latest. Every provider in the set has an entry. |
-| `docs <address>` | `docsVersion` is cached, equals the entry version, and `harvestedOn` matches the cached file. |
-| `schema <address>`, `classifier <address>` | When the entry records them: cached or bundled, and at the entry version. |
+| `docs <address>` | `-Scope Machine` only: `docsVersion` is cached, equals the entry version, and `harvestedOn` matches the cached file. A Missing row names `Get-TerraformDocPack` only when a docs pack exists for that version. |
+| `schema <address>` | `-Scope Machine` only, when the entry records one: cached, and at the entry version. |
+| `classifier <address>` | When the entry records one: bundled, and at the entry version. |
 | `mapVersion <address> <version>` | Each bundled classifier's `mapVersion` against `classifiers/map.json`. |
 | `pack <kind> <address> <version>` | When `-DistPath` (default `.\dist\schema-packs`) has a `manifest.json`: each file's sha256 and its version against the entry. |
 | `registry (online)`, `online <address>` | With `-Online`: the live registry's provider count and each entry's live latest version. |
@@ -619,9 +635,9 @@ mapVersion registry.terraform.io/vmware/vsphere 2.17.1        Fresh
 
 Run the `InspectAction` first, read the diff, then run the `RecommendedAction` if you want the change. Data you harvest lands in your user caches; the module's own files change only through the Invoke-Build tasks.
 
-`-Strict` writes every row, then throws `BundleNotFresh`, whose message lists each row with its fix. The release build runs it as `Invoke-Build CheckBundle` before a release is created; that task prints each row's inspect and fix commands.
+`-Strict` writes every row, then throws `BundleNotFresh`, whose message lists each row with its fix. The release build runs it as `Invoke-Build CheckBundle` (`-Scope Repo -Strict`) before a release is created; that task prints each row's inspect and fix commands.
 
-On the shipped 0.14.0 data (2026-10-07, after `Invoke-Build HarvestBundleDocs -Resume` added `sources`), with `dist\schema-packs` from `BuildSchemaPack` present, all 89 checks are Fresh.
+On the shipped data (0.14.1, 2026-10-07), with `dist\schema-packs` from `BuildSchemaPack` present: `-Scope Repo` gives 50 checks, all Fresh, with or without a user cache. `-Scope Machine` gives 89 checks, all Fresh on the author's machine; on a machine with empty caches the same 89 are 49 Fresh, 39 Missing (36 docs, 3 schemas) and 1 Stale (sources).
 ## Classifiers: what ships / how to cut your own
 
 A provider schema is flat: azurerm alone has 1,502 resource and data source types. Classifier drawers are an optional overlay that groups types into drawers (network, compute, storage, database, identity, security, ...) so a view can collapse to twenty-one rows. They never change a node's Id, the node count or the edges, and every placement can be traced to a map row with a reason.
@@ -664,7 +680,7 @@ Get-TerraformClassifierFinding -Provider azurerm            # Type, Kind, Subcat
 
 # The overlay: Drawer and Subcategory on every node, plus a Drawers summary. Same Ids, nodes and edges.
 $schema = ConvertTo-TerraformSchemaGraph -Provider vsphere -Classify
-$schema.Drawers                                             # Drawer, TypeCount
+$schema.Drawers                                             # Drawer, TypeCount (InstanceCount is empty on a schema graph)
 $graph = Get-TerraformModuleGraph -Path . -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema -Classify
 $graph.Drawers                                              # Drawer, TypeCount, InstanceCount
 $graph.Nodes | Sort-Object Drawer | Format-Table Drawer, Subcategory, ResourceAddress
@@ -739,15 +755,21 @@ If `TerraformGraph.dll` is already loaded in this PowerShell process, Windows wi
 
 ```powershell
 Invoke-Build CheckDependencies
-Invoke-Build BuildDLL
-Invoke-Build
+Invoke-Build BuildDLL         # Docker: golang 1.24 + mingw -> src/TerraformGraph/lib/TerraformGraph.dll (and the generated .h)
+Invoke-Build BuildJson        # optional, a .NET 8 SDK: lib/TerraformGraph.Json.dll, so import does not compile C#
+Invoke-Build                  # the default test run, no network: pwsh -NoProfile -File .\tests\Invoke-Tests.ps1
+Invoke-Build AssembleModule   # dist/module/TerraformGraph: exactly the files the psd1 FileList names
 ```
 
-`BuildDLL` cross-compiles `src/go` with `github.com/hashicorp/hcl/v2` and copies `TerraformGraph.dll` into `src/TerraformGraph/lib/`.
+`BuildDLL` cross-compiles `src/go` with `github.com/hashicorp/hcl/v2` and copies `TerraformGraph.dll` into `src/TerraformGraph/lib/`. `pwsh -NoProfile -File .\tests\Invoke-Tests.ps1 -Live` runs the tests that call the registry; never run it while a harvest is going.
 
 ## Disclaimer
 
 This project is independent. It is not affiliated with HashiCorp.
+
+## License
+
+TerraformGraph is licensed under the [Apache License 2.0](LICENSE).
 
 <p align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&height=120&section=footer&color=0:844FBA,55:5C4EE5,100:1B1030&text=TerraformGraph&fontSize=28&fontColor=FFFFFF&fontAlignY=70&animation=fadeIn" alt="" />

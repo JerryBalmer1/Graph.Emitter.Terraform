@@ -1,0 +1,77 @@
+# Changelog
+
+TerraformGraph release notes, newest first. The psd1 `ReleaseNotes` holds only the current version and links here.
+
+## 0.14.1
+
+Day-one fixes from the 0.14.0 audit. No new features.
+
+- Non-ASCII HCL round-trips: the parser is called with UTF-8 marshalling both ways (it used the Windows code page, which mangled `café – 東京` and could not open a path such as `enc-日本`).
+- The module imports on any platform. Off Windows x64, or when the DLL was never built, `Get-TerraformAST` and `Get-TerraformModuleGraph` throw `ParserUnavailable`; every schema, registry, docs, classifier and bundle command works without the parser.
+- Licensed under the Apache License 2.0 (LICENSE, NOTICE).
+- Every terminating error goes through one private helper with a documented id and a message that names its fix. The eight bare throws are gone: `TerraformNotOnPath`, `TerraformInitFailed`, `TerraformVersionUnreadable`, `TerraformProvidersSchemaFailed`, `ProviderAddressInvalid`, `ProviderVersionInvalid`, `RegistryRequestFailed`, `PackAssetNotFound` and `ParserUnavailable` are new ids. A missing bundle is `BundleNotFound` and a missing registry cache `RegistryCacheNotFound` everywhere. The sixth-429 message no longer recommends a `-Resume` that `Update-TerraformRegistryCache` does not have.
+- A `required_providers` source that is not a provider address, and a classifier map that does not read, are warnings instead of silent fallbacks.
+- `Test-TerraformGraphBundle -Scope Repo|Machine` (default Machine). Repo reads only the bundle's folder, the bundled classifiers and `dist/schema-packs`, never a user cache; `Invoke-Build CheckBundle` uses it. A Missing docs row names `Get-TerraformDocPack` only when a docs pack exists.
+- `Get-TerraformGraphBundle -Document` gains `PackedEntryCount`, `ClassifiedEntryCount` and `RegistryOnlyEntryCount`.
+- Tests: `Live` and `RequiresTerraform` tags replace the ICMP ping; `tests/Invoke-Tests.ps1` (`-Live`, `-All`).
+- Build: `AssembleModule` (dist/module/TerraformGraph, the psd1 FileList), `BuildJson` (precompiled `TerraformGraph.Json.dll`), `GenerateDocTables`; `Release` and `Publish` run on main, tag `v<version>` and publish the assembled tree with `Publish-PSResource`. The Dockerfile builds with `golang:1.24` as go.mod asks.
+
+## 0.14.0
+
+Hardening and contracts. One registry rate state per session: the first 429 stops every worker, waits 30/60/120/240/300 s (Retry-After honoured, 600 s cap), resumes at one worker and climbs one per 25 successes; docs harvests checkpoint to `<version>.partial.json` and `-Resume` continues them; DocHarvestSummary gains RateLimitHits, SecondsBlocked, PartialResumes and LogPath (`harvest-<timestamp>.log`); bundle.json names its sources (`Get-TerraformGraphBundle -Sources`); every non-Fresh Test-TerraformGraphBundle row carries RecommendedAction and InspectAction; every terminating error names its fix; classifier precedence for the same provider version (mapVersion, then generatedOn) with `Get-TerraformClassifier -Shadowed`; drawers semver gate.
+
+## 0.13.0
+
+Bundle and survey: data/bundle.json names the shipped provider set (official tier plus microsoft/azuredevops and vmware/vsphere) with per-provider versions; Get-TerraformGraphBundle, New-TerraformGraphBundle, Test-TerraformGraphBundle (Fresh/Stale/Missing, -Strict, -Online); Update-TerraformProviderDocCache -BundlePath and -Resume with a DocHarvestSummary; Get-TerraformSubcategorySurvey; registry 429s retried for minutes; integration drawer (21 drawers) graded against the survey; map.json prefix rows place types of providers with no labels (azuredevops: 177 of 177 classified); Invoke-Build HarvestBundleDocs and CheckBundle; README and ONTOLOGY.md.
+
+## 0.12.0
+
+Classifier drawers: an optional overlay grouping resource and data source types into drawers (network, compute, storage, ..., unclassified) from the providers own doc subcategories through a reasoned map; New-TerraformClassifier, Get-TerraformClassifier, Get-TerraformClassifierFinding; -Classify and -ClassifierPath on ConvertTo-TerraformSchemaGraph and ConvertTo-TerraformResourceGraph (Drawer, Subcategory, Drawers summary; same Ids, nodes and edges); bundled classifiers for azurerm 5.8.0, azuredevops 1.16.0 and vsphere 2.17.1 with drawers.json, map.json and DECISIONS.md.
+
+## 0.11.0
+
+Provider docs sidecar: Update-TerraformProviderDocCache, Get-TerraformProviderDoc (by provider, Id, type, category, -Examples, or piped SchemaNode/ResourceNode), Get-TerraformDocPack, Get-TerraformDocCache; docs keyed on schema node Ids; manifest.json entries carry kind schema|docs; pack downloads from private GitHub releases with GH_TOKEN.
+
+## 0.10.0
+
+Schema packs and a local provider schema cache: Get-TerraformSchemaPack, Get-TerraformSchemaCache, Get-TerraformProviderSchema -SaveToCache, ConvertTo-TerraformSchemaGraph -Provider/-Version from the cache, ConvertTo-TerraformResourceGraph -Provider and -AutoSchema.
+
+## 0.9.0
+
+Provider registry cache: Update-TerraformRegistryCache, Get-TerraformRegistryProvider, bundled data/registry.json, wildcard -Provider and argument completers for Get-TerraformProviderSchema.
+
+## 0.8.0
+
+Ship the terraformgraph agent skill; add Install-TerraformGraphSkill and Test-TerraformGraphSkill; import hint for detected agent tools.
+
+## 0.7.0
+
+Add ConvertTo-TerraformResourceGraph.
+
+## 0.6.0
+
+Add ConvertTo-TerraformVariableGraph and Get-TerraformVariableTrace.
+
+## 0.5.1
+
+Provider config nodes in ConvertTo-TerraformSchemaGraph; performance.
+
+## 0.5.0
+
+Add ConvertTo-TerraformSchemaGraph.
+
+## 0.4.0
+
+Get-TerraformProviderSchema -Provider set fetches a provider schema on demand.
+
+## 0.3.0
+
+Add Get-TerraformModuleGraph.
+
+## 0.2.0
+
+Breaking. Expression nodes now carry Kind, Raw and values.
+
+## 0.1.0
+
+Initial release. Get-TerraformAST, ConvertTo-TerraformJson, ConvertFrom-TerraformJson, Get-TerraformProviderSchema.

@@ -1,34 +1,27 @@
-FROM mcr.microsoft.com/powershell:latest AS builder
+# The Go HCL parser as a Windows x64 c-shared DLL, cross-compiled with mingw.
+# The Go toolchain is the golang image whose version matches go.mod's `go` line (1.24); keep the
+# two in step. go.mod and go.sum are used as committed: nothing rewrites them in the build.
+FROM golang:1.24-bookworm AS builder
 
-USER root
-
-RUN apt-get update && apt-get install -y \
-    git \
-    golang-go \
-    gcc-mingw-w64-x86-64 \
-    g++-mingw-w64-x86-64 \
+RUN apt-get update && apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-
-COPY . .
+WORKDIR /app/src/go
+COPY src/go/go.mod src/go/go.sum ./
+RUN go mod download
+COPY src/go/ ./
 
 ENV CGO_ENABLED=1 \
     GOOS=windows \
     GOARCH=amd64 \
-    CC=x86_64-w64-mingw32-gcc \
-    CXX=x86_64-w64-mingw32-g++
+    CC=x86_64-w64-mingw32-gcc
 
-RUN mkdir -p /app/src/TerraformGraph/lib && \
-    cd ./src/go && \
-    sed -i '/^go /d' go.mod && \
-    go mod tidy && \
-    go build -o "/app/src/TerraformGraph/lib/TerraformGraph.dll" -buildmode=c-shared .
+# -buildmode=c-shared also writes TerraformGraph.h, generated from the //export lines, beside
+# the DLL; BuildDLL copies both out (the header is never tracked by hand).
+RUN mkdir -p /out && \
+    go build -trimpath -buildmode=c-shared -o /out/TerraformGraph.dll .
 
-FROM mcr.microsoft.com/powershell:latest
-
-COPY --from=builder /app/src/TerraformGraph/lib/TerraformGraph.dll /TerraformGraph.dll
-
-ENTRYPOINT ["pwsh"]
-
-CMD ["-NoLogo"]
+# Only the two files, for `docker create` + `docker cp` in Invoke-Build BuildDLL.
+FROM scratch
+COPY --from=builder /out/TerraformGraph.dll /out/TerraformGraph.h /
+CMD ["/TerraformGraph.dll"]

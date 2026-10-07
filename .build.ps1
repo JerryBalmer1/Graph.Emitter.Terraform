@@ -13,6 +13,9 @@ Param(
     $Online
 )
 
+# InvokeBuild must already be installed (Install-Module InvokeBuild -Scope CurrentUser); this
+# script never installs anything when it is loaded.
+
 ######################################################################################################
 # InvokeBuild - ArgumentCompleters
 ######################################################################################################
@@ -37,14 +40,6 @@ Register-ArgumentCompleter -CommandName Invoke-Build.ps1 -ParameterName File -Sc
             New-Object System.Management.Automation.CompletionResult $_, $_, 'Command', $_
         }}
     }
-}
-
-######################################################################################################
-# InvokeBuild - Install InvokeBuild
-######################################################################################################
-
-if (-not (Get-Module -ListAvailable -Name InvokeBuild)) {
-    Install-Module -Name InvokeBuild -Scope CurrentUser -Verbose -Force
 }
 
 ######################################################################################################
@@ -82,7 +77,7 @@ function Invoke-Git {
 }
 
 function Get-ModuleManifestPath {
-    Join-Path $PSScriptRoot "src\TerraformGraph\TerraformGraph.psd1"
+    Join-Path $PSScriptRoot 'src' 'TerraformGraph' 'TerraformGraph.psd1'
 }
 
 function Get-ManifestVersion {
@@ -92,13 +87,13 @@ function Get-ManifestVersion {
 }
 
 function Get-LatestReleaseTag {
-    $raw = git tag --list 2>$null
+    # Release tags are v<major>.<minor>.<patch> (v0.10.0 ... v0.14.0).
+    $raw = git tag --list 'v*' 2>$null
     if (-not $raw) {
         return $null
     }
     $versions = foreach ($tag in @($raw)) {
-        $name = $tag.Trim()
-        if ($name -match '^v?(\d+\.\d+\.\d+)$') {
+        if ($tag.Trim() -match '^v(\d+\.\d+\.\d+)$') {
             [version]$Matches[1]
         }
     }
@@ -108,56 +103,20 @@ function Get-LatestReleaseTag {
     $versions | Sort-Object | Select-Object -Last 1
 }
 
-function Get-NextBuildVersion {
-    param(
-        [Parameter(Mandatory)]
-        [version]
-        $From
-    )
-    $build = if ($From.Build -lt 0) { 0 } else { $From.Build }
-    [version]::new($From.Major, $From.Minor, $build + 1)
-}
-
-function Resolve-ReleaseVersion {
-    $manifest = Get-ManifestVersion
-    $latest   = Get-LatestReleaseTag
-
-    if (-not $latest) {
-        Write-Host "No version tags yet. Releasing manifest version $manifest as-is." -ForegroundColor Cyan
-        return [pscustomobject]@{ Version = $manifest; Bump = $false }
+function Assert-ReleaseReady {
+    # Release and Publish: on main, a clean tree, and the drawers semver test passing (in a
+    # fresh process, as every test run should be).
+    $branch = Get-RepoBranch
+    if ($branch -ne 'main') {
+        throw "Release and Publish run on main. Current branch is '$branch'."
     }
-
-    if ($manifest -gt $latest) {
-        Write-Host "Manifest $manifest is already ahead of tag $latest. Releasing as-is." -ForegroundColor Cyan
-        return [pscustomobject]@{ Version = $manifest; Bump = $false }
+    Assert-GitClean
+    $filter = 'Contracts.drawers are semver-safe'
+    $command = "`$c = New-PesterConfiguration; `$c.Run.Path = '$(Join-Path $PSScriptRoot 'tests')'; `$c.Filter.FullName = '$filter'; `$c.Run.Exit = `$true; Invoke-Pester -Configuration `$c"
+    & pwsh -NoProfile -Command $command
+    if ($LASTEXITCODE -ne 0) {
+        throw "Pester '$filter' failed: a drawer was renamed or removed without a major version (DECISIONS 47)."
     }
-
-    $next = Get-NextBuildVersion -From $manifest
-    if ($next -le $latest) {
-        $next = Get-NextBuildVersion -From $latest
-    }
-    Write-Host "Bumping ModuleVersion $manifest -> $next (latest tag $latest)" -ForegroundColor Cyan
-    return [pscustomobject]@{ Version = $next; Bump = $true }
-}
-
-function Set-ManifestVersion {
-    param(
-        [Parameter(Mandatory)]
-        [version]
-        $Version
-    )
-    $manifestPath = Get-ModuleManifestPath
-    $text = Get-Content -LiteralPath $manifestPath -Raw -ErrorAction Stop
-    $updated = [regex]::Replace(
-        $text,
-        "(ModuleVersion\s*=\s*')([^']+)(')",
-        { param($m) $m.Groups[1].Value + $Version.ToString() + $m.Groups[3].Value },
-        1
-    )
-    if ($updated -eq $text) {
-        throw "Could not find ModuleVersion in $manifestPath"
-    }
-    Set-Content -LiteralPath $manifestPath -Value $updated -NoNewline -ErrorAction Stop
 }
 
 ######################################################################################################
@@ -230,12 +189,29 @@ task CheckDependencies {
 
 }
 
+# What Test needs: PowerShell and Pester. terraform is optional (RequiresTerraform tests are
+# skipped without it) and Docker is only for BuildDLL.
+task CheckTestDependencies {
+    if ($PSVersionTable.PSVersion -lt [version]'7.4') {
+        throw "PowerShell 7.4+ is required. This session is $($PSVersionTable.PSVersion)."
+    }
+    $pester = Get-Module -ListAvailable -Name Pester | Sort-Object Version -Descending | Select-Object -First 1
+    if (-not $pester -or $pester.Version -lt [version]'6.1.0') {
+        throw "Pester 6.1.0+ is required. Install-Module Pester -MinimumVersion 6.1.0 -Scope CurrentUser -Force"
+    }
+    Write-Host "OK  PowerShell $($PSVersionTable.PSVersion), Pester $($pester.Version)" -ForegroundColor Green
+}
+
+# The Go parser as a Windows x64 c-shared DLL, cross-compiled in Docker (golang image pinned to
+# go.mod's Go version). Copies out TerraformGraph.dll and the TerraformGraph.h that go build
+# generates from the //export lines (gitignored: never tracked by hand).
 task BuildDLL CheckDependencies, {
 
-    $libDirectory = Join-Path $PSScriptRoot "src\TerraformGraph\lib"
-    $libPath      = Join-Path $libDirectory "TerraformGraph.dll"
-    $imageName    = "terraformgraph"
-    $containerName = "TerraformGraph-tmp"
+    $libDirectory  = Join-Path $PSScriptRoot 'src' 'TerraformGraph' 'lib'
+    $libPath       = Join-Path $libDirectory 'TerraformGraph.dll'
+    $headerPath    = Join-Path $libDirectory 'TerraformGraph.h'
+    $imageName     = 'terraformgraph'
+    $containerName = 'TerraformGraph-tmp'
 
     if (-not (Test-Path $libDirectory)) {
         New-Item -Path $libDirectory -ItemType Directory -Force -ErrorAction Stop | Out-Null
@@ -248,6 +224,7 @@ task BuildDLL CheckDependencies, {
             Remove-Item -LiteralPath $libPath -Force -ErrorAction Stop
         }
         catch {
+            # Pinned by a pwsh that loaded it: move it aside (gitignored, never assembled).
             $stale = "$libPath.old"
             if (Test-Path -LiteralPath $stale) {
                 Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue
@@ -257,7 +234,6 @@ task BuildDLL CheckDependencies, {
     }
 
     docker rm -f $containerName 2>$null | Out-Null
-    docker rm -f psutiltmp 2>$null | Out-Null
 
     docker build -t $imageName .
     if ($LASTEXITCODE -ne 0) {
@@ -269,13 +245,15 @@ task BuildDLL CheckDependencies, {
         throw "docker create failed with exit code $LASTEXITCODE"
     }
 
-    docker cp "${containerName}:/TerraformGraph.dll" $libPath
-    if ($LASTEXITCODE -ne 0) {
-        docker rm -f $containerName 2>$null | Out-Null
-        throw "docker cp failed with exit code $LASTEXITCODE"
+    try {
+        docker cp "${containerName}:/TerraformGraph.dll" $libPath
+        if ($LASTEXITCODE -ne 0) { throw "docker cp TerraformGraph.dll failed with exit code $LASTEXITCODE" }
+        docker cp "${containerName}:/TerraformGraph.h" $headerPath
+        if ($LASTEXITCODE -ne 0) { throw "docker cp TerraformGraph.h failed with exit code $LASTEXITCODE" }
     }
-
-    docker rm $containerName
+    finally {
+        docker rm -f $containerName 2>$null | Out-Null
+    }
 
     if (-not (Test-Path -LiteralPath $libPath)) {
         throw "BuildDLL did not produce $libPath"
@@ -283,36 +261,76 @@ task BuildDLL CheckDependencies, {
 
 }
 
+# TerraformGraph.Json.cs compiled to src/TerraformGraph/lib/TerraformGraph.Json.dll (net8.0, the
+# runtime of PowerShell 7.4), so an import loads an assembly instead of compiling C#. Needs a
+# .NET 8 or later SDK: `dotnet` on PATH, or $env:TERRAFORMGRAPH_DOTNET pointing at dotnet.exe.
+# Without one it says so and stops without failing; the psm1 then compiles the source at import.
+task BuildJson {
+    $dotnet = if ($env:TERRAFORMGRAPH_DOTNET) { $env:TERRAFORMGRAPH_DOTNET } else { (Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source }
+    $sdks = if ($dotnet) { @(& $dotnet --list-sdks 2>$null | ForEach-Object { if ($_ -match '^(\d+)\.') { [int]$Matches[1] } }) } else { @() }
+    if (-not ($sdks | Where-Object { $_ -ge 8 })) {
+        $found = if ($dotnet) { "$dotnet has SDKs $(@(& $dotnet --list-sdks 2>$null) -join '; ')" } else { 'no dotnet on PATH' }
+        Write-Warning "BuildJson: no .NET 8 or later SDK ($found). Install one (winget install Microsoft.DotNet.SDK.8) or set `$env:TERRAFORMGRAPH_DOTNET; until then the module compiles TerraformGraph.Json.cs at import, and AssembleModule cannot run."
+        return
+    }
+    $project = Join-Path $PSScriptRoot 'src' 'json' 'TerraformGraph.Json.csproj'
+    $output = Join-Path ([System.IO.Path]::GetTempPath()) "TerraformGraph-json-$([guid]::NewGuid().ToString('n'))"
+    $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
+    $env:DOTNET_NOLOGO = '1'
+    try {
+        & $dotnet build $project -c Release -o $output
+        if ($LASTEXITCODE -ne 0) { throw "dotnet build failed with exit code $LASTEXITCODE" }
+        $target = Join-Path $PSScriptRoot 'src' 'TerraformGraph' 'lib' 'TerraformGraph.Json.dll'
+        Copy-Item -LiteralPath (Join-Path $output 'TerraformGraph.Json.dll') -Destination $target -Force -ErrorAction Stop
+        Write-Host "Wrote $target ($((Get-Item -LiteralPath $target).Length) bytes)"
+    }
+    finally {
+        Remove-Item -LiteralPath $output -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 task RemoveModule {
     Remove-Module -Name TerraformGraph -Force -ErrorAction SilentlyContinue
 }
 
 task ImportModule {
-    $modulePath = Join-Path $PSScriptRoot "src\TerraformGraph"
+    $modulePath = Join-Path $PSScriptRoot 'src' 'TerraformGraph'
     Import-Module $modulePath -Force -ErrorAction Stop
 }
 
-task Test CheckDependencies, RemoveModule, ImportModule, {
-
-    $pesterPath = Join-Path $PSScriptRoot "tests"
-    $testFiles  = Get-ChildItem -Path $pesterPath -Filter "*.Tests.ps1" -Recurse -ErrorAction SilentlyContinue
-
-    if (-not $testFiles) {
-        throw "No *.Tests.ps1 files found under $pesterPath"
+# The default run, in a fresh process (the parser DLL is pinned for the life of a process):
+# every test except those tagged Live. tests/Invoke-Tests.ps1 -Live runs the network ones.
+task Test CheckTestDependencies, {
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'tests' 'Invoke-Tests.ps1')
+    if ($LASTEXITCODE -ne 0) {
+        throw "Pester failed (exit code $LASTEXITCODE)."
     }
+}
 
-    $result = Invoke-Pester -Path $pesterPath -Output Detailed -PassThru
+# The CLAUDE.md function list and the shipped SKILL.md function table, regenerated from
+# Get-Command and comment-based help (between the generated:functions markers), then the
+# .claude copy of the skill. Pester fails when the committed tables differ.
+task GenerateDocTables RemoveModule, ImportModule, {
+    & (Join-Path $PSScriptRoot 'tools' 'Update-TerraformGraphDocTables.ps1') -RepoRoot $PSScriptRoot -Verbose
+    Install-TerraformGraphSkill -Path $PSScriptRoot -Tool Claude -Force
+    Write-Host 'Regenerated the function tables in CLAUDE.md and skills/terraformgraph/SKILL.md (and its .claude copy).'
+}
 
-    if ($result.FailedCount -gt 0) {
-        throw "Pester failed $($result.FailedCount) test(s)"
-    }
-
+# The publishable tree: dist/module/TerraformGraph holds exactly the psd1 FileList
+# (tools/Copy-TerraformGraphModule.ps1), then Test-ModuleManifest checks it. Needs both DLLs
+# (BuildDLL, BuildJson); dist/ is gitignored.
+task AssembleModule {
+    $tree = Join-Path $PSScriptRoot 'dist' 'module' 'TerraformGraph'
+    $files = & (Join-Path $PSScriptRoot 'tools' 'Copy-TerraformGraphModule.ps1') -RepoRoot $PSScriptRoot -OutputPath $tree
+    $manifest = Test-ModuleManifest -Path (Join-Path $tree 'TerraformGraph.psd1') -ErrorAction Stop
+    $bytes = (Get-ChildItem -LiteralPath $tree -File -Recurse | Measure-Object -Property Length -Sum).Sum
+    Write-Host "Assembled TerraformGraph $($manifest.Version): $(@($files).Count) files, $bytes bytes -> $tree"
 }
 
 # Not part of the default build. Run when cutting a release: refreshes the provider
 # registry cache that ships with the module (network, a few minutes), then stage it.
 task BuildRegistry RemoveModule, ImportModule, {
-    $path = Join-Path $PSScriptRoot 'src\TerraformGraph\data\registry.json'
+    $path = Join-Path $PSScriptRoot 'src' 'TerraformGraph' 'data' 'registry.json'
     $result = Update-TerraformRegistryCache -Scope OfficialPartner -Path $path -PassThru -ErrorAction Stop
     Write-Host "ProviderCount: $($result.ProviderCount)"
     Write-Host "VersionCount:  $($result.VersionCount)"
@@ -321,15 +339,15 @@ task BuildRegistry RemoveModule, ImportModule, {
 }
 
 # Not part of the default build. Run when cutting a release, then attach everything in
-# dist\schema-packs to the GitHub release: harvests each -Provider at its latest version
+# dist/schema-packs to the GitHub release: harvests each -Provider at its latest version
 # from the registry cache (terraform init, network), saves it to the local schema cache,
-# copies the cached file to dist\schema-packs\<address-slug>.<version>.json.gz, harvests
+# copies the cached file to dist/schema-packs/<address-slug>.<version>.json.gz, harvests
 # the same version's registry docs (Update-TerraformProviderDocCache) into
 # docs.<address-slug>.<version>.json.gz, and writes manifest.json with a kind (schema |
-# docs) per entry. dist\ is gitignored; the folder is recreated on every run.
+# docs) per entry. dist/ is gitignored; the folder is recreated on every run.
 task BuildSchemaPack RemoveModule, ImportModule, {
     $total = [System.Diagnostics.Stopwatch]::StartNew()
-    $dist = Join-Path $PSScriptRoot 'dist\schema-packs'
+    $dist = Join-Path $PSScriptRoot 'dist' 'schema-packs'
     if (Test-Path -LiteralPath $dist) { Remove-Item -LiteralPath $dist -Recurse -Force -ErrorAction Stop }
     $null = New-Item -ItemType Directory -Path $dist -Force -ErrorAction Stop
 
@@ -416,12 +434,12 @@ task BuildSchemaPack RemoveModule, ImportModule, {
 }
 
 # Not part of the default build. Run after BuildSchemaPack when cutting a release, then
-# stage src\TerraformGraph\classifiers: writes each -Provider's classifier
+# stage src/TerraformGraph/classifiers: writes each -Provider's classifier
 # (<address-slug>.<version>.json) at its latest version in the registry cache from the
-# local schema and docs caches with classifiers\map.json, and prints the findings per
-# provider. No network. Unlike dist\, these files are committed: they ship with the module.
+# local schema and docs caches with classifiers/map.json, and prints the findings per
+# provider. No network. Unlike dist/, these files are committed: they ship with the module.
 task BuildClassifier RemoveModule, ImportModule, {
-    $out = Join-Path $PSScriptRoot 'src\TerraformGraph\classifiers'
+    $out = Join-Path $PSScriptRoot 'src' 'TerraformGraph' 'classifiers'
     foreach ($name in $Provider) {
         $found = @(Get-TerraformRegistryProvider -Name $name -WarningAction SilentlyContinue)
         if ($found.Count -gt 1) {
@@ -449,17 +467,17 @@ task BuildClassifier RemoveModule, ImportModule, {
 }
 
 # Not part of the default build. Run when cutting a release, after BuildSchemaPack and
-# BuildClassifier, then stage src\TerraformGraph\data\bundle.json: harvests the docs of every
-# provider in the bundled manifest (data\bundle.json: the official tier plus
-# microsoft/azuredevops and vmware/vsphere, resolved against data\registry.json) at its
+# BuildClassifier, then stage src/TerraformGraph/data/bundle.json: harvests the docs of every
+# provider in the bundled manifest (data/bundle.json: the official tier plus
+# microsoft/azuredevops and vmware/vsphere, resolved against data/registry.json) at its
 # latest version, one provider after another (network; 30-60 minutes at throttle 6),
 # refreshes the manifest's entries from the caches and the bundled classifiers, and writes
-# the subcategory survey to dist\survey\subcategories.json. A provider that fails is a
+# the subcategory survey to dist/survey/subcategories.json. A provider that fails is a
 # warning and a Failed row, never a stop. -Resume skips providers already cached at their
 # latest version and continues a provider from its <version>.partial.json. The run writes
 # $env:LOCALAPPDATA\TerraformGraph\logs\harvest-<timestamp>.log and prints its path.
 task HarvestBundleDocs RemoveModule, ImportModule, {
-    $bundlePath = Join-Path $PSScriptRoot 'src\TerraformGraph\data\bundle.json'
+    $bundlePath = Join-Path $PSScriptRoot 'src' 'TerraformGraph' 'data' 'bundle.json'
     $summary = Update-TerraformProviderDocCache -BundlePath $bundlePath -Resume:$Resume -ErrorAction Stop
     $summary.Providers |
         Format-Table ProviderAddress, Version, Status, DocCount, UnmatchedCount, SchemaVersion, @{ Name = 'Elapsed'; Expression = { $_.Elapsed.ToString('hh\:mm\:ss') } } -AutoSize |
@@ -476,7 +494,7 @@ task HarvestBundleDocs RemoveModule, ImportModule, {
     New-TerraformGraphBundle -Tier $bundle.Tiers -Provider $bundle.Providers -Exclude $bundle.Exclude -OutputPath $bundlePath -ErrorAction Stop
     Write-Host "Refreshed $bundlePath"
 
-    $surveyPath = Join-Path $PSScriptRoot 'dist\survey\subcategories.json'
+    $surveyPath = Join-Path $PSScriptRoot 'dist' 'survey' 'subcategories.json'
     Get-TerraformSubcategorySurvey -BundlePath $bundlePath -OutputPath $surveyPath -ErrorAction Stop
     $survey = Get-Content -LiteralPath $surveyPath -Raw | ConvertFrom-TerraformJson
     Write-Host ("Survey: {0} providers ({1} missing), {2} distinct labels, {3} rows, {4} providers with unlabelled pages -> {5}" -f
@@ -486,14 +504,15 @@ task HarvestBundleDocs RemoveModule, ImportModule, {
         Format-Table -AutoSize | Out-String -Width 200 | Write-Host
 }
 
-# Not part of the default build. The release gate: Test-TerraformGraphBundle -Strict on the
-# bundled manifest (registry cache, entries against the docs and schema caches, bundled
-# classifiers' mapVersion against map.json, and dist\schema-packs when it exists). Prints the
-# rows that are not Fresh and fails if there are any. -Online also checks the live registry.
+# Not part of the default build. The release gate: Test-TerraformGraphBundle -Scope Repo
+# -Strict on the bundled manifest. Repo scope reads only src/ (data/registry.json beside the
+# bundle, the bundled classifiers and map.json) and dist/schema-packs, never the user caches,
+# so it certifies the checkout rather than this machine (DECISIONS 51). Prints the rows that
+# are not Fresh and fails if there are any. -Online also checks the live registry.
 task CheckBundle RemoveModule, ImportModule, {
-    $bundlePath = Join-Path $PSScriptRoot 'src\TerraformGraph\data\bundle.json'
+    $bundlePath = Join-Path $PSScriptRoot 'src' 'TerraformGraph' 'data' 'bundle.json'
     $counts = @{ Fresh = 0; Stale = 0; Missing = 0 }
-    Test-TerraformGraphBundle -BundlePath $bundlePath -DistPath (Join-Path $PSScriptRoot 'dist\schema-packs') -Online:$Online -Strict -ErrorAction Stop |
+    Test-TerraformGraphBundle -BundlePath $bundlePath -DistPath (Join-Path $PSScriptRoot 'dist' 'schema-packs') -Scope Repo -Online:$Online -Strict -ErrorAction Stop |
         ForEach-Object {
             $counts[$_.Status]++
             if ($_.Status -ne 'Fresh') {
@@ -502,67 +521,41 @@ task CheckBundle RemoveModule, ImportModule, {
                 Write-Host "        fix:     $($_.RecommendedAction)"
             }
         }
-    Write-Host "Bundle is fresh: $($counts.Fresh) checks." -ForegroundColor Green
+    Write-Host "Bundle is fresh: $($counts.Fresh) checks (-Scope Repo)." -ForegroundColor Green
 }
 
-task Package {
-    $zipPath = Join-Path $PSScriptRoot "TerraformGraph.zip"
-    Compress-Archive -Path "$PSScriptRoot/src/TerraformGraph/*" -DestinationPath $zipPath -Force
-    Write-Host "Module packaged successfully: $zipPath" -ForegroundColor Green
+# A zip of the assembled module tree, for hand installs: dist/TerraformGraph.<version>.zip.
+task Package AssembleModule, {
+    $tree = Join-Path $PSScriptRoot 'dist' 'module' 'TerraformGraph'
+    $zipPath = Join-Path $PSScriptRoot 'dist' "TerraformGraph.$(Get-ManifestVersion).zip"
+    Compress-Archive -Path $tree -DestinationPath $zipPath -Force
+    Write-Host "Module packaged: $zipPath" -ForegroundColor Green
 }
 
-# develop only. Squash onto main, annotated tag, push. Bumps build only when the
-# manifest is not already ahead of the latest version tag.
+# main only, clean tree, drawers semver test passing. Tags the psd1 ModuleVersion as
+# v<version> (annotated) and pushes main and the tag. Bump ModuleVersion in a commit first:
+# the task refuses a version that is not above the newest v* tag.
 task Release {
-
-    $branch = Get-RepoBranch
-    if ($branch -ne 'develop') {
-        throw "Release must run on develop. Current branch is '$branch'."
-    }
-
-    Assert-GitClean
+    Assert-ReleaseReady
     Invoke-Git fetch, origin, '--tags'
 
-    $plan    = Resolve-ReleaseVersion
-    $version = $plan.Version
-
-    if ($plan.Bump) {
-        Set-ManifestVersion -Version $version
-        Invoke-Git add, (Get-ModuleManifestPath)
-        Invoke-Git commit, -m, "Bump version to $version"
+    $version = Get-ManifestVersion
+    $latest = Get-LatestReleaseTag
+    if ($latest -and $version -le $latest) {
+        throw "ModuleVersion $version is not above the newest tag v$latest. Raise ModuleVersion in TerraformGraph.psd1 (and CHANGELOG.md), commit, then rerun Release."
     }
-
-    Invoke-Git checkout, main
-    Invoke-Git pull, origin, main
-    Invoke-Git merge, --squash, develop
-    Invoke-Git commit, -m, "Release $version"
-    Invoke-Git tag, -a, $version.ToString(), -m, "Release $version"
+    $tag = "v$version"
+    Invoke-Git tag, -a, $tag, -m, "Release $version"
     Invoke-Git push, origin, main
-    Invoke-Git push, origin, $version.ToString()
-
-    Invoke-Git checkout, develop
-    Invoke-Git merge, main, -m, "Sync develop with release $version"
-    Invoke-Git push, origin, develop
-
-    Write-Host "Release $version is on main (annotated tag $version). Checkout main, BuildDLL, then Publish." -ForegroundColor Green
+    Invoke-Git push, origin, $tag
+    Write-Host "Tagged $tag on main and pushed it. Then: Invoke-Build Publish, and gh release create $tag with dist/schema-packs/*." -ForegroundColor Green
 }
 
-# main only. Prompt for a Gallery key if needed, then Publish-Module.
-task Publish {
-
-    $branch = Get-RepoBranch
-    if ($branch -ne 'main') {
-        throw "Publish must run on main. Current branch is '$branch'. Checkout main after Release."
-    }
-
-    $libDir  = Join-Path $PSScriptRoot "src\TerraformGraph\lib"
-    $libPath = Join-Path $libDir "TerraformGraph.dll"
-    if (-not (Test-Path -LiteralPath $libPath)) {
-        throw "TerraformGraph.dll is missing. Run Invoke-Build BuildDLL before Publish (the DLL is gitignored)."
-    }
-
-    Get-ChildItem -LiteralPath $libDir -Filter '*.old' -ErrorAction SilentlyContinue |
-        Remove-Item -Force -ErrorAction SilentlyContinue
+# main only, clean tree, drawers semver test passing. Publishes dist/module/TerraformGraph (the
+# assembled tree, never src/) with Publish-PSResource. The key comes from
+# $env:PSGALLERY_API_KEY, else a prompt.
+task Publish AssembleModule, {
+    Assert-ReleaseReady
 
     if (-not $env:PSGALLERY_API_KEY) {
         $secure = Read-Host "PowerShell Gallery API key" -AsSecureString
@@ -576,11 +569,9 @@ task Publish {
         Write-Host "Using existing PSGALLERY_API_KEY from the environment." -ForegroundColor Yellow
     }
 
-    $modulePath = Join-Path $PSScriptRoot "src\TerraformGraph"
-    $version    = Get-ManifestVersion
-
-    Publish-Module -Path $modulePath -NuGetApiKey $env:PSGALLERY_API_KEY -Repository PSGallery -ErrorAction Stop
-    Write-Host "Published TerraformGraph $version to the PowerShell Gallery." -ForegroundColor Green
+    $tree = Join-Path $PSScriptRoot 'dist' 'module' 'TerraformGraph'
+    Publish-PSResource -Path $tree -Repository PSGallery -ApiKey $env:PSGALLERY_API_KEY -ErrorAction Stop
+    Write-Host "Published TerraformGraph $(Get-ManifestVersion) to the PowerShell Gallery." -ForegroundColor Green
 }
 
 task . Test

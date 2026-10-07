@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.14.0
+Module version: 0.14.1
 Last updated: 2026-10-07
 
 ## 0 Setup
@@ -17,7 +17,7 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.14.0`, then twenty-six names (none added in 0.14.0): ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformClassifier, Get-TerraformClassifierFinding, Get-TerraformDocCache, Get-TerraformDocPack, Get-TerraformGraphBundle, Get-TerraformModuleGraph, Get-TerraformProviderDoc, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformSubcategorySurvey, Get-TerraformVariableTrace, Install-TerraformGraphSkill, New-TerraformClassifier, New-TerraformGraphBundle, Test-TerraformGraphBundle, Test-TerraformGraphSkill, Update-TerraformProviderDocCache, Update-TerraformRegistryCache.
+Expect: `0.14.1`, then twenty-six names (none added in 0.14.1), and no other output: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformClassifier, Get-TerraformClassifierFinding, Get-TerraformDocCache, Get-TerraformDocPack, Get-TerraformGraphBundle, Get-TerraformModuleGraph, Get-TerraformProviderDoc, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformSubcategorySurvey, Get-TerraformVariableTrace, Install-TerraformGraphSkill, New-TerraformClassifier, New-TerraformGraphBundle, Test-TerraformGraphBundle, Test-TerraformGraphSkill, Update-TerraformProviderDocCache, Update-TerraformRegistryCache.
 
 Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph", "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from TerraformGraph", "exports the four docs commands from TerraformGraph", "exports the three classifier commands from TerraformGraph", "exports the bundle commands and ships a bundled manifest with the official tier and two extras"
 
@@ -170,7 +170,7 @@ finally {
 }
 ```
 
-Expect: exactly one error, attributed to `Get-TerraformAST:`, and no other console output: `Error parsing HCL file: <temp>\tg-check-badhcl\main.tf:1,31-32: Unclosed configuration block; There is no closing brace for this block before the end of the file. ...` ending in `(<temp>\tg-check-badhcl\main.tf)`.
+Expect: exactly one error, attributed to `Get-TerraformAST:`, and no other console output: `Error parsing HCL file: <temp>\tg-check-badhcl\main.tf:1,31-32: Unclosed configuration block; There is no closing brace for this block before the end of the file. ...` then `(<temp>\tg-check-badhcl\main.tf) Fix the file, then rerun Get-TerraformAST -FilePath '<temp>\tg-check-badhcl\main.tf' (terraform validate in its folder reports the same error).`
 
 Pester: "writes a non-terminating parse error for an unclosed block"
 
@@ -235,7 +235,7 @@ $deep = [pscustomobject]@{ value = 'leaf' }
 $deep | ConvertTo-TerraformJson -Depth 50
 ```
 
-Expect: `Object nesting exceeds -Depth 50.`
+Expect: `Object nesting exceeds -Depth 50. Rerun ConvertTo-TerraformJson with a larger -Depth, or break the circular reference first.`
 
 Pester: "throws when nesting exceeds -Depth"
 
@@ -252,7 +252,7 @@ $a | Add-Member -NotePropertyName self -NotePropertyValue $a
 $a | ConvertTo-TerraformJson
 ```
 
-Expect: `Circular reference detected at depth 1 (System.Management.Automation.PSObject).`
+Expect: `Circular reference detected at depth 1 (System.Management.Automation.PSObject). Rerun ConvertTo-TerraformJson with a larger -Depth, or break the circular reference first.`
 
 Pester: "throws on a circular reference"
 
@@ -337,7 +337,7 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 '{"Name":1,"name":2}' | ConvertFrom-TerraformJson
 ```
 
-Expect: `Key 'name' is empty or collides with another key (PSCustomObject keys are case-insensitive). Use -AsHashtable.`
+Expect: `Key 'name' is empty or collides with another key (PSCustomObject keys are case-insensitive). Use -AsHashtable. Rerun ConvertFrom-TerraformJson with a larger -Depth, or with -AsHashtable for keys that differ only by case.`
 
 Pester: "throws on case-colliding keys without -AsHashtable"
 
@@ -383,7 +383,7 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 '[[[[1]]]]' | ConvertFrom-TerraformJson -Depth 2
 ```
 
-Expect: `The maximum configured depth of 2 has been exceeded. Cannot read next JSON array. LineNumber: 0 | BytePositionInLine: 2.`
+Expect: `The maximum configured depth of 2 has been exceeded. Cannot read next JSON array. LineNumber: 0 | BytePositionInLine: 2. Rerun ConvertFrom-TerraformJson with a larger -Depth, or with -AsHashtable for keys that differ only by case.`
 
 Pester: "throws when JSON nesting exceeds -Depth"
 
@@ -818,7 +818,7 @@ finally {
 }
 ```
 
-Expect: `12`, then the terminating error `Provider 'registry.terraform.io/hashicorp/null' is not in provider_schemas. Available: terraform.io/builtin/terraform.`
+Expect: `12`, then the terminating error `Provider 'registry.terraform.io/hashicorp/null' is not in provider_schemas. Available: terraform.io/builtin/terraform. Fetch it with Get-TerraformProviderSchema -Provider registry.terraform.io/hashicorp/null -SaveToCache, then ConvertTo-TerraformSchemaGraph -Provider registry.terraform.io/hashicorp/null.`
 
 Pester: "returns the same graph with -Provider 'terraform.io/builtin/terraform'", "throws for a -Provider that is not in the document"
 
@@ -983,7 +983,7 @@ $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVa
 $graph | Get-TerraformVariableTrace -Id 'module.network.module.endpoint/var/aws_region'
 ```
 
-Expect: `Node 'module.network.module.endpoint/var/aws_region' is not in the variable graph. Nodes named 'aws_region': root/var/aws_region, module.network/var/aws_region.`
+Expect: `Node 'module.network.module.endpoint/var/aws_region' is not in the variable graph. Nodes named 'aws_region': root/var/aws_region, module.network/var/aws_region. List every Id with $graph.Nodes | Select-Object -ExpandProperty Id, then rerun Get-TerraformVariableTrace with one of them.`
 
 Pester: "throws for an unknown Id and names the same-named nodes"
 
@@ -1290,7 +1290,7 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 Get-TerraformProviderSchema -Provider 'aws*'
 ```
 
-Expect: An error, no terraform output: `'aws*' matches 4 providers: hashicorp/aws, hashicorp/awscc, nullstone-io/awsex, Traceableai/awsapigateway. Specify one.`
+Expect: An error, no terraform output: `'aws*' matches 4 providers: hashicorp/aws, hashicorp/awscc, nullstone-io/awsex, Traceableai/awsapigateway. Specify one; Get-TerraformRegistryProvider -Name 'aws*' lists them.`
 
 Pester: "throws for an ambiguous pattern and lists every match, official first", "stops Get-TerraformProviderSchema -Provider 'aws*' with the ambiguous message before running terraform"
 
@@ -1357,7 +1357,7 @@ finally {
 }
 ```
 
-Expect: ProviderCount about 428, VersionCount about 25,000 (25053 on 2026-10-06), Scope `official,partner`, Elapsed under a minute; the folder holds only registry.json (no leftover temp file).
+Expect: ProviderCount about 428, VersionCount about 25,000 (25056 on 2026-10-07), Scope `official,partner`, Elapsed under a minute (36.8 s on 2026-10-07); the folder holds only registry.json (no leftover temp file). This is a live official+partner registry harvest: never run it while another harvest is going.
 
 Pester: "harvests official and partner providers to a TestDrive path", "writes versions newest first and a Latest that skips pre-releases"
 
@@ -1470,7 +1470,7 @@ Pester: none
 
 ### 12.7 Get-TerraformSchemaPack -Provider vsphere from the real release
 
-Downloads the vsphere schema pack from the latest GitHub release again. With no GH_TOKEN this uses the anonymous releases/latest/download URL. With $env:GH_TOKEN (or $env:GITHUB_TOKEN) set, it goes through the GitHub releases API, which is what a private repository needs. Needs the network.
+Downloads the vsphere schema pack from the latest GitHub release again. With no GH_TOKEN this uses the anonymous releases/latest/download URL. This repository is public, so no token is needed. With $env:GH_TOKEN (or $env:GITHUB_TOKEN) set, it goes through the GitHub releases API, which is what a private fork needs. Needs the network.
 
 ```powershell
 Set-Location 'C:\__Code\TerraformGraph'
@@ -1481,7 +1481,7 @@ Get-TerraformSchemaPack -Provider vsphere -Force -PassThru
 
 Expect: One row, `registry.terraform.io/vmware/vsphere 2.17.1 Updated 34740` (Status `Downloaded` if vsphere was not cached before). With GH_TOKEN set and -Verbose, the WebRequest lines show api.github.com/repos/JerryBalmer1/TerraformGraph/releases/latest, then two releases/assets/<id> downloads.
 
-Pester: "uses the releases API with a Bearer token when GH_TOKEN is set", "uses the anonymous download URL when no token is set", "says the repository may be private and names GH_TOKEN on a 404 without a token"
+Pester: "uses the releases API with a Bearer token when GH_TOKEN is set", "uses the anonymous download URL when no token is set", "names GH_TOKEN for a private fork on a 404 without a token"
 
 ## 13 Provider docs: Update-TerraformProviderDocCache, Get-TerraformProviderDoc, Get-TerraformDocPack, Get-TerraformDocCache
 
@@ -1975,3 +1975,151 @@ Remove-Item -LiteralPath $drawers
 Expect: `1 0` (passed, failed) for the added drawer, then `0 1` for the rename and the message `Expected $null or empty, because drawers devops of 0.13.0 are renamed or removed in 0.14.0, which needs a major version (ModuleVersion 1.0.0), but got 'devops'.`
 
 Pester: "drawers are semver-safe"
+
+## 17 Day-one fixes (0.14.1): UTF-8, parser guard, test tags, Repo-scope gate, module tree, import time, publish
+
+### 17.1 UTF-8 fixture round-trips
+
+A non-ASCII string literal comes back unchanged, and a folder with a non-ASCII name parses.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$value = (Get-TerraformAST -FilePath .\tests\fixtures\hcl\utf8\main.tf).Body.Attributes.description.Expr.Value
+$value
+$value -ceq "caf$([char]0xE9) $([char]0x2013) $([char]0x6771)$([char]0x4EAC)"
+$folder = Get-ChildItem .\tests\fixtures\hcl -Directory -Filter 'enc-*'
+$folder.Name
+Get-TerraformAST -Path $folder.FullName | Format-Table Type, Name, File
+```
+
+Expect: `café – 東京`, `True`, `enc-日本`, then one row: `variable`, `region`, `main.tf`. (Before 0.14.1 the string came back as `cafÃ© â€“ æ±äº¬` and the folder failed with `open …\enc-??\main.tf`.)
+
+Pester: "returns a non-ASCII string literal unchanged", "parses -Path on a folder with a non-ASCII name"
+
+### 17.2 Get-TerraformAST under the forced-unavailable parser
+
+What a Linux or Windows ARM user sees: the parser commands stop with ParserUnavailable, the rest of the module works.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+& (Get-Module TerraformGraph) {
+    $script:TerraformGraphParserAvailable = $false
+    $script:TerraformGraphParserUnavailableReason = "TerraformGraph's HCL parser ships for Windows x64 only; Test OS Arm64 detected. Schema, registry, docs, classifier and bundle commands work without it."
+}
+try { Get-TerraformAST -Path .\infra -ErrorAction Stop } catch { $_.FullyQualifiedErrorId; $_.Exception.Message }
+(Get-TerraformRegistryProvider -Name hashicorp/null).ProviderAddress
+Remove-Module TerraformGraph -Force
+```
+
+Expect: `ParserUnavailable,Get-TerraformAST`, then `TerraformGraph's HCL parser ships for Windows x64 only; Test OS Arm64 detected. Schema, registry, docs, classifier and bundle commands work without it.`, then `registry.terraform.io/hashicorp/null`.
+
+Pester: "throws ParserUnavailable from Get-TerraformAST and Get-TerraformModuleGraph", "leaves the commands that do not parse working"
+
+### 17.3 Default Pester run with terraform removed from PATH
+
+The default run needs no network and no terraform: RequiresTerraform tests are skipped, not failed, and Live tests are excluded.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$path = (($env:PATH -split ';') | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'terraform.exe')) }) -join ';'
+pwsh -NoProfile -Command "`$env:PATH = '$path'; 'terraform on PATH: ' + [bool](Get-Command terraform -ErrorAction SilentlyContinue); .\tests\Invoke-Tests.ps1" 2>&1 | Select-String 'terraform on PATH|Tests Passed'
+"exit code $LASTEXITCODE"
+```
+
+Expect: `terraform on PATH: False`, then `Tests Passed: 176, Failed: 0, Skipped: 53, Inconclusive: 0, NotRun: 17` (53 RequiresTerraform tests skipped, 17 Live tests excluded; with both DLLs built), then `exit code 0`.
+
+Pester: none (the item is the suite itself)
+
+### 17.4 Test-TerraformGraphBundle -Scope Repo with the user cache present and absent
+
+Repo scope reads no user cache, so its rows are identical with the cache and without it; Machine scope differs.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$empty = Join-Path $env:TEMP 'tg-check-emptycache'
+$null = New-Item -ItemType Directory -Path $empty -Force
+$rows = { param($Scope) pwsh -NoProfile -Command "Import-Module .\src\TerraformGraph\TerraformGraph.psd1; Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json -Scope $Scope | ForEach-Object { `$_.Item + '|' + `$_.Status + '|' + `$_.Detail }" }
+$repoWith = & $rows Repo; $machineWith = & $rows Machine
+$saved = $env:LOCALAPPDATA; $env:LOCALAPPDATA = $empty
+$repoWithout = & $rows Repo; $machineWithout = & $rows Machine
+$env:LOCALAPPDATA = $saved
+"Repo:    $($repoWith.Count) rows with the cache, $($repoWithout.Count) without, identical $(-not (Compare-Object $repoWith $repoWithout -SyncWindow 0))"
+"Machine: $($machineWith.Count) rows with the cache, $($machineWithout.Count) without, identical $(-not (Compare-Object $machineWith $machineWithout -SyncWindow 0))"
+$repoWith | ForEach-Object { ($_ -split '\|')[1] } | Group-Object -NoElement | Format-Table Name, Count
+Remove-Item -LiteralPath $empty -Recurse -Force
+```
+
+Expect: `Repo:    50 rows with the cache, 50 without, identical True`, `Machine: 89 rows with the cache, 89 without, identical False`, then one group: `Fresh 50`.
+
+Pester: "returns the same -Scope Repo rows with a populated user cache as with an empty one"
+
+### 17.5 AssembleModule tree matches FileList
+
+The publishable tree holds exactly the files the psd1 FileList names, and Test-ModuleManifest passes on it.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Invoke-Build AssembleModule
+$tree = '.\dist\module\TerraformGraph'
+$files = Get-ChildItem $tree -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath((Resolve-Path $tree), $_.FullName).Replace('\', '/') } | Sort-Object
+$list = (Import-PowerShellDataFile "$tree\TerraformGraph.psd1").FileList | Sort-Object
+"tree $($files.Count) files, FileList $($list.Count), identical $(-not (Compare-Object $files $list))"
+$files
+```
+
+Expect: `Assembled TerraformGraph 0.14.1: 16 files, ...` and `Build succeeded`, then `tree 16 files, FileList 16, identical True`, then the 16 paths: six under classifiers/, data/bundle.json, data/registry.json, lib/TerraformGraph.dll, lib/TerraformGraph.Json.dll, LICENSE, NOTICE, skills/terraformgraph/SKILL.md, TerraformGraph.Format.ps1xml, TerraformGraph.psd1, TerraformGraph.psm1. No .old, .h or .cs file.
+
+Pester: "lists in the psd1 FileList exactly what tools/Copy-TerraformGraphModule.ps1 assembles", "assembles a tree that holds exactly the FileList and passes Test-ModuleManifest"
+
+### 17.6 Import time
+
+Three fresh imports, with lib\TerraformGraph.Json.dll from Invoke-Build BuildJson (without it the module compiles TerraformGraph.Json.cs, about half a second more).
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Test-Path .\src\TerraformGraph\lib\TerraformGraph.Json.dll
+1..3 | ForEach-Object { pwsh -NoProfile -Command '$sw = [Diagnostics.Stopwatch]::StartNew(); Import-Module .\src\TerraformGraph\TerraformGraph.psd1; "{0} ms" -f $sw.ElapsedMilliseconds' }
+```
+
+Expect: `True`, then three times of about half a second (537, 449 and 524 ms on 2026-10-07). Without lib\TerraformGraph.Json.dll the same runs took 1,521 to 3,236 ms on a busier machine the same day.
+
+Pester: none
+
+### 17.7 Publish-PSResource to a temporary local repository
+
+A dry run of the Gallery publish: the package holds the assembled tree and no `.old` or `.h` file. Run 17.5 first (it needs dist\module\TerraformGraph).
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$repo = Join-Path $env:TEMP 'tg-check-psrepo'
+$null = New-Item -ItemType Directory -Path $repo -Force
+Register-PSResourceRepository -Name TGCheckLocal -Uri $repo -Trusted
+Publish-PSResource -Path .\dist\module\TerraformGraph -Repository TGCheckLocal
+$package = Get-ChildItem $repo -Filter *.nupkg
+"$($package.Name) $($package.Length) bytes"
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [IO.Compression.ZipFile]::OpenRead($package.FullName)
+$zip.Entries.FullName | Where-Object { $_ -notmatch '^(_rels|package)/|\[Content_Types\]|\.nuspec$' } | Sort-Object
+"old or h files: $(@($zip.Entries.FullName | Where-Object { $_ -like '*.old' -or $_ -like '*.h' }).Count)"
+$zip.Dispose()
+Unregister-PSResourceRepository -Name TGCheckLocal
+Remove-Item -LiteralPath $repo -Recurse -Force
+```
+
+Expect: `TerraformGraph.0.14.1.nupkg` of about 3.4 MB (3,442,109 bytes on 2026-10-07), the same 16 paths as 17.5, then `old or h files: 0`. The repository is unregistered and the folder removed at the end.
+
+Pester: none

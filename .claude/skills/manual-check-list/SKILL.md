@@ -38,7 +38,7 @@ Last updated: <YYYY-MM-DD>
 ...
 ```
 
-One `##` section per exported function, numbered in FunctionsToExport order. Section 0 is always Setup. Within a section, one `###` item per parameter set or distinct behaviour worth seeing, numbered `N.M`. Never renumber existing items; append new ones and leave removed items' numbers unused with a one-line note "(removed in 0.x.0)" so references stay stable.
+Section 0 is always Setup. Sections 1 to 9 are one exported function each, in FunctionsToExport order; from section 10 on, a section covers a family of functions that work together (10 the two skill commands, 11 the registry cache, 12 schema packs, 13 provider docs, 14 classifiers, 15 bundle and survey) or one release's cross-cutting contracts (16 for 0.14.0, 17 for 0.14.1). A new function joins its family's section; a new family or release theme gets the next number. Within a section, one `###` item per parameter set or distinct behaviour worth seeing, numbered `N.M`. Never renumber existing items; append new ones and leave removed items' numbers unused with a one-line note "(removed in 0.x.0)" so references stay stable.
 
 ## Item format
 
@@ -53,10 +53,12 @@ Parses the directory and every subdirectory.
 Set-Location 'C:\__Code\TerraformGraph'
 Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
 Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
-Get-TerraformAST -Path .\infra -Recurse | Group-Object File | Select-Object Count, Name
+Get-TerraformAST -Path .\infra -Recurse |
+    Group-Object { Resolve-Path -Relative $_.TypeRange.Filename } |
+    Select-Object Count, Name
 ```
 
-Expect: four files listed, including modules\network\modules\endpoint\main.tf.
+Expect: eight files listed, 31 blocks in all, including `.\infra\modules\network\modules\endpoint\main.tf` with Count 2.
 
 Pester: "parses infra with -Path -Recurse and includes nested modules"
 ```

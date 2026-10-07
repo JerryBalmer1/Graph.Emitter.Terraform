@@ -1,0 +1,9 @@
+# The image builds only src/go (Dockerfile). Keep everything else out of the build context.
+.git
+dist/
+tests/
+infra/
+src/TerraformGraph/lib/
+src/json/bin/
+src/json/obj/
+**/.terraform

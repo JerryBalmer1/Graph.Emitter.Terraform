@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Invoke-Build BuildJson compiles TerraformGraph.Json.cs (the source the psm1 falls back to
+    with Add-Type) into src/TerraformGraph/lib/TerraformGraph.Json.dll, so an import loads an
+    assembly instead of compiling C# (about half a second). net8.0 is the runtime of
+    PowerShell 7.4, the module's minimum; System.Management.Automation is referenced for
+    compiling only, never copied: the host PowerShell provides it.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>TerraformGraph.Json</AssemblyName>
+    <RootNamespace>TerraformGraph</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../TerraformGraph/TerraformGraph.Json.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management.Automation" Version="7.4.0" PrivateAssets="all" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>
