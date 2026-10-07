@@ -1,0 +1,24 @@
+{
+  "drawers": [
+    { "name": "network", "label": "Network", "description": "Virtual networks, subnets, switches, port groups, load balancers, gateways, firewalls built into the network fabric, and private connectivity." },
+    { "name": "compute", "label": "Compute", "description": "Virtual machines, hosts and clusters, scale sets, batch pools, and app hosting platforms that run code on managed servers." },
+    { "name": "storage", "label": "Storage", "description": "Blob, file, block and NAS storage, datastores, disks, and the backup vaults and policies that protect data." },
+    { "name": "database", "label": "Database", "description": "Managed relational, document, key-value and cache databases and their servers, databases and replicas." },
+    { "name": "identity", "label": "Identity", "description": "Users, groups, roles, role assignments, directories and delegated access." },
+    { "name": "security", "label": "Security", "description": "Secrets, keys, certificates, HSMs, threat detection, SIEM, attestation and third-party firewalls." },
+    { "name": "messaging", "label": "Messaging", "description": "Queues, topics, event buses, event streams, notification hubs and email or SMS delivery." },
+    { "name": "observability", "label": "Observability", "description": "Metrics, logs, traces, alerts, application performance monitoring and dashboards." },
+    { "name": "management", "label": "Management", "description": "Subscriptions, resource groups, management groups, policy, cost, automation, templates, inventory and licensing." },
+    { "name": "devops", "label": "DevOps", "description": "Projects, repositories, pipelines, build agents, developer environments and test services." },
+    { "name": "containers", "label": "Containers", "description": "Kubernetes clusters, container registries, container apps and Kubernetes control planes." },
+    { "name": "serverless", "label": "Serverless", "description": "Event-driven functions and workflows billed per execution, with no servers to manage." },
+    { "name": "dns", "label": "DNS", "description": "Public and private DNS zones, records and resolvers." },
+    { "name": "cdn", "label": "CDN", "description": "Content delivery networks, edge caching and front-door routing." },
+    { "name": "analytics", "label": "Analytics", "description": "Data warehouses, data lakes, ETL, stream processing, big data clusters, BI and data governance." },
+    { "name": "ai", "label": "AI", "description": "Machine learning workspaces, cognitive and AI model services, and bots." },
+    { "name": "iot", "label": "IoT", "description": "IoT hubs, device provisioning, digital twins and IoT applications." },
+    { "name": "media", "label": "Media", "description": "Video and audio encoding, streaming and indexing." },
+    { "name": "migration", "label": "Migration", "description": "Services that move databases, files or servers from one place to another." },
+    { "name": "unclassified", "label": "Unclassified", "description": "Types with no subcategory, no doc page, or a subcategory the map does not place. A legitimate drawer, and each type in it is a finding." }
+  ]
+}

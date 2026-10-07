@@ -1350,7 +1350,9 @@ function New-TerraformSchemaNode {
         $MinItems,
         $MaxItems,
         $TypeJson,
-        [string]$Segment
+        [string]$Segment,
+        $Drawer,
+        $Subcategory
     )
 
     switch ($Kind) {
@@ -1370,7 +1372,7 @@ function New-TerraformSchemaNode {
         }
     }
 
-    $node = [pscustomobject]@{
+    $properties = [ordered]@{
         PSTypeName    = 'TerraformGraph.SchemaNode'
         Id            = $id
         Kind          = $Kind
@@ -1394,6 +1396,15 @@ function New-TerraformSchemaNode {
         WriteOnly     = $flags['write_only']
         Raw           = $Raw
     }
+    # -Classify: set here rather than added afterwards, which cost seconds on azurerm. A
+    # Resource or DataSource gets its classifier's values, a Function none, and a Block or
+    # Attribute the values of its parent, so everything under a type is in its drawer.
+    if ($Graph.Classify) {
+        if ($Kind -in 'Resource', 'DataSource') { $properties.Drawer = $Drawer; $properties.Subcategory = $Subcategory }
+        elseif ($Kind -eq 'Function') { $properties.Drawer = $null; $properties.Subcategory = $null }
+        else { $properties.Drawer = $Parent.Drawer; $properties.Subcategory = $Parent.Subcategory }
+    }
+    $node = [pscustomobject]$properties
 
     $Graph.Nodes.Add($node)
     $Graph.Edges.Add([pscustomobject]@{
@@ -1563,6 +1574,21 @@ function ConvertTo-TerraformSchemaGraph {
         Add provider functions (the functions map in newer schemas) as Function nodes
         under their provider. Off by default.
 
+    .PARAMETER Classify
+        Overlay classifier drawers (see New-TerraformClassifier). Every SchemaNode gets
+        Drawer and Subcategory: Resource and DataSource nodes from their provider's
+        classifier, their Block and Attribute descendants the same values as the type they
+        belong to, Provider, provider config and Function nodes $null. A type the
+        classifier lacks, or a provider with no classifier (one warning), is in the
+        unclassified drawer. The graph gets Drawers: one TerraformGraph.DrawerSummary per
+        drawer (Drawer, TypeCount, InstanceCount empty). Ids, nodes and edges are exactly
+        the same as without -Classify. Reads local files only.
+
+    .PARAMETER ClassifierPath
+        A classifier file, or a folder of them, searched before
+        $env:LOCALAPPDATA\TerraformGraph\classifiers and the classifiers bundled with the
+        module. Implies -Classify.
+
     .EXAMPLE
         Get-TerraformProviderSchema -Provider null -Cleanup | ConvertTo-TerraformSchemaGraph
 
@@ -1590,9 +1616,18 @@ function ConvertTo-TerraformSchemaGraph {
         Download the azurerm schema pack into the local cache once, then build the graph
         from the cache with no terraform and no network.
 
+    .EXAMPLE
+        $graph = ConvertTo-TerraformSchemaGraph -Provider vsphere -Classify
+        $graph.Drawers
+        $graph.Nodes | Where-Object { $_.Kind -eq 'Resource' -and $_.Drawer -eq 'storage' } | Select-Object Path, Subcategory
+
+        Group the cached vsphere schema into drawers with the bundled classifier, then list
+        the storage resources.
+
     .OUTPUTS
         TerraformGraph.SchemaGraph. Default view is Providers, NodeCount, EdgeCount; Summary
-        is an ordered Kind -> count table. Nodes are TerraformGraph.SchemaNode (default view
+        is an ordered Kind -> count table; with -Classify, Drawers is a
+        TerraformGraph.DrawerSummary array. Nodes are TerraformGraph.SchemaNode (default view
         Kind, Path, Type, Required, Depth), edges TerraformGraph.SchemaEdge.
 
     .NOTES
@@ -1639,10 +1674,21 @@ function ConvertTo-TerraformSchemaGraph {
         $Version,
 
         [switch]
-        $IncludeFunctions
+        $IncludeFunctions,
+
+        [switch]
+        $Classify,
+
+        [ValidateScript({ if (Test-Path -LiteralPath $_) { $true } else { throw "ClassifierPath '$_' does not exist." } })]
+        [string]
+        $ClassifierPath
     )
 
     begin {
+        $classifyGraph = $Classify -or $PSBoundParameters.ContainsKey('ClassifierPath')
+        # Address -> schema version, when the graph comes from the cache, so -Classify
+        # prefers the classifier generated from the same version.
+        $schemaVersions = @{}
         $wanted = @()
         if ($PSCmdlet.ParameterSetName -eq 'Document') {
             $wildcards = @($Provider | Where-Object { [WildcardPattern]::ContainsWildcardCharacters($_) })
@@ -1684,9 +1730,11 @@ function ConvertTo-TerraformSchemaGraph {
             }
 
             $graph = [pscustomobject]@{
-                Nodes = [System.Collections.Generic.List[object]]::new()
-                Edges = [System.Collections.Generic.List[object]]::new()
+                Nodes    = [System.Collections.Generic.List[object]]::new()
+                Edges    = [System.Collections.Generic.List[object]]::new()
+                Classify = $classifyGraph
             }
+            $overlay = if ($classifyGraph) { Get-TerraformClassifierOverlay -Address $addresses -Version $schemaVersions -ClassifierPath $ClassifierPath }
 
             foreach ($address in $addresses) {
                 $entry = Get-TerraformSchemaMember -InputObject $providerSchemas -Name $address
@@ -1717,21 +1765,31 @@ function ConvertTo-TerraformSchemaGraph {
                     WriteOnly     = $null
                     Raw           = $entry
                 }
+                if ($classifyGraph) {
+                    $providerNode.PSObject.Properties.Add([psnoteproperty]::new('Drawer', $null))
+                    $providerNode.PSObject.Properties.Add([psnoteproperty]::new('Subcategory', $null))
+                }
                 $graph.Nodes.Add($providerNode)
                 Add-TerraformSchemaChildNodes -Graph $graph -Container $config -Parent $providerNode -Segment config
 
+                $lookup = if ($classifyGraph) { $overlay.ByAddress[$address] }
                 foreach ($section in @(
-                        @{ Key = 'resource_schemas';    Kind = 'Resource' }
-                        @{ Key = 'data_source_schemas'; Kind = 'DataSource' }
+                        @{ Key = 'resource_schemas';    Kind = 'Resource';   ClassifierKind = 'resource' }
+                        @{ Key = 'data_source_schemas'; Kind = 'DataSource'; ClassifierKind = 'data-source' }
                     )) {
                     $schemas = Get-TerraformSchemaMember -InputObject $entry -Name $section.Key
                     foreach ($type in Get-TerraformSchemaKeys -InputObject $schemas -Sort) {
                         $resource = Get-TerraformSchemaMember -InputObject $schemas -Name $type
                         $block = Get-TerraformSchemaMember -InputObject $resource -Name 'block'
+                        # -Classify: a type the classifier lacks, or a provider with none, is unclassified.
+                        $classified = $null
+                        if ($lookup) { $null = $lookup.TryGetValue("$($section.ClassifierKind)|$type", [ref]$classified) }
                         $node = New-TerraformSchemaNode -Graph $graph -Kind $section.Kind -Name $type -Parent $providerNode -Raw $resource `
                             -Description (Get-TerraformSchemaMember -InputObject $block -Name 'description') `
                             -Deprecated ([bool](Get-TerraformSchemaMember -InputObject $block -Name 'deprecated')) `
-                            -SchemaVersion (Get-TerraformSchemaMember -InputObject $resource -Name 'version')
+                            -SchemaVersion (Get-TerraformSchemaMember -InputObject $resource -Name 'version') `
+                            -Drawer $(if ($classified) { $classified.Drawer } else { 'unclassified' }) `
+                            -Subcategory $(if ($classified) { $classified.Subcategory } else { $null })
                         Add-TerraformSchemaChildNodes -Graph $graph -Container $block -Parent $node
                     }
                 }
@@ -1747,12 +1805,19 @@ function ConvertTo-TerraformSchemaGraph {
                 }
             }
 
-            [pscustomobject]@{
+            $result = [pscustomobject]@{
                 PSTypeName = 'TerraformGraph.SchemaGraph'
                 Providers  = [string[]]$addresses
                 Nodes      = $graph.Nodes.ToArray()
                 Edges      = $graph.Edges.ToArray()
             }
+            if ($classifyGraph) {
+                $items = foreach ($node in $result.Nodes) {
+                    if ($node.Kind -in 'Resource', 'DataSource') { [pscustomobject]@{ Drawer = $node.Drawer; TypeKey = $node.Id } }
+                }
+                $result.PSObject.Properties.Add([psnoteproperty]::new('Drawers', [object[]]@(New-TerraformDrawerSummary -Item @($items) -Order $overlay.Order)))
+            }
+            $result
         }
     }
 
@@ -1779,6 +1844,7 @@ function ConvertTo-TerraformSchemaGraph {
                     $Provider))
             }
             $wanted = @($cached.ProviderAddress)
+            foreach ($item in $cached) { $schemaVersions[$item.ProviderAddress] = $item.Version }
             & $convert (Get-TerraformSchemaCacheDocument -Entry $cached)
             return
         }
@@ -2454,6 +2520,20 @@ function ConvertTo-TerraformResourceGraph {
         Reason ProviderNotInSchemaGraph. Reads the cache only: never downloads and never
         runs terraform.
 
+    .PARAMETER Classify
+        Overlay classifier drawers (see New-TerraformClassifier). Every ResourceNode gets
+        Drawer and Subcategory from its provider's classifier by type; a type the
+        classifier lacks, or a provider with no classifier (one warning; built-in
+        providers are skipped silently), is in the unclassified drawer. The graph gets
+        Drawers: one TerraformGraph.DrawerSummary per drawer with TypeCount (distinct
+        types) and InstanceCount (blocks). Ids, nodes and edges are exactly the same as
+        without -Classify. Works in every parameter set and reads local files only.
+
+    .PARAMETER ClassifierPath
+        A classifier file, or a folder of them, searched before
+        $env:LOCALAPPDATA\TerraformGraph\classifiers and the classifiers bundled with the
+        module. Implies -Classify.
+
     .EXAMPLE
         $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph
         $graph.Nodes
@@ -2490,12 +2570,21 @@ function ConvertTo-TerraformResourceGraph {
         Join with whatever schemas the local cache holds for the providers infra uses;
         providers that are not cached show ProviderNotInSchemaGraph.
 
+    .EXAMPLE
+        $graph = Get-TerraformModuleGraph -Path . -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema -Classify
+        $graph.Drawers
+        $graph.Nodes | Sort-Object Drawer | Format-Table Drawer, Subcategory, ResourceAddress
+
+        How many resource types and blocks a configuration has per drawer, then every block
+        with its drawer.
+
     .OUTPUTS
         TerraformGraph.ResourceGraph with Root, Nodes, Edges, Skipped and Providers (ordered
         ProviderAddress -> node count), plus NodeCount, EdgeCount, MatchedCount,
         UnmatchedCount and Findings (nodes with any UnknownAttributes, UnknownBlocks or
         MissingRequired). Default view is Root, NodeCount, MatchedCount, UnmatchedCount,
-        Findings. Nodes are TerraformGraph.ResourceNode (default view Kind, ResourceAddress,
+        Findings. With -Classify, Drawers is a TerraformGraph.DrawerSummary array and each
+        node has Drawer and Subcategory. Nodes are TerraformGraph.ResourceNode (default view Kind, ResourceAddress,
         ProviderAddress, SchemaMatched, Reason), edges TerraformGraph.ResourceEdge.
 
     .NOTES
@@ -2551,10 +2640,21 @@ function ConvertTo-TerraformResourceGraph {
 
         [Parameter(Mandatory, ParameterSetName = 'AutoSchema')]
         [switch]
-        $AutoSchema
+        $AutoSchema,
+
+        [switch]
+        $Classify,
+
+        [ValidateScript({ if (Test-Path -LiteralPath $_) { $true } else { throw "ClassifierPath '$_' does not exist." } })]
+        [string]
+        $ClassifierPath
     )
 
     begin {
+        $classifyGraph = $Classify -or $PSBoundParameters.ContainsKey('ClassifierPath')
+        # Address -> cached schema version for -Provider and -AutoSchema, so -Classify
+        # prefers the classifier generated from the same version.
+        $schemaVersions = @{}
         $metaAttributes = 'count', 'for_each', 'provider', 'depends_on', 'lifecycle', 'connection', 'provisioner'
         $metaBlocks = 'lifecycle', 'connection', 'provisioner', 'dynamic'
 
@@ -2599,6 +2699,7 @@ function ConvertTo-TerraformResourceGraph {
                         [System.Management.Automation.ErrorCategory]::ObjectNotFound,
                         $Provider))
                 }
+                foreach ($item in $cached) { $schemaVersions[$item.ProviderAddress] = $item.Version }
                 & $addSchemaGraph (ConvertTo-TerraformSchemaGraph -Schema (Get-TerraformSchemaCacheDocument -Entry $cached) -ErrorAction Stop)
             }
             'AutoSchema' {
@@ -2637,6 +2738,7 @@ function ConvertTo-TerraformResourceGraph {
                 }
                 if ($found) {
                     Write-Verbose "Loading cached schemas: $(@($found | ForEach-Object { "$($_.ProviderAddress) $($_.Version)" }) -join ', ')"
+                    foreach ($item in @($found)) { $schemaVersions[$item.ProviderAddress] = $item.Version }
                     & $addSchemaGraph (ConvertTo-TerraformSchemaGraph -Schema (Get-TerraformSchemaCacheDocument -Entry @($found)) -ErrorAction Stop)
                 }
             }
@@ -2767,7 +2869,7 @@ function ConvertTo-TerraformResourceGraph {
             }
         }
 
-        [pscustomobject]@{
+        $result = [pscustomobject]@{
             PSTypeName = 'TerraformGraph.ResourceGraph'
             Root       = $ModuleGraph.Root
             Nodes      = $nodes.ToArray()
@@ -2775,6 +2877,10 @@ function ConvertTo-TerraformResourceGraph {
             Skipped    = $skipped.ToArray()
             Providers  = $providers
         }
+        if ($classifyGraph) {
+            Add-TerraformResourceGraphClassification -Graph $result -Version $schemaVersions -ClassifierPath $ClassifierPath
+        }
+        $result
     }
 }
 
@@ -4818,6 +4924,763 @@ function Get-TerraformDocCache {
 
 Register-ArgumentCompleter -CommandName Update-TerraformProviderDocCache -ParameterName Provider -ScriptBlock $script:TerraformRegistryProviderCompleter
 Register-ArgumentCompleter -CommandName Update-TerraformProviderDocCache -ParameterName Version -ScriptBlock $script:TerraformRegistryVersionCompleter
+
+# Classifier drawers: an optional overlay that groups resource and data source types into
+# drawers (network, compute, storage, ...) so a view can collapse. Classifiers are opinions
+# layered on facts: they never change a node's Id, the node count or the edges.
+#   classifiers\drawers.json     the fixed drawer list map rows target
+#   classifiers\map.json         provider subcategory label -> drawer, every row with a reason
+#   classifiers\DECISIONS.md     append-only record of every judgement behind the two above
+#   <root>\<address-slug>.<version>.json  one provider version's classifier, written by
+#                                New-TerraformClassifier from the schema and docs caches
+# Classifier lookup order: -ClassifierPath, then the user root, then the root bundled with
+# the module; the first root that holds a provider wins. Nothing here touches the network.
+# Tests repoint both roots with InModuleScope; the drawer list and default map paths stay.
+$script:TerraformClassifierBundledRoot = Join-Path $PSScriptRoot 'classifiers'
+$script:TerraformClassifierDrawersPath = Join-Path $PSScriptRoot 'classifiers' 'drawers.json'
+$script:TerraformClassifierMapPath = Join-Path $PSScriptRoot 'classifiers' 'map.json'
+$script:TerraformClassifierUserRoot = Join-Path ($env:LOCALAPPDATA ?? [Environment]::GetFolderPath('LocalApplicationData')) 'TerraformGraph' 'classifiers'
+
+Update-TypeData -TypeName 'TerraformGraph.Classifier' -DefaultDisplayPropertySet ProviderAddress, Version, DocsVersion, TypeCount, FindingCount -Force
+Update-TypeData -TypeName 'TerraformGraph.ClassifiedType' -DefaultDisplayPropertySet Type, Kind, Subcategory, Drawer -Force
+Update-TypeData -TypeName 'TerraformGraph.ClassifierFinding' -DefaultDisplayPropertySet Type, Kind, Subcategory, Finding -Force
+Update-TypeData -TypeName 'TerraformGraph.ClassifierBuild' -DefaultDisplayPropertySet ProviderAddress, Version, Status, TypeCount, FindingCount -Force
+Update-TypeData -TypeName 'TerraformGraph.DrawerSummary' -DefaultDisplayPropertySet Drawer, TypeCount, InstanceCount -Force
+
+function Read-TerraformClassifierJson {
+    # Not exported. A classifier, map or drawers file as ordered dictionaries.
+    param([string]$Path)
+
+    [TerraformGraph.Json]::Deserialize([System.IO.File]::ReadAllText($Path), 64, $true)
+}
+
+function Format-TerraformClassifierJson {
+    # Not exported. Indented JSON with LF line endings and a final newline, so a classifier
+    # file is the same bytes on every machine and rerun.
+    param($Document)
+
+    ([TerraformGraph.Json]::Serialize($Document, 64, $false)).Replace("`r`n", "`n") + "`n"
+}
+
+function Get-TerraformClassifierDrawerName {
+    # Not exported. Drawer names in drawers.json order from -Path, default the bundled file.
+    param([string]$Path = $script:TerraformClassifierDrawersPath)
+
+    [string[]]@(foreach ($drawer in @((Read-TerraformClassifierJson -Path $Path)['drawers'])) { [string]$drawer['name'] })
+}
+
+function Get-TerraformClassifierMapProblem {
+    # Not exported. Lint for a parsed map.json: one message per problem, nothing when the map
+    # is clean. Every row needs a provider ('*' or a full lowercase address), a subcategory, a
+    # reason, a drawer from -Drawer other than unclassified (unclassified is the fallback, not
+    # a target: leave the row out and record why in DECISIONS.md), addedOn as yyyy-MM-dd and
+    # addedBy agent or jerry. The same provider and subcategory may appear once.
+    param($Map, [string[]]$Drawer)
+
+    if ($Map -isnot [System.Collections.IDictionary] -or -not $Map.Contains('rows')) {
+        'map has no top-level rows array.'
+        return
+    }
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $rows = @($Map['rows'])
+    for ($i = 0; $i -lt $rows.Count; $i++) {
+        $row = $rows[$i]
+        $provider = [string]$row['provider']
+        $subcategory = [string]$row['subcategory']
+        $label = "row $($i + 1) ($provider / $subcategory)"
+        if ($provider -cne '*' -and ($provider -notmatch '^[^/\s]+/[^/\s]+/[^/\s]+$' -or $provider -cne $provider.ToLowerInvariant())) {
+            "$label`: provider must be '*' or a full lowercase address such as registry.terraform.io/hashicorp/azurerm."
+        }
+        if ([string]::IsNullOrWhiteSpace($subcategory)) { "$label has no subcategory." }
+        if ([string]::IsNullOrWhiteSpace([string]$row['reason'])) { "$label has no reason." }
+        $drawerName = [string]$row['drawer']
+        if ($drawerName -ceq 'unclassified') {
+            "$label`: unclassified is the fallback drawer, not a map target. Leave the row out and record why in DECISIONS.md."
+        }
+        elseif ($Drawer -cnotcontains $drawerName) {
+            "$label`: drawer '$drawerName' is not in drawers.json."
+        }
+        $date = [datetime]::MinValue
+        if (-not [datetime]::TryParseExact([string]$row['addedOn'], 'yyyy-MM-dd', [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$date)) {
+            "$label`: addedOn '$($row['addedOn'])' is not a yyyy-MM-dd date."
+        }
+        if ([string]$row['addedBy'] -cnotin 'agent', 'jerry') {
+            "$label`: addedBy '$($row['addedBy'])' must be agent or jerry."
+        }
+        if (-not $seen.Add("$provider`n$subcategory")) {
+            "$label repeats an earlier row for the same provider and subcategory."
+        }
+    }
+}
+
+function Read-TerraformClassifierMap {
+    # Not exported. map.json at -Path, checked with Get-TerraformClassifierMapProblem against
+    # drawers.json beside it (else the bundled drawers.json); throws listing every problem.
+    # Lookup is keyed "<provider>`n<subcategory>" ignoring case. MapVersion is the first 12
+    # hex digits of the sha256 of the map's compact JSON, so it follows the rows and not
+    # whitespace or line endings.
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Classifier map '$Path' does not exist."
+    }
+    $map = Read-TerraformClassifierJson -Path $Path
+    $drawersPath = Join-Path (Split-Path -Path $Path -Parent) 'drawers.json'
+    if (-not (Test-Path -LiteralPath $drawersPath -PathType Leaf)) { $drawersPath = $script:TerraformClassifierDrawersPath }
+    $drawers = Get-TerraformClassifierDrawerName -Path $drawersPath
+
+    $problems = @(Get-TerraformClassifierMapProblem -Map $map -Drawer $drawers)
+    if ($problems.Count) {
+        throw "Classifier map '$Path' has $($problems.Count) problem(s):`n  $($problems -join "`n  ")"
+    }
+
+    $lookup = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($row in @($map['rows'])) { $lookup["$($row['provider'])`n$($row['subcategory'])"] = $row }
+    $compact = [System.Text.Encoding]::UTF8.GetBytes([TerraformGraph.Json]::Serialize($map, 64, $true))
+    $hash = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($compact)).ToLowerInvariant()
+    [pscustomobject]@{
+        Path       = (Resolve-Path -LiteralPath $Path).ProviderPath
+        MapVersion = $hash.Substring(0, 12)
+        Drawers    = $drawers
+        Lookup     = $lookup
+    }
+}
+
+function ConvertTo-TerraformClassifierDocument {
+    # Not exported. The classifier document for one provider version. Types come from the
+    # schema entry (resource_schemas, data_source_schemas), so a type with no doc page is a
+    # NoDocPage finding rather than missing. Each type's subcategory is its doc page's; a
+    # provider row in -Map wins over a '*' row. Doc pages with unmatched Ids document no
+    # schema type and are left out. Types and findings are sorted by type, then kind
+    # (data-source before resource), so the same inputs always give the same document.
+    param([string]$Address, [string]$Version, [string]$DocsVersion, $SchemaEntry, [object[]]$Docs, $Map, [string]$GeneratedOn)
+
+    $docById = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    foreach ($doc in $Docs) {
+        if ($doc.Category -in 'resources', 'data-sources') { $docById[[string]$doc.Id] = $doc }
+    }
+
+    $types = [System.Collections.Generic.List[object]]::new()
+    foreach ($section in @(
+            @{ Key = 'resource_schemas';    Kind = 'resource';    Segment = 'resource' }
+            @{ Key = 'data_source_schemas'; Kind = 'data-source'; Segment = 'data' }
+        )) {
+        $schemas = $SchemaEntry[$section.Key]
+        if ($null -eq $schemas) { continue }
+        foreach ($type in @($schemas.Keys)) {
+            $doc = $null
+            $null = $docById.TryGetValue("$Address/$($section.Segment)/$type", [ref]$doc)
+            $subcategory = if ($doc -and -not [string]::IsNullOrEmpty([string]$doc.Subcategory)) { [string]$doc.Subcategory } else { $null }
+            $row = $null
+            if ($subcategory -and -not $Map.Lookup.TryGetValue("$Address`n$subcategory", [ref]$row)) {
+                $null = $Map.Lookup.TryGetValue("*`n$subcategory", [ref]$row)
+            }
+            $finding = if (-not $doc) { 'NoDocPage' } elseif (-not $subcategory) { 'NoSubcategory' } elseif (-not $row) { 'UnmappedSubcategory' } else { $null }
+            $types.Add([pscustomobject]@{
+                Type        = [string]$type
+                Kind        = $section.Kind
+                Subcategory = $subcategory
+                Drawer      = if ($row) { [string]$row['drawer'] } else { 'unclassified' }
+                Finding     = $finding
+            })
+        }
+    }
+    $types.Sort([System.Comparison[object]] {
+            param($a, $b)
+            $byType = [string]::CompareOrdinal($a.Type, $b.Type)
+            if ($byType) { return $byType }
+            [string]::CompareOrdinal($a.Kind, $b.Kind)
+        })
+
+    [ordered]@{
+        provider    = $Address
+        version     = $Version
+        docsVersion = $DocsVersion
+        generatedOn = $GeneratedOn
+        mapVersion  = $Map.MapVersion
+        source      = 'subcategory'
+        types       = [object[]]@(foreach ($item in $types) {
+                [ordered]@{ type = $item.Type; kind = $item.Kind; subcategory = $item.Subcategory; drawer = $item.Drawer }
+            })
+        findings    = [object[]]@(foreach ($item in $types) {
+                if ($item.Finding) { [ordered]@{ type = $item.Type; kind = $item.Kind; subcategory = $item.Subcategory; finding = $item.Finding } }
+            })
+    }
+}
+
+function Get-TerraformClassifierEntry {
+    # Not exported. Every classifier file in lookup order, highest precedence first:
+    # -ClassifierPath (a file, or the *.json files in a folder), the user root, the bundled
+    # root. Rank is that position, 0 highest. provider and version are read from the start
+    # of each file, never its name (address slugs contain dots and dashes); files that do
+    # not start with them, such as drawers.json and map.json, are skipped.
+    param([string]$ClassifierPath)
+
+    $rank = 0
+    foreach ($source in @($ClassifierPath, $script:TerraformClassifierUserRoot, $script:TerraformClassifierBundledRoot)) {
+        $files = if (-not $source) { @() }
+        elseif (Test-Path -LiteralPath $source -PathType Leaf) { @(Get-Item -LiteralPath $source) }
+        elseif (Test-Path -LiteralPath $source -PathType Container) { @(Get-ChildItem -LiteralPath $source -Filter '*.json' -File | Sort-Object Name) }
+        else { @() }
+        foreach ($file in $files) {
+            try {
+                $reader = [System.IO.StreamReader]::new($file.FullName, [System.Text.Encoding]::UTF8)
+                try {
+                    $buffer = [char[]]::new(1024)
+                    $head = [string]::new($buffer, 0, $reader.ReadBlock($buffer, 0, 1024))
+                }
+                finally {
+                    $reader.Dispose()
+                }
+            }
+            catch {
+                Write-Verbose "Skipping $($file.FullName): $($_.Exception.Message)"
+                continue
+            }
+            if ($head -match '^\s*\{\s*"provider"\s*:\s*"([^"]+)"\s*,\s*"version"\s*:\s*"([^"]+)"') {
+                [pscustomobject]@{ ProviderAddress = $Matches[1]; Version = $Matches[2]; Path = $file.FullName; Rank = $rank }
+            }
+        }
+        $rank++
+    }
+}
+
+function Find-TerraformClassifierEntry {
+    # Not exported. The classifier entry for -Address: with -Version, the highest-ranked file
+    # at that version; without, the newest version in the highest-ranked root that holds the
+    # provider at all, so an override folder wins even over a newer bundled version. $null
+    # when there is none.
+    param([object[]]$Entry, [string]$Address, [string]$Version)
+
+    $mine = @($Entry | Where-Object { $_.ProviderAddress -eq $Address } | Sort-Object Rank -Stable)
+    if (-not $mine.Count) { return $null }
+    if ($Version) { return $mine | Where-Object Version -eq $Version | Select-Object -First 1 }
+    $top = $mine[0].Rank
+    @(Sort-TerraformRegistryVersion -Versions @($mine | Where-Object Rank -eq $top))[0].Record
+}
+
+function Resolve-TerraformClassifier {
+    # Not exported. One classifier entry per provider the -Name patterns select (every
+    # provider with a classifier when there are none), matched by shape as in
+    # Get-TerraformSchemaCache, sorted by address. Throws when a pattern matches nothing or
+    # -Version is not there; callers turn that into their own terminating error.
+    param([string[]]$Name, [string]$Version, [string]$ClassifierPath)
+
+    $entries = @(Get-TerraformClassifierEntry -ClassifierPath $ClassifierPath)
+    $addresses = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    if ($Name) {
+        foreach ($pattern in $Name) {
+            $found = @(Select-TerraformSchemaCacheEntry -Entry $entries -Name $pattern)
+            if (-not $found.Count) {
+                throw "No classifier matches '$pattern'. Generate one with New-TerraformClassifier -Provider $pattern, or pass -ClassifierPath."
+            }
+            foreach ($item in $found) { $null = $addresses.Add($item.ProviderAddress) }
+        }
+    }
+    else {
+        foreach ($item in $entries) { $null = $addresses.Add($item.ProviderAddress) }
+    }
+
+    foreach ($address in $addresses) {
+        $entry = Find-TerraformClassifierEntry -Entry $entries -Address $address -Version $Version
+        if (-not $entry) {
+            $available = @($entries | Where-Object ProviderAddress -eq $address | ForEach-Object Version | Select-Object -Unique)
+            throw "No classifier for $address $Version (available: $($available -join ', ')). Generate it with New-TerraformClassifier -Provider $address -Version $Version."
+        }
+        $entry
+    }
+}
+
+function Read-TerraformClassifierFile {
+    # Not exported. One classifier file as TerraformGraph.Classifier with
+    # TerraformGraph.ClassifiedType Types and TerraformGraph.ClassifierFinding Findings.
+    param([string]$Path)
+
+    $document = Read-TerraformClassifierJson -Path $Path
+    $address = [string]$document['provider']
+    $version = [string]$document['version']
+    $types = [object[]]@(foreach ($item in @($document['types'])) {
+            [pscustomobject]@{
+                PSTypeName  = 'TerraformGraph.ClassifiedType'
+                Type        = [string]$item['type']
+                Kind        = [string]$item['kind']
+                Subcategory = $item['subcategory']
+                Drawer      = [string]$item['drawer']
+            }
+        })
+    $findings = [object[]]@(foreach ($item in @($document['findings'])) {
+            [pscustomobject]@{
+                PSTypeName      = 'TerraformGraph.ClassifierFinding'
+                ProviderAddress = $address
+                Version         = $version
+                Type            = [string]$item['type']
+                Kind            = [string]$item['kind']
+                Subcategory     = $item['subcategory']
+                Finding         = [string]$item['finding']
+            }
+        })
+    [pscustomobject]@{
+        PSTypeName      = 'TerraformGraph.Classifier'
+        ProviderAddress = $address
+        Version         = $version
+        DocsVersion     = [string]$document['docsVersion']
+        GeneratedOn     = [string]$document['generatedOn']
+        MapVersion      = [string]$document['mapVersion']
+        Source          = [string]$document['source']
+        Types           = $types
+        Findings        = $findings
+        TypeCount       = $types.Length
+        FindingCount    = $findings.Length
+        Path            = $Path
+    }
+}
+
+function Get-TerraformClassifierOverlay {
+    # Not exported. For -Classify on a graph: per provider address, a lookup
+    # "<kind>|<type>" -> ClassifiedType (kind resource or data-source), or $null when no
+    # classifier is found, which gets one warning (terraform.io/builtin providers have no
+    # registry docs and are skipped silently). -Version maps an address to the schema
+    # version the graph came from; that classifier version is preferred, else the one the
+    # lookup order gives. Order is the drawers.json order, for the Drawers summary.
+    param([string[]]$Address, [hashtable]$Version = @{}, [string]$ClassifierPath)
+
+    $entries = @(Get-TerraformClassifierEntry -ClassifierPath $ClassifierPath)
+    $byAddress = @{}
+    foreach ($providerAddress in @($Address | Select-Object -Unique)) {
+        $wanted = $Version[$providerAddress]
+        $entry = if ($wanted) { Find-TerraformClassifierEntry -Entry $entries -Address $providerAddress -Version $wanted }
+        if (-not $entry) {
+            $entry = Find-TerraformClassifierEntry -Entry $entries -Address $providerAddress
+            if ($entry -and $wanted) { Write-Verbose "No classifier for $providerAddress $wanted; using $($entry.Version) from $($entry.Path)" }
+        }
+        if (-not $entry) {
+            if (-not $providerAddress.StartsWith('terraform.io/builtin/', [System.StringComparison]::OrdinalIgnoreCase)) {
+                Write-Warning "No classifier for $providerAddress, so its types are in the unclassified drawer. Generate one with New-TerraformClassifier -Provider $providerAddress, or pass -ClassifierPath."
+            }
+            $byAddress[$providerAddress] = $null
+            continue
+        }
+        Write-Verbose "Classifying $providerAddress with $($entry.Path)"
+        $lookup = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+        foreach ($type in (Read-TerraformClassifierFile -Path $entry.Path).Types) { $lookup["$($type.Kind)|$($type.Type)"] = $type }
+        $byAddress[$providerAddress] = $lookup
+    }
+    [pscustomobject]@{ ByAddress = $byAddress; Order = Get-TerraformClassifierDrawerName }
+}
+
+function New-TerraformDrawerSummary {
+    # Not exported. TerraformGraph.DrawerSummary rows from -Item records (Drawer, TypeKey),
+    # in -Order with unknown drawers after it by name. TypeCount is the distinct TypeKeys;
+    # InstanceCount is the record count with -Instances, else $null (not known).
+    param([object[]]$Item, [string[]]$Order, [switch]$Instances)
+
+    $groups = @{}
+    foreach ($record in $Item) {
+        $group = $groups[$record.Drawer]
+        if (-not $group) {
+            $group = @{ Types = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal); Instances = 0 }
+            $groups[$record.Drawer] = $group
+        }
+        $null = $group.Types.Add([string]$record.TypeKey)
+        $group.Instances++
+    }
+    $names = @($groups.Keys) | Sort-Object { $index = [array]::IndexOf($Order, $_); if ($index -lt 0) { [int]::MaxValue } else { $index } }, { $_ }
+    foreach ($name in $names) {
+        [pscustomobject]@{
+            PSTypeName    = 'TerraformGraph.DrawerSummary'
+            Drawer        = $name
+            TypeCount     = $groups[$name].Types.Count
+            InstanceCount = if ($Instances) { $groups[$name].Instances } else { $null }
+        }
+    }
+}
+
+function Add-TerraformResourceGraphClassification {
+    # Not exported. -Classify for ConvertTo-TerraformResourceGraph: every ResourceNode gets
+    # Drawer and Subcategory from its provider's classifier by Type and Kind (unclassified
+    # when the classifier lacks the type or there is none), and the graph gets Drawers with
+    # TypeCount (distinct SchemaIds) and InstanceCount (blocks). Ids, nodes and edges are
+    # untouched.
+    param($Graph, [hashtable]$Version, [string]$ClassifierPath)
+
+    $overlay = Get-TerraformClassifierOverlay -Address @($Graph.Providers.Keys) -Version $Version -ClassifierPath $ClassifierPath
+    $items = [System.Collections.Generic.List[object]]::new()
+    foreach ($node in $Graph.Nodes) {
+        $kind = $node.Kind -eq 'DataSource' ? 'data-source' : 'resource'
+        $lookup = $overlay.ByAddress[[string]$node.ProviderAddress]
+        $classified = $null
+        if ($lookup) { $null = $lookup.TryGetValue("$kind|$($node.Type)", [ref]$classified) }
+        $drawer = if ($classified) { $classified.Drawer } else { 'unclassified' }
+        $node.PSObject.Properties.Add([psnoteproperty]::new('Drawer', $drawer))
+        $node.PSObject.Properties.Add([psnoteproperty]::new('Subcategory', $(if ($classified) { $classified.Subcategory } else { $null })))
+        $items.Add([pscustomobject]@{ Drawer = $drawer; TypeKey = $node.SchemaId })
+    }
+    $Graph.PSObject.Properties.Add([psnoteproperty]::new('Drawers', [object[]]@(New-TerraformDrawerSummary -Item $items -Order $overlay.Order -Instances)))
+}
+
+function New-TerraformClassifier {
+    <#
+    .SYNOPSIS
+        Writes a provider version's classifier: every resource and data source type with its subcategory and drawer.
+
+    .DESCRIPTION
+        New-TerraformClassifier reads one provider version from the local schema cache and
+        the docs cache, takes each resource and data source type from the schema, looks up
+        its doc page's subcategory (the provider's own label, such as "Key Vault" or
+        "Host and Cluster Management") and maps that label to a drawer through the map
+        file. A row for the provider wins over a '*' row. It never touches the network.
+
+        A type the map cannot place is in the unclassified drawer and is listed in findings:
+            NoDocPage            the schema has the type but the docs have no page for it
+            NoSubcategory        the page has an empty subcategory
+            UnmappedSubcategory  the map has no row for the page's subcategory
+        unclassified is a legitimate drawer, not an error.
+
+        The file is <OutputPath>\<address-slug>.<version>.json:
+            { provider, version, docsVersion, generatedOn, mapVersion, source: "subcategory",
+              types: [ { type, kind, subcategory, drawer } ],
+              findings: [ { type, kind, subcategory, finding } ] }
+        version is the schema version. Docs are read at the same version, else the newest
+        cached docs with a warning, and docsVersion says which. mapVersion is a hash of the
+        map's rows. Types and findings are sorted by type, then kind. When a rerun gives
+        the same content, the file and its generatedOn are left as they are, so reruns are
+        byte-identical.
+
+        The map is checked first: a row with no reason, a drawer not in drawers.json, a
+        row targeting unclassified, or a repeated provider and subcategory stops the
+        command before anything is read. Judgements behind the map are in
+        classifiers\DECISIONS.md.
+
+    .PARAMETER Provider
+        Providers to classify: 'vsphere', 'vmware/vsphere' or a full address. A value with
+        a wildcard is resolved against the provider registry cache and must match exactly
+        one provider. The schema and docs must be cached.
+
+    .PARAMETER Version
+        Schema version to classify. Default: the newest cached schema of each provider.
+
+    .PARAMETER MapPath
+        Map file. Default: classifiers\map.json in the module folder. drawers.json beside
+        it is the drawer list, else the bundled one.
+
+    .PARAMETER OutputPath
+        Folder to write to. Default: $env:LOCALAPPDATA\TerraformGraph\classifiers, which
+        Get-TerraformClassifier and -Classify search before the classifiers bundled with the
+        module.
+
+    .PARAMETER PassThru
+        Return one TerraformGraph.ClassifierBuild per provider.
+
+    .EXAMPLE
+        New-TerraformClassifier -Provider vmware/vsphere -PassThru
+
+        Classify the newest cached vsphere schema into the user classifier folder and show
+        the type and finding counts.
+
+    .EXAMPLE
+        New-TerraformClassifier -Provider azurerm -MapPath .\my-map.json -OutputPath .\classifiers -PassThru
+
+        Classify with your own map into a folder you then pass as -ClassifierPath.
+
+    .OUTPUTS
+        None, or TerraformGraph.ClassifierBuild with -PassThru: ProviderAddress, Version,
+        DocsVersion, Path, Status (Written, Updated or Unchanged), TypeCount, FindingCount,
+        Drawers (ordered drawer -> type count). Default view is ProviderAddress, Version,
+        Status, TypeCount, FindingCount.
+
+    .LINK
+        Get-TerraformClassifier
+
+    .LINK
+        Get-TerraformClassifierFinding
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0)]
+        [string[]]
+        $Provider,
+
+        [string]
+        $Version,
+
+        [string]
+        $MapPath = $script:TerraformClassifierMapPath,
+
+        [string]
+        $OutputPath = $script:TerraformClassifierUserRoot,
+
+        [switch]
+        $PassThru
+    )
+
+    try {
+        $map = Read-TerraformClassifierMap -Path $MapPath
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.IO.InvalidDataException]::new($_.Exception.Message),
+            'ClassifierMapInvalid',
+            [System.Management.Automation.ErrorCategory]::InvalidData,
+            $MapPath))
+    }
+    Write-Verbose "Map $($map.Path), mapVersion $($map.MapVersion)"
+
+    foreach ($name in $Provider) {
+        try {
+            $parsed = if ([WildcardPattern]::ContainsWildcardCharacters($name)) {
+                ConvertTo-TerraformProviderAddress -Provider (Resolve-TerraformRegistryProvider -Name $name).ProviderAddress
+            }
+            else {
+                ConvertTo-TerraformProviderAddress -Provider $name
+            }
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.ArgumentException]::new($_.Exception.Message),
+                'RegistryProviderNotResolved',
+                [System.Management.Automation.ErrorCategory]::InvalidArgument,
+                $name))
+        }
+        $address = $parsed.Address.ToLowerInvariant()
+
+        $schemaEntries = @(Get-TerraformSchemaCacheEntry | Where-Object { $_.ProviderAddress -eq $address })
+        $schemaEntry = if ($Version) { $schemaEntries | Where-Object Version -eq $Version | Select-Object -First 1 } else { $schemaEntries | Select-Object -First 1 }
+        if (-not $schemaEntry) {
+            $cachedText = if ($schemaEntries.Count) { " (cached: $(@($schemaEntries.Version) -join ', '))" } else { '' }
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.Management.Automation.ItemNotFoundException]::new("No cached schema for $address$(if ($Version) { " $Version" })$cachedText. Download a schema pack with Get-TerraformSchemaPack -Provider $($parsed.Source), or harvest it with Get-TerraformProviderSchema -Provider $($parsed.Source) -SaveToCache."),
+                'SchemaNotCached',
+                [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                $name))
+        }
+        $docEntries = @(Get-TerraformSchemaCacheEntry -Kind Docs | Where-Object { $_.ProviderAddress -eq $address })
+        $docEntry = $docEntries | Where-Object Version -eq $schemaEntry.Version | Select-Object -First 1
+        if (-not $docEntry) {
+            $docEntry = $docEntries | Select-Object -First 1
+            if (-not $docEntry) {
+                $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                    [System.Management.Automation.ItemNotFoundException]::new("No cached docs for $address. Download a docs pack with Get-TerraformDocPack -Provider $($parsed.Source), or harvest them with Update-TerraformProviderDocCache -Provider $($parsed.Source) -Version $($schemaEntry.Version)."),
+                    'ProviderDocNotCached',
+                    [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                    $name))
+            }
+            Write-Warning "Docs for $address $($schemaEntry.Version) are not cached; classifying with the cached $($docEntry.Version) docs. Run Update-TerraformProviderDocCache -Provider $($parsed.Source) -Version $($schemaEntry.Version) to match the schema."
+        }
+
+        Write-Verbose "Classifying $address $($schemaEntry.Version) with docs $($docEntry.Version)"
+        $schemas = (Read-TerraformSchemaCache -Path $schemaEntry.Path)['provider_schemas']
+        $key = @($schemas.Keys) | Where-Object { $_ -eq $address } | Select-Object -First 1
+        $docs = (Read-TerraformProviderDocFile -Path $docEntry.Path).Docs
+        $document = ConvertTo-TerraformClassifierDocument -Address $address -Version $schemaEntry.Version -DocsVersion $docEntry.Version `
+            -SchemaEntry $schemas[$key] -Docs $docs -Map $map -GeneratedOn $null
+
+        $slug = $address.Replace('/', '-')
+        $path = Join-Path $OutputPath "$slug.$($schemaEntry.Version).json"
+        $now = [datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [cultureinfo]::InvariantCulture)
+        $status = 'Written'
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $status = 'Updated'
+            $existingText = [System.IO.File]::ReadAllText($path)
+            try {
+                $document.generatedOn = [string]([TerraformGraph.Json]::Deserialize($existingText, 64, $true))['generatedOn']
+                # A git checkout with core.autocrlf may have turned LF into CRLF; that is not a change.
+                if ((Format-TerraformClassifierJson -Document $document) -ceq $existingText.Replace("`r`n", "`n")) { $status = 'Unchanged' }
+            }
+            catch {
+                Write-Verbose "Replacing unreadable $path`: $($_.Exception.Message)"
+            }
+        }
+
+        if ($status -ne 'Unchanged') {
+            $document.generatedOn = $now
+            $null = New-Item -ItemType Directory -Path $OutputPath -Force -ErrorAction Stop
+            $temporary = Join-Path $OutputPath ".$([guid]::NewGuid().ToString('n')).tmp"
+            try {
+                [System.IO.File]::WriteAllText($temporary, (Format-TerraformClassifierJson -Document $document), [System.Text.UTF8Encoding]::new($false))
+                Move-Item -LiteralPath $temporary -Destination $path -Force -ErrorAction Stop
+            }
+            finally {
+                if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+            }
+        }
+        Write-Verbose "$status $path`: $(@($document.types).Count) types, $(@($document.findings).Count) findings"
+
+        if ($PassThru) {
+            $drawers = [ordered]@{}
+            foreach ($drawerName in $map.Drawers) {
+                $count = @($document.types | Where-Object { $_.drawer -ceq $drawerName }).Count
+                if ($count) { $drawers[$drawerName] = $count }
+            }
+            [pscustomobject]@{
+                PSTypeName      = 'TerraformGraph.ClassifierBuild'
+                ProviderAddress = $address
+                Version         = $schemaEntry.Version
+                DocsVersion     = $docEntry.Version
+                Path            = (Resolve-Path -LiteralPath $path).ProviderPath
+                Status          = $status
+                TypeCount       = @($document.types).Count
+                FindingCount    = @($document.findings).Count
+                Drawers         = $drawers
+            }
+        }
+    }
+}
+
+function Get-TerraformClassifier {
+    <#
+    .SYNOPSIS
+        Gets provider classifiers: each resource and data source type with its subcategory and drawer.
+
+    .DESCRIPTION
+        Get-TerraformClassifier reads classifier files written by New-TerraformClassifier
+        (or Invoke-Build BuildClassifier) and returns one TerraformGraph.Classifier per
+        provider. It never touches the network.
+
+        Classifiers are looked up in order: -ClassifierPath, then
+        $env:LOCALAPPDATA\TerraformGraph\classifiers, then the classifiers folder bundled
+        with the module. Without -Version, the first of those that holds a provider at all
+        supplies it, at its newest version there, so your own classifier wins over a newer
+        bundled one. With -Version, the first file at that version wins.
+
+    .PARAMETER Provider
+        Providers to return. Patterns match by shape and may use wildcards, as for
+        Get-TerraformSchemaCache: 'azurerm', 'azure*', 'hashicorp/azurerm' or a full
+        address. Default: every provider with a classifier. A pattern with no classifier is
+        a terminating error that names New-TerraformClassifier.
+
+    .PARAMETER Version
+        Classifier version (the schema version it was generated from). Default: the newest
+        in the first folder that has the provider.
+
+    .PARAMETER ClassifierPath
+        A classifier file, or a folder of them, searched before the user and bundled
+        folders.
+
+    .EXAMPLE
+        Get-TerraformClassifier -Provider vsphere
+
+        The bundled vsphere classifier: ProviderAddress, Version, DocsVersion, TypeCount,
+        FindingCount.
+
+    .EXAMPLE
+        (Get-TerraformClassifier -Provider azurerm).Types | Group-Object Drawer | Sort-Object Count -Descending
+
+        How many azurerm types fall in each drawer.
+
+    .OUTPUTS
+        TerraformGraph.Classifier: ProviderAddress, Version, DocsVersion, GeneratedOn,
+        MapVersion, Source, Types (TerraformGraph.ClassifiedType: Type, Kind, Subcategory,
+        Drawer), Findings (TerraformGraph.ClassifierFinding), TypeCount, FindingCount, Path.
+        Default view is ProviderAddress, Version, DocsVersion, TypeCount, FindingCount.
+
+    .LINK
+        New-TerraformClassifier
+
+    .LINK
+        Get-TerraformClassifierFinding
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [string[]]
+        $Provider,
+
+        [string]
+        $Version,
+
+        [ValidateScript({ if (Test-Path -LiteralPath $_) { $true } else { throw "ClassifierPath '$_' does not exist." } })]
+        [string]
+        $ClassifierPath
+    )
+
+    try {
+        $entries = @(Resolve-TerraformClassifier -Name $Provider -Version $Version -ClassifierPath $ClassifierPath)
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.Management.Automation.ItemNotFoundException]::new($_.Exception.Message),
+            'ClassifierNotFound',
+            [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+            $Provider))
+    }
+    foreach ($entry in $entries) { Read-TerraformClassifierFile -Path $entry.Path }
+}
+
+function Get-TerraformClassifierFinding {
+    <#
+    .SYNOPSIS
+        Gets the types a classifier could not place in a drawer, and why.
+
+    .DESCRIPTION
+        Get-TerraformClassifierFinding returns the findings of the classifiers
+        Get-TerraformClassifier selects, one TerraformGraph.ClassifierFinding per type in
+        the unclassified drawer:
+            NoDocPage            the schema has the type but the docs have no page for it
+            NoSubcategory        the page has an empty subcategory
+            UnmappedSubcategory  the map has no row for the page's subcategory
+        Findings are what to look at before adding map rows (with a reason) or recording a
+        decision in classifiers\DECISIONS.md not to.
+
+    .PARAMETER Provider
+        Providers, as for Get-TerraformClassifier. Default: every provider with a
+        classifier.
+
+    .PARAMETER Version
+        Classifier version. Default: as for Get-TerraformClassifier.
+
+    .PARAMETER ClassifierPath
+        A classifier file, or a folder of them, searched before the user and bundled
+        folders.
+
+    .EXAMPLE
+        Get-TerraformClassifierFinding -Provider azurerm
+
+        The azurerm types in the unclassified drawer as a table of Type, Kind, Subcategory,
+        Finding.
+
+    .EXAMPLE
+        Get-TerraformClassifierFinding -Provider azurerm | Group-Object Subcategory | Sort-Object Count -Descending
+
+        Which unmapped subcategories hold the most types.
+
+    .OUTPUTS
+        TerraformGraph.ClassifierFinding: ProviderAddress, Version, Type, Kind,
+        Subcategory, Finding. Default view is a table of Type, Kind, Subcategory, Finding.
+
+    .LINK
+        Get-TerraformClassifier
+
+    .LINK
+        New-TerraformClassifier
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [string[]]
+        $Provider,
+
+        [string]
+        $Version,
+
+        [ValidateScript({ if (Test-Path -LiteralPath $_) { $true } else { throw "ClassifierPath '$_' does not exist." } })]
+        [string]
+        $ClassifierPath
+    )
+
+    try {
+        $entries = @(Resolve-TerraformClassifier -Name $Provider -Version $Version -ClassifierPath $ClassifierPath)
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.Management.Automation.ItemNotFoundException]::new($_.Exception.Message),
+            'ClassifierNotFound',
+            [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+            $Provider))
+    }
+    foreach ($entry in $entries) { (Read-TerraformClassifierFile -Path $entry.Path).Findings }
+}
+
+Register-ArgumentCompleter -CommandName New-TerraformClassifier -ParameterName Provider -ScriptBlock $script:TerraformRegistryProviderCompleter
 
 # Agent tools that read project skills: the project-relative folder skills are copied
 # into, and the path whose presence means the tool is used in a repo. These paths are

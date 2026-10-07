@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.11.0
+Module version: 0.12.0
 Last updated: 2026-10-06
 
 ## 0 Setup
@@ -17,9 +17,9 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.10.0`, then fifteen names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformVariableTrace, Install-TerraformGraphSkill, Test-TerraformGraphSkill, Update-TerraformRegistryCache.
+Expect: `0.12.0`, then twenty-two names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformClassifier, Get-TerraformClassifierFinding, Get-TerraformDocCache, Get-TerraformDocPack, Get-TerraformModuleGraph, Get-TerraformProviderDoc, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformVariableTrace, Install-TerraformGraphSkill, New-TerraformClassifier, Test-TerraformGraphSkill, Update-TerraformProviderDocCache, Update-TerraformRegistryCache.
 
-Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph", "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from TerraformGraph"
+Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph", "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from TerraformGraph", "exports the four docs commands from TerraformGraph", "exports the three classifier commands from TerraformGraph"
 
 ## 1 Get-TerraformAST
 
@@ -1581,3 +1581,121 @@ Get-ChildItem .\dist\schema-packs | Format-Table Name, Length
 Expect: After each schema line, a docs line: `registry.terraform.io/hashicorp/azurerm 5.8.0 docs: 1518 pages, 1 unmatched, 1,182,564 bytes; harvest 00:44; unmatched e.g. data-sources/container_app_environment_dapr_component`, `registry.terraform.io/microsoft/azuredevops 1.16.0 docs: 183 pages, 1 unmatched, 91,929 bytes; ... unmatched e.g. resources/environment_kubernetes_resource` and `registry.terraform.io/vmware/vsphere 2.17.1 docs: 87 pages, 0 unmatched, 104,225 bytes`. Then `Wrote 6 packs (schema and docs) and manifest.json ... in` about 1:17. The folder holds manifest.json (2342 bytes, every entry with a kind), the three schema .json.gz files and three docs.*.json.gz files. Versions and counts follow the registry, so they change over time.
 
 Pester: none
+
+## 14 Classifiers: New-TerraformClassifier, Get-TerraformClassifier, Get-TerraformClassifierFinding, -Classify
+
+Classifiers group resource and data source types into drawers from the providers' own doc subcategories through src\TerraformGraph\classifiers\map.json. The module ships classifiers for azurerm, azuredevops and vsphere. New-TerraformClassifier writes to $env:LOCALAPPDATA\TerraformGraph\classifiers, which is searched before the bundled folder. Items 14.1 to 14.3 and 14.5 need the azurerm, azuredevops and vsphere schemas and docs cached (Get-TerraformSchemaPack and Get-TerraformDocPack, or item 13.6). Items 14.2 and 14.4 write into the real user classifier folder.
+
+### 14.1 Probe: subcategories per provider
+
+The docs cache keeps each page's subcategory. This is the probe the default classifier is built on.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+foreach ($p in 'hashicorp/azurerm', 'microsoft/azuredevops', 'vmware/vsphere') {
+    $pages = Get-TerraformProviderDoc -Provider $p -Category resources, data-sources
+    $labels = @($pages | Where-Object Subcategory | Group-Object Subcategory)
+    "{0}: {1} pages, {2} subcategories, {3} empty" -f $p, $pages.Count, $labels.Count, @($pages | Where-Object { -not $_.Subcategory }).Count
+    $labels | Sort-Object Count -Descending | Select-Object -First 5 | Format-Table Count, Name
+}
+```
+
+Expect: `hashicorp/azurerm: 1503 pages, 112 subcategories, 0 empty`, led by Network 152, Messaging 75, API Management 64, Compute 56 and Data Factory 54. Then `microsoft/azuredevops: 177 pages, 0 subcategories, 177 empty` with no table, because azuredevops publishes no subcategories. Then `vmware/vsphere: 86 pages, 9 subcategories, 0 empty`, led by Host and Cluster Management 22, Virtual Machine 14, Inventory 13, Storage 12 and Networking 7.
+
+Pester: none
+
+### 14.2 New-TerraformClassifier for vsphere
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+New-TerraformClassifier -Provider vmware/vsphere -PassThru
+New-TerraformClassifier -Provider vmware/vsphere -PassThru
+(Get-TerraformClassifier -Provider vsphere).Types | Group-Object Drawer | Format-Table Count, Name
+```
+
+Expect: Two lists, both with ProviderAddress `registry.terraform.io/vmware/vsphere`, Version `2.17.1`, TypeCount `87` and FindingCount `1`. Status is `Written` the first time (`Unchanged` if the file was already there) and `Unchanged` the second time, because the rerun is byte-identical. Then the drawers: compute 36, containers 7, identity 7, management 17, network 7, storage 12, unclassified 1.
+
+Pester: "writes a deterministic classifier: reruns are byte-identical and Unchanged, even after a CRLF checkout", "puts NoDocPage, NoSubcategory and UnmappedSubcategory types in the unclassified drawer; a provider row beats a * row"
+
+### 14.3 Get-TerraformClassifierFinding for azurerm
+
+Reads the bundled azurerm classifier (or your own, if the user folder has one).
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformClassifier -Provider azurerm
+Get-TerraformClassifierFinding -Provider azurerm | Group-Object Subcategory | Sort-Object Count -Descending | Format-Table Count, Name
+Get-TerraformClassifierFinding -Provider azurerm | Select-Object -First 3
+```
+
+Expect: A list with ProviderAddress `registry.terraform.io/hashicorp/azurerm`, Version `5.8.0`, DocsVersion `5.8.0`, TypeCount `1502`, FindingCount `101`. Then the twelve unmapped subcategories: API Management 64, Healthcare 11, App Configuration 6, Connections 3, Search 3, Workloads 3, then 2 each for Confidential Ledger, Databox Edge, Extended Location, Graph Services and Maps, and Fluid Relay 1. Then a table with columns Type, Kind, Subcategory, Finding: azurerm_api_connection (data-source, then resource) and azurerm_api_management (data-source), all `UnmappedSubcategory`.
+
+Pester: "puts NoDocPage, NoSubcategory and UnmappedSubcategory types in the unclassified drawer; a provider row beats a * row", "keeps the bundled classifiers in step with map.json"
+
+### 14.4 -Classify on infra with the Drawers summary
+
+The first four lines fill the null and local caches only when they are missing, like 13.4.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+if (-not (Get-TerraformSchemaCache -Provider hashicorp/null)) { $null = Get-TerraformProviderSchema -Provider hashicorp/null -Version '= 3.2.3' -SaveToCache -Cleanup }
+if (-not (Get-TerraformSchemaCache -Provider hashicorp/local)) { $null = Get-TerraformProviderSchema -Provider hashicorp/local -Version '= 2.5.2' -SaveToCache -Cleanup }
+Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3
+Update-TerraformProviderDocCache -Provider hashicorp/local -Version 2.5.2
+New-TerraformClassifier -Provider hashicorp/null, hashicorp/local
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema -Classify
+$graph.Drawers
+$graph.Nodes | Format-Table Drawer, Subcategory, ResourceAddress
+```
+
+Expect: No warnings. One Drawers row, `unclassified 3 5`: three types (null_resource, local_file, terraform_data) and five blocks. Then the five blocks, all `unclassified` with an empty Subcategory. The null and local providers publish no subcategories, so their classifiers place nothing. terraform_data is the built-in provider, which is unclassified without a warning.
+
+Pester: "leaves resource graph Ids and edges unchanged with -Classify and counts types and instances per drawer", "leaves schema graph Ids, node count and edges unchanged with -Classify and adds Drawer, Subcategory and Drawers"
+
+### 14.5 -ClassifierPath override with your own map
+
+A copy of the bundled map with one row changed (vsphere Workload Management moved from containers to compute), classified into a temp folder and passed as -ClassifierPath. The bundled classifier is shown after it for comparison.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$work = Join-Path $env:TEMP "classifier-check-$([guid]::NewGuid().ToString('n'))"
+New-Item -ItemType Directory -Path $work | Out-Null
+$map = Get-Content .\src\TerraformGraph\classifiers\map.json -Raw | ConvertFrom-TerraformJson -AsHashtable
+$row = $map.rows | Where-Object { $_.provider -eq 'registry.terraform.io/vmware/vsphere' -and $_.subcategory -eq 'Workload Management' }
+$row.drawer = 'compute'; $row.reason = 'Our view: supervisors and namespaces are part of the compute estate.'; $row.addedBy = 'jerry'
+$map | ConvertTo-TerraformJson | Set-Content (Join-Path $work 'map.json')
+New-TerraformClassifier -Provider vmware/vsphere -MapPath (Join-Path $work 'map.json') -OutputPath (Join-Path $work 'classifiers') -PassThru | Format-Table
+(ConvertTo-TerraformSchemaGraph -Provider vsphere -ClassifierPath (Join-Path $work 'classifiers')).Drawers | Format-Table
+(ConvertTo-TerraformSchemaGraph -Provider vsphere -Classify).Drawers | Format-Table
+Remove-Item -LiteralPath $work -Recurse -Force
+```
+
+Expect: `registry.terraform.io/vmware/vsphere 2.17.1 Written 87 1`. Then the override drawers: network 7, compute 43, storage 12, identity 7, management 17, unclassified 1, with no containers row and InstanceCount empty. Then the default drawers: network 7, compute 36, storage 12, identity 7, management 17, containers 7, unclassified 1.
+
+Pester: "uses -ClassifierPath over the user folder, and the user folder over a newer bundled classifier"
+
+### 14.6 Invoke-Build BuildClassifier
+
+Regenerates the bundled classifiers from the local caches with no network, then prints the findings per provider.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Invoke-Build BuildClassifier
+git diff --stat -- src\TerraformGraph\classifiers
+```
+
+Expect: `registry.terraform.io/hashicorp/azurerm 5.8.0 (docs 5.8.0): Unchanged, 1502 types, 101 findings`, a drawers line (network 178, compute 175, ... unclassified 101) and a table of twelve `UnmappedSubcategory` rows. Then `registry.terraform.io/microsoft/azuredevops 1.16.0 (docs 1.16.0): Unchanged, 177 types, 177 findings` with `NoDocPage 1` and `NoSubcategory 176`. Then `registry.terraform.io/vmware/vsphere 2.17.1 (docs 2.17.1): Unchanged, 87 types, 1 findings` with `NoDocPage 1`. About 6 s in all. Status is `Updated` only after map.json or the caches change. git diff prints nothing, because no file was rewritten.
+
+Pester: "keeps the bundled classifiers in step with map.json"

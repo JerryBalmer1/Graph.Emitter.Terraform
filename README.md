@@ -19,7 +19,7 @@ Parse Terraform configurations into an HCL AST and build graphs of module calls 
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.11.0**. Not yet published to the PowerShell Gallery.
+Source version **0.12.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -484,6 +484,64 @@ Get-TerraformModuleGraph -Path . -Recurse | ConvertTo-TerraformResourceGraph -Au
 A ResourceNode is looked up by its `SchemaId`, and a SchemaNode by its `Id`. A nested Block or Attribute node returns its resource's page, and a Provider or provider config node returns the overview. On `infra/`, with the null and local docs cached, that gives two pages: `.../hashicorp/null/resource/null_resource` for the two `null_resource` blocks, and `.../hashicorp/local/data/local_file`. The `terraform_data` blocks resolve to the built-in provider, which has no registry docs, and are skipped. A provider with no cached docs gets one warning naming `Get-TerraformDocPack` and `Update-TerraformProviderDocCache`. `Get-TerraformProviderDoc -Provider` for something that is not cached is a terminating error naming both.
 
 Nothing here downloads except `Get-TerraformDocPack` and `Update-TerraformProviderDocCache`, and only when called. `Get-TerraformProviderDoc`, `Get-TerraformDocCache`, `-AutoSchema` and the argument completers read local files only.
+
+## Classifiers: what ships / how to cut your own
+
+A provider schema is flat: azurerm alone has 1,502 resource and data source types. Classifier drawers are an optional overlay that groups types into drawers (network, compute, storage, database, identity, security, ...) so a view can collapse to twenty rows. Classifiers are opinions layered on facts. They never change a node's Id, the node count or the edges, and they ship as data with provenance.
+
+### What ships
+
+The module's `classifiers/` folder (committed, unlike `dist/`):
+
+| File | What it is |
+|---|---|
+| `drawers.json` | The fixed drawer list: network, compute, storage, database, identity, security, messaging, observability, management, devops, containers, serverless, dns, cdn, analytics, ai, iot, media, migration, unclassified. Each has `name`, `label` and `description`. |
+| `map.json` | Rows `{ provider, subcategory, drawer, reason, addedOn, addedBy }`. `provider` is an address or `*`, and a provider row beats a `*` row. Every row has a one-sentence `reason`. |
+| `DECISIONS.md` | Append-only, numbered record of every judgement behind the drawers and the map, including every subcategory left unmapped and why. |
+| `<address-slug>.<version>.json` | One classifier per provider version: azurerm 5.8.0, azuredevops 1.16.0 and vsphere 2.17.1. |
+
+The default classifier is not hand-sorted. Each type's subcategory is the label the provider itself puts on the type's registry doc page ("Key Vault", "Host and Cluster Management"), and `map.json` maps that label to a drawer. A type the map cannot place goes in `unclassified` and is listed as a finding:
+
+| Finding | Meaning |
+|---|---|
+| `NoDocPage` | The schema has the type, but the docs have no page for it. |
+| `NoSubcategory` | The page's subcategory is empty. |
+| `UnmappedSubcategory` | The map has no row for the label: deliberately, see DECISIONS.md. |
+
+`unclassified` is a legitimate drawer, not an error. As shipped: azurerm has 101 of 1,502 types unclassified (12 labels left unmapped, 64 types of them API Management). vsphere has 1 of 87 (a type with no doc page). azuredevops has all 177, because it publishes no subcategories at all.
+
+```powershell
+Get-TerraformClassifier                                     # ProviderAddress, Version, DocsVersion, TypeCount, FindingCount
+(Get-TerraformClassifier -Provider vsphere).Types | Group-Object Drawer
+Get-TerraformClassifierFinding -Provider azurerm            # Type, Kind, Subcategory, Finding
+
+# The overlay: Drawer and Subcategory on every node, plus a Drawers summary. Same Ids, nodes and edges.
+$schema = ConvertTo-TerraformSchemaGraph -Provider vsphere -Classify
+$schema.Drawers                                             # Drawer, TypeCount
+$graph = Get-TerraformModuleGraph -Path . -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema -Classify
+$graph.Drawers                                              # Drawer, TypeCount, InstanceCount
+$graph.Nodes | Sort-Object Drawer | Format-Table Drawer, Subcategory, ResourceAddress
+```
+
+On a schema graph, Block and Attribute nodes take the drawer of the resource or data source they belong to, so collapsing a drawer takes the whole subtree. Provider, provider config and Function nodes have no drawer. A provider with no classifier gets one warning, and its types are unclassified. The built-in `terraform` provider is unclassified with no warning.
+
+### How to cut your own
+
+Classifiers are looked up in this order: `-ClassifierPath` (a file or a folder), then `$env:LOCALAPPDATA\TerraformGraph\classifiers`, then the bundled folder. The first that holds a provider wins, even over a newer bundled version.
+
+```powershell
+# Any provider whose schema and docs are cached (packs, -SaveToCache, Update-TerraformProviderDocCache).
+New-TerraformClassifier -Provider hashicorp/null, hashicorp/local -PassThru    # into the user folder
+
+# Your own opinions: copy map.json, add rows (each with a reason), classify into a folder, point the graphs at it.
+Copy-Item (Join-Path (Split-Path (Get-Module TerraformGraph).Path) 'classifiers\map.json') .\my-map.json
+New-TerraformClassifier -Provider azurerm -MapPath .\my-map.json -OutputPath .\my-classifiers -PassThru
+ConvertTo-TerraformSchemaGraph -Provider azurerm -ClassifierPath .\my-classifiers | Select-Object -ExpandProperty Drawers
+```
+
+`New-TerraformClassifier` checks the map first. A row with an empty reason, a drawer not in `drawers.json` (taken from beside the map, else the bundled one), a row targeting `unclassified`, or a repeated provider and subcategory stops it before anything is read. Output is sorted by type, then kind. When a rerun produces the same content, the file and its `generatedOn` are left alone, so reruns are byte-identical. `mapVersion` is a hash of the map's rows. `-ClassifierPath` implies `-Classify`.
+
+To change the shipped classifiers: read `DECISIONS.md`, append an entry for each judgement, edit `map.json` (never without a reason), then run `Invoke-Build BuildClassifier` (default azurerm, azuredevops, vsphere at their latest version in the registry cache, from your local caches, no network). It prints the findings per provider. Stage `src/TerraformGraph/classifiers/`. Pester fails if a bundled classifier's `mapVersion` no longer matches `map.json`.
 
 ## Agent skills
 

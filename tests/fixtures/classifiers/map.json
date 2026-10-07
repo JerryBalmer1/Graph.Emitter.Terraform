@@ -1,0 +1,7 @@
+{
+  "rows": [
+    { "provider": "*", "subcategory": "Files", "drawer": "management", "reason": "Fixture: a * row the local row below must beat.", "addedOn": "2026-10-06", "addedBy": "agent" },
+    { "provider": "*", "subcategory": "Utility", "drawer": "devops", "reason": "Fixture: a * row that applies to null_resource.", "addedOn": "2026-10-06", "addedBy": "agent" },
+    { "provider": "registry.terraform.io/hashicorp/local", "subcategory": "Files", "drawer": "storage", "reason": "Fixture: local_file writes files, and the provider row wins over the * row.", "addedOn": "2026-10-06", "addedBy": "agent" }
+  ]
+}

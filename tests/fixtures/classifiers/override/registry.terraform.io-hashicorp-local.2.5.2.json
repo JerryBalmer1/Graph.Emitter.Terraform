@@ -1,0 +1,15 @@
+{
+  "provider": "registry.terraform.io/hashicorp/local",
+  "version": "2.5.2",
+  "docsVersion": "2.5.2",
+  "generatedOn": "2026-10-06T00:00:00Z",
+  "mapVersion": "override",
+  "source": "subcategory",
+  "types": [
+    { "type": "local_file", "kind": "data-source", "subcategory": "Override", "drawer": "network" },
+    { "type": "local_file", "kind": "resource", "subcategory": "Override", "drawer": "network" },
+    { "type": "local_sensitive_file", "kind": "data-source", "subcategory": "Override", "drawer": "network" },
+    { "type": "local_sensitive_file", "kind": "resource", "subcategory": "Override", "drawer": "network" }
+  ],
+  "findings": []
+}

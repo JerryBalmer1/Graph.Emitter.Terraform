@@ -1,6 +1,6 @@
 [CmdletBinding()]
 Param(
-    # BuildSchemaPack: providers to pack, as namespace/name or a full address.
+    # BuildSchemaPack and BuildClassifier: providers to pack or classify, as namespace/name or a full address.
     [string[]]
     $Provider = @('hashicorp/azurerm', 'microsoft/azuredevops', 'vmware/vsphere')
 )
@@ -405,6 +405,39 @@ task BuildSchemaPack RemoveModule, ImportModule, {
     $manifest | ConvertTo-TerraformJson | Set-Content -LiteralPath (Join-Path $dist 'manifest.json') -Encoding utf8NoBOM -ErrorAction Stop
     $total.Stop()
     Write-Host "Wrote $(@($packs).Count) packs (schema and docs) and manifest.json to $dist in $($total.Elapsed)"
+}
+
+# Not part of the default build. Run after BuildSchemaPack when cutting a release, then
+# stage src\TerraformGraph\classifiers: writes each -Provider's classifier
+# (<address-slug>.<version>.json) at its latest version in the registry cache from the
+# local schema and docs caches with classifiers\map.json, and prints the findings per
+# provider. No network. Unlike dist\, these files are committed: they ship with the module.
+task BuildClassifier RemoveModule, ImportModule, {
+    $out = Join-Path $PSScriptRoot 'src\TerraformGraph\classifiers'
+    foreach ($name in $Provider) {
+        $found = @(Get-TerraformRegistryProvider -Name $name -WarningAction SilentlyContinue)
+        if ($found.Count -gt 1) {
+            throw "'$name' matches $($found.Count) providers in the registry cache: $(@($found.Source) -join ', '). Use namespace/name."
+        }
+        $classifierArgs = @{ Provider = $name; OutputPath = $out; PassThru = $true; ErrorAction = 'Stop' }
+        if ($found.Count -eq 1 -and $found[0].Latest) {
+            $classifierArgs.Provider = $found[0].ProviderAddress
+            $classifierArgs.Version = [string]$found[0].Latest
+        }
+        else {
+            Write-Warning "$name is not in the registry cache; classifying its newest cached schema."
+        }
+        $result = New-TerraformClassifier @classifierArgs
+        Write-Host ("{0} {1} (docs {2}): {3}, {4} types, {5} findings -> {6}" -f
+            $result.ProviderAddress, $result.Version, $result.DocsVersion, $result.Status, $result.TypeCount, $result.FindingCount, (Split-Path -Path $result.Path -Leaf))
+        Write-Host "  drawers: $(@($result.Drawers.Keys | ForEach-Object { "$_ $($result.Drawers[$_])" }) -join ', ')"
+        $findings = @(Get-TerraformClassifierFinding -Provider $result.ProviderAddress -Version $result.Version -ClassifierPath $result.Path)
+        if ($findings.Count) {
+            $findings | Group-Object Finding, Subcategory | Sort-Object Name |
+                Format-Table @{ Name = 'Finding'; Expression = { $_.Group[0].Finding } }, @{ Name = 'Subcategory'; Expression = { $_.Group[0].Subcategory } }, Count -AutoSize |
+                Out-String -Width 200 | Write-Host
+        }
+    }
 }
 
 task Package {

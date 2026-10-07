@@ -1,0 +1,6 @@
+{
+  "rows": [
+    { "provider": "*", "subcategory": "Files", "drawer": "storage", "reason": "", "addedOn": "2026-10-06", "addedBy": "agent" },
+    { "provider": "*", "subcategory": "Utility", "drawer": "nowhere", "reason": "Fixture: a drawer that is not in drawers.json.", "addedOn": "2026-10-06", "addedBy": "agent" }
+  ]
+}

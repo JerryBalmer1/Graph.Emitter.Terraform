@@ -35,8 +35,11 @@ pwsh -NoProfile -Command 'Invoke-Pester -Path .\tests'
 - `Get-TerraformDocPack` — same parameters as `Get-TerraformSchemaPack`, for the manifest's `docs` entries → `TerraformGraph.DocPack` with `-PassThru`.
 - `Get-TerraformDocCache` — `-Provider` patterns → `TerraformGraph.CachedDoc` (ProviderAddress, Version, Path, Bytes, CachedOn, DocCount, UnmatchedCount). Read only.
 - `Get-TerraformProviderDoc` — `-Provider` patterns (default every cached provider), `-Version`, `-Id` and `-Type` wildcards, `-Category resources|data-sources|guides|overview`, `-Examples`, or piped SchemaNode (by `Id`) / ResourceNode (by `SchemaId`) → `TerraformGraph.ProviderDoc` (Id, ProviderAddress, Version, Category, Title, Subcategory, Slug, Type, Content markdown, ExampleCount with `-Examples`). Each page once per call. Cache only.
-- `ConvertTo-TerraformSchemaGraph` — provider schema (dictionary, JSON text, or PSCustomObject) (`-Provider` filter, `-IncludeFunctions`), or with no schema `-Provider` patterns (`-Version`, default newest cached) loaded from the schema cache → `TerraformGraph.SchemaGraph` (Providers, Nodes `TerraformGraph.SchemaNode`, Edges `Contains`, Summary).
-- `ConvertTo-TerraformResourceGraph` — `TerraformGraph.ModuleGraph` + one of: optional `-SchemaGraph` array, `-Provider` (schema graphs from the cache for those providers), or `-AutoSchema` (cached schemas for every provider the module graph resolves to) → `TerraformGraph.ResourceGraph` (Nodes `TerraformGraph.ResourceNode`, `InstanceOf` Edges, Skipped, Providers, MatchedCount, UnmatchedCount, Findings).
+- `ConvertTo-TerraformSchemaGraph` — provider schema (dictionary, JSON text, or PSCustomObject) (`-Provider` filter, `-IncludeFunctions`), or with no schema `-Provider` patterns (`-Version`, default newest cached) loaded from the schema cache → `TerraformGraph.SchemaGraph` (Providers, Nodes `TerraformGraph.SchemaNode`, Edges `Contains`, Summary). `-Classify` (or `-ClassifierPath`) adds Drawer and Subcategory to every node and a `Drawers` summary.
+- `ConvertTo-TerraformResourceGraph` — `TerraformGraph.ModuleGraph` + one of: optional `-SchemaGraph` array, `-Provider` (schema graphs from the cache for those providers), or `-AutoSchema` (cached schemas for every provider the module graph resolves to) → `TerraformGraph.ResourceGraph` (Nodes `TerraformGraph.ResourceNode`, `InstanceOf` Edges, Skipped, Providers, MatchedCount, UnmatchedCount, Findings). `-Classify` (or `-ClassifierPath`) adds Drawer and Subcategory to every node and a `Drawers` summary with TypeCount and InstanceCount.
+- `New-TerraformClassifier` — `-Provider` (wildcards via the registry cache), `-Version` (default newest cached schema), `-MapPath` (default the bundled `classifiers/map.json`), `-OutputPath` (default `$env:LOCALAPPDATA\TerraformGraph\classifiers`), `-PassThru` → writes `<address-slug>.<version>.json` from the schema and docs caches; `TerraformGraph.ClassifierBuild` (Status `Written|Updated|Unchanged`, TypeCount, FindingCount) with `-PassThru`. No network.
+- `Get-TerraformClassifier` — `-Provider` patterns, `-Version`, `-ClassifierPath` → `TerraformGraph.Classifier` (Types: Type, Kind, Subcategory, Drawer; Findings; TypeCount, FindingCount, Path).
+- `Get-TerraformClassifierFinding` — same parameters → `TerraformGraph.ClassifierFinding` rows (Type, Kind, Subcategory, Finding `NoDocPage|NoSubcategory|UnmappedSubcategory`).
 - `ConvertTo-TerraformJson` — any object → JSON string with no 100-level depth cap (`-Depth`, `-Compress`, `-AsArray`).
 - `ConvertFrom-TerraformJson` — JSON string → PSCustomObject, or ordered dictionaries with `-AsHashtable` (`-Depth`, `-NoEnumerate`).
 
@@ -55,6 +58,30 @@ Rule: never download inside a completer or `-AutoSchema`. Both read local caches
 ## Provider docs
 
 Registry markdown pages live in `$env:LOCALAPPDATA\TerraformGraph\docs\<address-slug>\<version>.json.gz`, keyed on schema node Ids: overview `<address>`, guide `<address>/guide/<slug>`, resource `<address>/resource/<type>`, data source `<address>/data/<type>`. A page whose type is not in the cached schema keeps `<address>/unmatched/<category>/<slug>` and counts in `UnmatchedCount`. That is a finding about the provider docs, not an error. Fill with `Get-TerraformDocPack` (release packs) or `Update-TerraformProviderDocCache` (registry; cache the schema first so Ids are checked). Check with `Get-TerraformDocCache`. `Get-TerraformProviderDoc -Provider <p>` for something not cached is a terminating error naming both fill commands; in the pipeline, an uncached provider gets one warning and built-in providers are skipped. Read the page's `Content` (markdown), or use `-Examples` for only the ```hcl / ```terraform blocks.
+
+## Classifiers
+
+Classifier drawers group resource and data source types into drawers (network, compute, storage, ..., unclassified) so a view can collapse. They are opinions layered on facts. They never change a node's Id, the node count or the edges, and they ship as data with provenance in the module's `classifiers/` folder:
+
+- `drawers.json` is the fixed drawer list.
+- `map.json` has rows `{ provider (address or "*"), subcategory, drawer, reason, addedOn, addedBy }`. A provider row beats a `*` row.
+- `DECISIONS.md` is the append-only record of every judgement.
+- `<address-slug>.<version>.json` is one classifier per provider version.
+
+The default classifier comes from the provider's own doc `subcategory` labels, not from hand-sorting. A type with no doc page, an empty subcategory or an unmapped subcategory is in `unclassified` and is listed as a finding. That is a legitimate drawer, not an error. Lookup order is `-ClassifierPath`, then `$env:LOCALAPPDATA\TerraformGraph\classifiers`, then the bundled folder.
+
+```powershell
+$graph = Get-TerraformModuleGraph -Path . -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema -Classify
+$graph.Drawers                                   # Drawer, TypeCount, InstanceCount
+Get-TerraformClassifierFinding -Provider azurerm # what the map could not place
+```
+
+Rules when asked to classify, or to touch anything under `classifiers/`:
+
+1. Read `classifiers/DECISIONS.md` first. Do not reopen a call recorded there without appending an entry that supersedes it.
+2. Append a numbered entry (Question / Call / Rejected / Why / Cost if wrong) for every judgement you make, including every subcategory you leave unmapped. Never edit an earlier entry.
+3. Never add or change a `map.json` row without a non-empty `reason`. Cite the DECISIONS entry in the reason when the call is arguable. Never target `unclassified`: leave the row out and record why. The Pester lint and `New-TerraformClassifier` both reject a row with an empty reason.
+4. After changing `map.json`, rerun `Invoke-Build BuildClassifier` and stage the regenerated classifiers. A Pester test fails when a bundled classifier's `mapVersion` no longer matches the map.
 
 ## Canonical Ids
 

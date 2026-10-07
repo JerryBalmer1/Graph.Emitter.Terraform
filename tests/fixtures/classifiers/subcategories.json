@@ -1,0 +1,12 @@
+{
+  "comment": "Applied to tests/fixtures/docs by the Classifiers tests: subcategory per doc Id, and doc Ids to drop. Covers every drawer outcome: a provider row (local Files), a * row (null Utility), UnmappedSubcategory (null Deprecated), NoSubcategory (local_sensitive_file resource keeps its empty subcategory) and NoDocPage (the local_sensitive_file data source page is dropped).",
+  "subcategories": {
+    "registry.terraform.io/hashicorp/local/resource/local_file": "Files",
+    "registry.terraform.io/hashicorp/local/data/local_file": "Files",
+    "registry.terraform.io/hashicorp/null/resource/null_resource": "Utility",
+    "registry.terraform.io/hashicorp/null/data/null_data_source": "Deprecated"
+  },
+  "remove": [
+    "registry.terraform.io/hashicorp/local/data/local_sensitive_file"
+  ]
+}

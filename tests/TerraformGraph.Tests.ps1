@@ -2169,3 +2169,269 @@ Describe "Provider docs" {
         }
     }
 }
+
+Describe "Classifiers" {
+
+    BeforeAll {
+        $repoRoot = Split-Path $PSScriptRoot -Parent
+        Set-Variable -Name Infra -Scope Script -Value (Join-Path $repoRoot 'infra')
+        Set-Variable -Name BundledClassifiers -Scope Script -Value (Join-Path $repoRoot 'src' 'TerraformGraph' 'classifiers')
+        $fixtureDir = Join-Path $PSScriptRoot 'fixtures' 'classifiers'
+        Set-Variable -Name FixtureDir -Scope Script -Value $fixtureDir
+        Set-Variable -Name FixtureMap -Scope Script -Value (Join-Path $fixtureDir 'map.json')
+        Set-Variable -Name SavedRoots -Scope Script -Value (InModuleScope TerraformGraph {
+                @{
+                    Schema  = $script:TerraformSchemaCacheRoot
+                    Docs    = $script:TerraformDocCacheRoot
+                    User    = $script:TerraformClassifierUserRoot
+                    Bundled = $script:TerraformClassifierBundledRoot
+                }
+            })
+
+        # The null and local schema and docs fixtures, with the subcategories (and the one
+        # dropped page) from fixtures/classifiers/subcategories.json applied to the docs.
+        $edits = Get-Content -LiteralPath (Join-Path $fixtureDir 'subcategories.json') -Raw | ConvertFrom-TerraformJson -AsHashtable
+        $fixtures = foreach ($name in 'null-3.2.3', 'local-2.5.2') {
+            $docs = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'fixtures' 'docs' "$name.json") -Raw | ConvertFrom-TerraformJson -AsHashtable
+            $docs['docs'] = [object[]]@($docs['docs'] | Where-Object { $edits['remove'] -notcontains $_['id'] } | ForEach-Object {
+                    if ($edits['subcategories'].Contains($_['id'])) { $_['subcategory'] = $edits['subcategories'][$_['id']] }
+                    $_
+                })
+            @{
+                Address = $docs['address']
+                Version = $docs['version']
+                Schema  = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'fixtures' 'schemas' "$name.json"))
+                Docs    = $docs
+            }
+        }
+        Set-Variable -Name Fixtures -Scope Script -Value @($fixtures)
+
+        # New, empty roots under $Root; the bundled root is empty too unless -Bundled is given.
+        $useRoots = {
+            param([string]$Root, [string]$Bundled)
+            InModuleScope TerraformGraph -Parameters @{ Root = $Root; Bundled = $Bundled } {
+                param($Root, $Bundled)
+                $script:TerraformSchemaCacheRoot = Join-Path $Root 'schemas'
+                $script:TerraformDocCacheRoot = Join-Path $Root 'docs'
+                $script:TerraformClassifierUserRoot = Join-Path $Root 'user'
+                $script:TerraformClassifierBundledRoot = if ($Bundled) { $Bundled } else { Join-Path $Root 'bundled' }
+            }
+        }
+        Set-Variable -Name UseRoots -Scope Script -Value $useRoots
+
+        $seed = {
+            param([switch]$NoDocs)
+            foreach ($item in $Fixtures) {
+                InModuleScope TerraformGraph -Parameters @{ I = $item; NoDocs = [bool]$NoDocs } {
+                    param($I, $NoDocs)
+                    $null = Write-TerraformSchemaCache -Provider $I.Address -Version $I.Version -Document $I.Schema
+                    if (-not $NoDocs) { $null = Write-TerraformSchemaCache -Provider $I.Address -Version $I.Version -Document $I.Docs -Kind Docs }
+                }
+            }
+        }
+        Set-Variable -Name Seed -Scope Script -Value $seed
+    }
+
+    AfterAll {
+        InModuleScope TerraformGraph -Parameters @{ S = $SavedRoots } {
+            param($S)
+            $script:TerraformSchemaCacheRoot = $S.Schema
+            $script:TerraformDocCacheRoot = $S.Docs
+            $script:TerraformClassifierUserRoot = $S.User
+            $script:TerraformClassifierBundledRoot = $S.Bundled
+        }
+    }
+
+    BeforeEach {
+        $root = Join-Path $TestDrive "classifiers-$([guid]::NewGuid().ToString('n'))"
+        & $UseRoots $root
+        Set-Variable -Name Root -Scope Script -Value $root
+        Set-Variable -Name UserRoot -Scope Script -Value (Join-Path $root 'user')
+    }
+
+    It "exports the three classifier commands from TerraformGraph" {
+        foreach ($name in 'New-TerraformClassifier', 'Get-TerraformClassifier', 'Get-TerraformClassifierFinding') {
+            (Get-Command $name -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        }
+        (Get-TypeData TerraformGraph.ClassifierFinding).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('Type', 'Kind', 'Subcategory', 'Finding')
+        (Get-TypeData TerraformGraph.DrawerSummary).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('Drawer', 'TypeCount', 'InstanceCount')
+    }
+
+    It "lints the bundled map: every row has a reason and a known drawer" {
+        $map = Get-Content -LiteralPath (Join-Path $BundledClassifiers 'map.json') -Raw | ConvertFrom-TerraformJson -AsHashtable
+        $drawers = Get-Content -LiteralPath (Join-Path $BundledClassifiers 'drawers.json') -Raw | ConvertFrom-TerraformJson -AsHashtable
+        @($map['rows']).Count | Should -BeGreaterThan 0
+        foreach ($row in $map['rows']) {
+            ([string]$row['reason']).Trim() | Should -Not -BeNullOrEmpty -Because "$($row['provider']) / $($row['subcategory']) needs a reason"
+        }
+        $names = @($drawers['drawers'] | ForEach-Object { $_['name'] })
+        $names | Should -Contain 'unclassified'
+        foreach ($drawer in $drawers['drawers']) {
+            $drawer['label'] | Should -Not -BeNullOrEmpty
+            $drawer['description'] | Should -Not -BeNullOrEmpty
+        }
+        $problems = InModuleScope TerraformGraph -Parameters @{ M = $map; D = [string[]]$names } {
+            param($M, $D)
+            @(Get-TerraformClassifierMapProblem -Map $M -Drawer $D)
+        }
+        $problems | Should -BeNullOrEmpty
+        Test-Path -LiteralPath (Join-Path $BundledClassifiers 'DECISIONS.md') | Should -BeTrue
+    }
+
+    It "fails the lint for a row with an empty reason or an unknown drawer, and New-TerraformClassifier refuses that map" {
+        $bad = Join-Path $FixtureDir 'bad-map.json'
+        $problems = InModuleScope TerraformGraph -Parameters @{ P = $bad } {
+            param($P)
+            @(Get-TerraformClassifierMapProblem -Map (Read-TerraformClassifierJson -Path $P) -Drawer (Get-TerraformClassifierDrawerName))
+        }
+        $problems | Should -HaveCount 2
+        $problems[0] | Should -Be 'row 1 (* / Files) has no reason.'
+        $problems[1] | Should -BeLike "*drawer 'nowhere' is not in drawers.json."
+        & $Seed
+        { New-TerraformClassifier -Provider hashicorp/local -MapPath $bad -ErrorAction Stop } | Should -Throw '*has 2 problem(s)*has no reason*'
+        Test-Path -LiteralPath $UserRoot | Should -BeFalse
+    }
+
+    It "keeps the bundled classifiers in step with map.json" {
+        $mapVersion = InModuleScope TerraformGraph -Parameters @{ P = (Join-Path $BundledClassifiers 'map.json') } {
+            param($P)
+            (Read-TerraformClassifierMap -Path $P).MapVersion
+        }
+        & $UseRoots $Root $BundledClassifiers
+        $classifiers = @(Get-TerraformClassifier -ErrorAction Stop)
+        $classifiers.ProviderAddress | Should -Be @('registry.terraform.io/hashicorp/azurerm', 'registry.terraform.io/microsoft/azuredevops', 'registry.terraform.io/vmware/vsphere')
+        foreach ($classifier in $classifiers) {
+            $classifier.MapVersion | Should -Be $mapVersion -Because "$($classifier.ProviderAddress) must be regenerated with Invoke-Build BuildClassifier after map.json changes"
+        }
+        $vsphere = $classifiers | Where-Object ProviderAddress -eq 'registry.terraform.io/vmware/vsphere'
+        ($vsphere.Types | Where-Object { $_.Type -eq 'vsphere_role' -and $_.Kind -eq 'resource' }).Drawer | Should -Be 'identity'
+        ($vsphere.Types | Where-Object { $_.Type -eq 'vsphere_datastore_cluster' -and $_.Kind -eq 'resource' }).Drawer | Should -Be 'storage'
+    }
+
+    It "writes a deterministic classifier: reruns are byte-identical and Unchanged, even after a CRLF checkout" {
+        & $Seed
+        $first = New-TerraformClassifier -Provider hashicorp/null, hashicorp/local -MapPath $FixtureMap -PassThru -ErrorAction Stop
+        $first.Status | Should -Be @('Written', 'Written')
+        $first[1].Path | Should -Be (Join-Path $UserRoot 'registry.terraform.io-hashicorp-local.2.5.2.json')
+        $bytes = [System.IO.File]::ReadAllBytes($first[1].Path)
+
+        $second = New-TerraformClassifier -Provider hashicorp/null, hashicorp/local -MapPath $FixtureMap -PassThru -ErrorAction Stop
+        $second.Status | Should -Be @('Unchanged', 'Unchanged')
+        [System.IO.File]::ReadAllBytes($first[1].Path) | Should -Be $bytes
+
+        $text = [System.IO.File]::ReadAllText($first[1].Path)
+        [System.IO.File]::WriteAllText($first[1].Path, $text.Replace("`n", "`r`n"))
+        (New-TerraformClassifier -Provider hashicorp/local -MapPath $FixtureMap -PassThru -ErrorAction Stop).Status | Should -Be 'Unchanged'
+
+        $document = $text | ConvertFrom-TerraformJson -AsHashtable
+        @($document.Keys) | Should -Be @('provider', 'version', 'docsVersion', 'generatedOn', 'mapVersion', 'source', 'types', 'findings')
+        $document['source'] | Should -Be 'subcategory'
+        @($document['types'] | ForEach-Object { "$($_['type'])|$($_['kind'])" }) |
+            Should -Be @('local_file|data-source', 'local_file|resource', 'local_sensitive_file|data-source', 'local_sensitive_file|resource')
+        $text.Contains("`r") | Should -BeFalse
+    }
+
+    It "puts NoDocPage, NoSubcategory and UnmappedSubcategory types in the unclassified drawer; a provider row beats a * row" {
+        & $Seed
+        $null = New-TerraformClassifier -Provider hashicorp/null, hashicorp/local -MapPath $FixtureMap -ErrorAction Stop
+
+        $local = Get-TerraformClassifier -Provider local -ErrorAction Stop
+        $local.TypeCount | Should -Be 4
+        $local.FindingCount | Should -Be 2
+        @($local.Types | ForEach-Object { "$($_.Type)|$($_.Kind)|$($_.Subcategory)|$($_.Drawer)" }) | Should -Be @(
+            'local_file|data-source|Files|storage'
+            'local_file|resource|Files|storage'
+            'local_sensitive_file|data-source||unclassified'
+            'local_sensitive_file|resource||unclassified'
+        )
+        $findings = @(Get-TerraformClassifierFinding -ErrorAction Stop)
+        @($findings | ForEach-Object { "$($_.ProviderAddress)|$($_.Type)|$($_.Kind)|$($_.Subcategory)|$($_.Finding)" }) | Should -Be @(
+            'registry.terraform.io/hashicorp/local|local_sensitive_file|data-source||NoDocPage'
+            'registry.terraform.io/hashicorp/local|local_sensitive_file|resource||NoSubcategory'
+            'registry.terraform.io/hashicorp/null|null_data_source|data-source|Deprecated|UnmappedSubcategory'
+        )
+        ((Get-TerraformClassifier -Provider null).Types | Where-Object Type -eq 'null_resource').Drawer | Should -Be 'devops'
+    }
+
+    It "leaves schema graph Ids, node count and edges unchanged with -Classify and adds Drawer, Subcategory and Drawers" {
+        & $Seed
+        $null = New-TerraformClassifier -Provider hashicorp/null, hashicorp/local -MapPath $FixtureMap -ErrorAction Stop
+        $plain = ConvertTo-TerraformSchemaGraph -Provider null, local -ErrorAction Stop
+        $classified = ConvertTo-TerraformSchemaGraph -Provider null, local -Classify -ErrorAction Stop
+
+        $classified.NodeCount | Should -Be $plain.NodeCount
+        $classified.EdgeCount | Should -Be $plain.EdgeCount
+        $classified.Nodes.Id | Should -Be $plain.Nodes.Id
+        @($classified.Edges | ForEach-Object { "$($_.From)>$($_.To)" }) | Should -Be @($plain.Edges | ForEach-Object { "$($_.From)>$($_.To)" })
+        $plain.Nodes[0].PSObject.Properties['Drawer'] | Should -BeNullOrEmpty
+        $plain.Nodes[1].PSObject.Properties['Drawer'] | Should -BeNullOrEmpty
+        $plain.PSObject.Properties['Drawers'] | Should -BeNullOrEmpty
+
+        $byId = @{}
+        foreach ($node in $classified.Nodes) { $byId[$node.Id] = $node }
+        $byId['registry.terraform.io/hashicorp/local'].PSObject.Properties['Drawer'] | Should -Not -BeNullOrEmpty
+        $byId['registry.terraform.io/hashicorp/local'].Drawer | Should -BeNullOrEmpty
+        $byId['registry.terraform.io/hashicorp/local/resource/local_file'].Drawer | Should -Be 'storage'
+        $byId['registry.terraform.io/hashicorp/local/resource/local_file'].Subcategory | Should -Be 'Files'
+        $byId['registry.terraform.io/hashicorp/local/resource/local_file/content'].Drawer | Should -Be 'storage'
+        $byId['registry.terraform.io/hashicorp/null/data/null_data_source'].Drawer | Should -Be 'unclassified'
+        @($classified.Drawers | ForEach-Object { "$($_.Drawer) $($_.TypeCount) $($_.InstanceCount)" }) | Should -Be @('storage 2 ', 'devops 1 ', 'unclassified 3 ')
+    }
+
+    It "leaves resource graph Ids and edges unchanged with -Classify and counts types and instances per drawer" {
+        & $Seed
+        $null = New-TerraformClassifier -Provider hashicorp/null, hashicorp/local -MapPath $FixtureMap -ErrorAction Stop
+        $modules = Get-TerraformModuleGraph -Path $Infra -Recurse
+        $plain = $modules | ConvertTo-TerraformResourceGraph -AutoSchema
+        $classified = $modules | ConvertTo-TerraformResourceGraph -AutoSchema -Classify -WarningVariable warnings
+
+        $warnings | Should -BeNullOrEmpty
+        $classified.Nodes.Id | Should -Be $plain.Nodes.Id
+        $classified.EdgeCount | Should -Be $plain.EdgeCount
+        $pairs = @($classified.Nodes | ForEach-Object { "$($_.ResourceAddress)|$($_.Drawer)" })
+        $pairs | Should -Contain 'data.local_file.readme|storage'
+        $pairs | Should -Contain 'module.network.null_resource.subnet|devops'
+        $pairs | Should -Contain 'terraform_data.placeholder|unclassified'
+        @($classified.Drawers | ForEach-Object { "$($_.Drawer) $($_.TypeCount) $($_.InstanceCount)" }) | Should -Be @('storage 1 1', 'devops 1 2', 'unclassified 1 2')
+    }
+
+    It "warns once per provider with no classifier and puts its types in the unclassified drawer" {
+        & $Seed
+        $graph = ConvertTo-TerraformSchemaGraph -Provider null -Classify -WarningVariable warnings -WarningAction SilentlyContinue
+        $warnings | Should -HaveCount 1
+        "$($warnings[0])" | Should -BeLike 'No classifier for registry.terraform.io/hashicorp/null*New-TerraformClassifier -Provider registry.terraform.io/hashicorp/null*-ClassifierPath*'
+        @($graph.Drawers | ForEach-Object { "$($_.Drawer) $($_.TypeCount)" }) | Should -Be @('unclassified 2')
+        { Get-TerraformClassifier -Provider null -ErrorAction Stop } | Should -Throw "No classifier matches 'null'. Generate one with New-TerraformClassifier -Provider null*"
+    }
+
+    It "uses -ClassifierPath over the user folder, and the user folder over a newer bundled classifier" {
+        & $Seed
+        $null = New-TerraformClassifier -Provider hashicorp/local -MapPath $FixtureMap -ErrorAction Stop
+        $override = Join-Path $FixtureDir 'override'
+        $bundled = Join-Path $Root 'bundled'
+        New-Item -ItemType Directory -Path $bundled | Out-Null
+        (Get-Content -LiteralPath (Join-Path $override 'registry.terraform.io-hashicorp-local.2.5.2.json') -Raw).Replace('"version": "2.5.2"', '"version": "9.9.9"').Replace('"network"', '"compute"') |
+            Set-Content -LiteralPath (Join-Path $bundled 'registry.terraform.io-hashicorp-local.9.9.9.json')
+
+        $user = Get-TerraformClassifier -Provider local
+        $user.Version | Should -Be '2.5.2'
+        $user.Path | Should -Be (Join-Path $UserRoot 'registry.terraform.io-hashicorp-local.2.5.2.json')
+        (Get-TerraformClassifier -Provider local -Version 9.9.9).Path | Should -Be (Join-Path $bundled 'registry.terraform.io-hashicorp-local.9.9.9.json')
+
+        (Get-TerraformClassifier -Provider local -ClassifierPath $override).MapVersion | Should -Be 'override'
+        (Get-TerraformClassifier -Provider local -ClassifierPath (Join-Path $override 'registry.terraform.io-hashicorp-local.2.5.2.json')).MapVersion | Should -Be 'override'
+
+        $graph = ConvertTo-TerraformSchemaGraph -Provider local -ClassifierPath $override
+        @($graph.Drawers | ForEach-Object { "$($_.Drawer) $($_.TypeCount)" }) | Should -Be @('network 4')
+        (ConvertTo-TerraformSchemaGraph -Provider local -Classify).Drawers[0].Drawer | Should -Be 'storage'
+        { Get-TerraformClassifier -ClassifierPath (Join-Path $Root 'missing') } | Should -Throw "*ClassifierPath '*missing' does not exist.*"
+    }
+
+    It "throws for a provider whose schema or docs are not cached, naming the commands that fill them" {
+        { New-TerraformClassifier -Provider hashicorp/local -MapPath $FixtureMap -ErrorAction Stop } |
+            Should -Throw 'No cached schema for registry.terraform.io/hashicorp/local. Download a schema pack with Get-TerraformSchemaPack -Provider hashicorp/local, or harvest it with Get-TerraformProviderSchema -Provider hashicorp/local -SaveToCache.'
+        & $Seed -NoDocs
+        { New-TerraformClassifier -Provider hashicorp/local -MapPath $FixtureMap -ErrorAction Stop } |
+            Should -Throw 'No cached docs for registry.terraform.io/hashicorp/local. Download a docs pack with Get-TerraformDocPack -Provider hashicorp/local, or harvest them with Update-TerraformProviderDocCache -Provider hashicorp/local -Version 2.5.2.'
+    }
+}
