@@ -1590,3 +1590,200 @@ Describe "Registry" {
         }
     }
 }
+
+# The schema cache root is a module-scoped path. Every test points it at TestDrive, so the
+# real LOCALAPPDATA cache is never read or written. Packs are built in TestDrive from the
+# null 3.2.3 and local 2.5.2 schemas in tests/fixtures/schemas and the built-in provider's
+# schema (terraform init downloads nothing for it).
+Describe "Schema cache and packs" {
+
+    BeforeAll {
+        $useRoot = {
+            param([string]$Root)
+            InModuleScope TerraformGraph -Parameters @{ Root = $Root } {
+                param($Root)
+                $script:TerraformSchemaCacheRoot = $Root
+            }
+        }
+        Set-Variable -Name UseRoot -Scope Script -Value $useRoot
+        Set-Variable -Name SavedRoot -Scope Script -Value (InModuleScope TerraformGraph { $script:TerraformSchemaCacheRoot })
+        Set-Variable -Name Infra -Scope Script -Value (Join-Path (Split-Path $PSScriptRoot -Parent) 'infra')
+
+        $fixtures = Join-Path $PSScriptRoot 'fixtures' 'schemas'
+        $documents = [ordered]@{
+            'registry.terraform.io/hashicorp/null'  = @{ Version = '3.2.3'; Document = Get-Content -LiteralPath (Join-Path $fixtures 'null-3.2.3.json') -Raw | ConvertFrom-TerraformJson -AsHashtable }
+            'registry.terraform.io/hashicorp/local' = @{ Version = '2.5.2'; Document = Get-Content -LiteralPath (Join-Path $fixtures 'local-2.5.2.json') -Raw | ConvertFrom-TerraformJson -AsHashtable }
+        }
+        $builtinDir = Join-Path $TestDrive 'packs-builtin'
+        New-Item -ItemType Directory -Path $builtinDir | Out-Null
+        Set-Content -Path (Join-Path $builtinDir 'main.tf') -Value 'resource "terraform_data" "x" {}'
+        $null = terraform "-chdir=$builtinDir" init -input=false -no-color
+        $terraformVersion = (terraform version -json | ConvertFrom-TerraformJson).terraform_version
+        $documents['terraform.io/builtin/terraform'] = @{ Version = $terraformVersion; Document = Get-TerraformProviderSchema -Path $builtinDir -ErrorAction Stop }
+        Set-Variable -Name Documents -Scope Script -Value $documents
+
+        # A pack directory: each schema written through the cache writer into a staging root,
+        # copied out under its pack name, and listed in manifest.json with its real sha256.
+        $packDir = Join-Path $TestDrive 'packs'
+        New-Item -ItemType Directory -Path $packDir | Out-Null
+        & $useRoot (Join-Path $TestDrive 'pack-staging')
+        $entries = foreach ($address in $documents.Keys) {
+            $item = $documents[$address]
+            $cached = InModuleScope TerraformGraph -Parameters @{ A = $address; V = $item.Version; D = $item.Document } {
+                param($A, $V, $D)
+                Write-TerraformSchemaCache -Provider $A -Version $V -Document $D
+            }
+            $file = "$($address.Replace('/', '-')).$($item.Version).json.gz"
+            Copy-Item -LiteralPath $cached -Destination (Join-Path $packDir $file)
+            [ordered]@{
+                address = $address
+                version = $item.Version
+                file    = $file
+                sha256  = (Get-FileHash -LiteralPath (Join-Path $packDir $file) -Algorithm SHA256).Hash.ToLowerInvariant()
+                bytes   = (Get-Item -LiteralPath (Join-Path $packDir $file)).Length
+            }
+        }
+        [ordered]@{ builtOn = '2026-10-06T00:00:00Z'; packs = [object[]]@($entries) } |
+            ConvertTo-TerraformJson | Set-Content -LiteralPath (Join-Path $packDir 'manifest.json')
+        Set-Variable -Name PackDir -Scope Script -Value $packDir
+        Set-Variable -Name PackEntries -Scope Script -Value @($entries)
+    }
+
+    AfterAll {
+        & $UseRoot $SavedRoot
+    }
+
+    BeforeEach {
+        # A new, empty cache root per test.
+        $root = Join-Path $TestDrive "cache-$([guid]::NewGuid().ToString('n'))"
+        & $UseRoot $root
+        Set-Variable -Name CacheRoot -Scope Script -Value $root
+    }
+
+    It "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from TerraformGraph" {
+        (Get-Command Get-TerraformSchemaPack -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        (Get-Command Get-TerraformSchemaCache -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        @((Get-Command Get-TerraformProviderSchema).Parameters['SaveToCache'].ParameterSets.Keys) | Should -Be @('Provider')
+    }
+
+    It "writes registry.terraform.io-hashicorp-null/3.2.3.json.gz and reads back byte-identical JSON" {
+        $document = $Documents['registry.terraform.io/hashicorp/null'].Document
+        $path = InModuleScope TerraformGraph -Parameters @{ D = $document } {
+            param($D)
+            Write-TerraformSchemaCache -Provider hashicorp/null -Version 3.2.3 -Document $D
+        }
+        $path | Should -Be (Join-Path $CacheRoot 'registry.terraform.io-hashicorp-null' '3.2.3.json.gz')
+        $back = InModuleScope TerraformGraph -Parameters @{ P = $path } { param($P) Read-TerraformSchemaCache -Path $P }
+        ($back | ConvertTo-TerraformJson -Compress) | Should -BeExactly ($document | ConvertTo-TerraformJson -Compress)
+        @(Get-ChildItem -LiteralPath (Split-Path $path -Parent) -Force).Name | Should -Be @('3.2.3.json.gz')
+    }
+
+    It "downloads a pack from a directory Source, then reports Cached, then Updated with -Force" {
+        $entry = $PackEntries | Where-Object version -eq '3.2.3'
+        $first = Get-TerraformSchemaPack -Provider null -Source $PackDir -PassThru -ErrorAction Stop
+        $first.Status | Should -Be 'Downloaded'
+        $first.ProviderAddress | Should -Be 'registry.terraform.io/hashicorp/null'
+        $first.Version | Should -Be '3.2.3'
+        $first.Path | Should -Be (Join-Path $CacheRoot 'registry.terraform.io-hashicorp-null' '3.2.3.json.gz')
+        (Get-FileHash -LiteralPath $first.Path -Algorithm SHA256).Hash | Should -Be $entry.sha256
+        $first.Bytes | Should -Be $entry.bytes
+
+        (Get-TerraformSchemaPack -Provider null -Source $PackDir -PassThru -ErrorAction Stop).Status | Should -Be 'Cached'
+        (Get-TerraformSchemaPack -Provider null -Source $PackDir -Force -PassThru -ErrorAction Stop).Status | Should -Be 'Updated'
+        @(Get-ChildItem -LiteralPath (Split-Path $first.Path -Parent) -Force).Name | Should -Be @('3.2.3.json.gz')
+    }
+
+    It "downloads every pack in the manifest when -Provider is omitted" {
+        $results = @(Get-TerraformSchemaPack -Source $PackDir -PassThru -ErrorAction Stop)
+        $results.ProviderAddress | Should -Be @($PackEntries | ForEach-Object { $_.address })
+        @($results | Where-Object Status -ne 'Downloaded').Count | Should -Be 0
+    }
+
+    It "throws on a sha256 mismatch and leaves nothing in the cache" {
+        $bad = Join-Path $TestDrive "packs-bad-$([guid]::NewGuid().ToString('n'))"
+        Copy-Item -LiteralPath $PackDir -Destination $bad -Recurse
+        $manifest = Get-Content -LiteralPath (Join-Path $bad 'manifest.json') -Raw | ConvertFrom-TerraformJson
+        $manifest.packs[0].sha256 = '0' * 64
+        $manifest | ConvertTo-TerraformJson | Set-Content -LiteralPath (Join-Path $bad 'manifest.json')
+
+        { Get-TerraformSchemaPack -Provider null -Source $bad -ErrorAction Stop } | Should -Throw '*sha256 mismatch*Nothing was written to the cache.'
+        @(Get-ChildItem -LiteralPath $CacheRoot -Recurse -File -Force -ErrorAction SilentlyContinue).Count | Should -Be 0
+    }
+
+    It "throws for a provider with no manifest entry and names Get-TerraformSchemaPack and Get-TerraformProviderSchema -SaveToCache" {
+        { Get-TerraformSchemaPack -Provider hashicorp/azurerm -Source $PackDir -ErrorAction Stop } |
+            Should -Throw "Get-TerraformSchemaPack found no pack for registry.terraform.io/hashicorp/azurerm in*Get-TerraformProviderSchema -Provider hashicorp/azurerm -SaveToCache."
+        @(Get-ChildItem -LiteralPath $CacheRoot -Recurse -File -Force -ErrorAction SilentlyContinue).Count | Should -Be 0
+    }
+
+    It "lists cached schemas with Get-TerraformSchemaCache" {
+        Get-TerraformSchemaPack -Source $PackDir -ErrorAction Stop
+        $all = @(Get-TerraformSchemaCache -ErrorAction Stop)
+        $all.ProviderAddress | Should -Be @('registry.terraform.io/hashicorp/local', 'registry.terraform.io/hashicorp/null', 'terraform.io/builtin/terraform')
+        $null3 = Get-TerraformSchemaCache -Provider null
+        $null3.Version | Should -Be '3.2.3'
+        $null3.Bytes | Should -Be ($PackEntries | Where-Object version -eq '3.2.3').bytes
+        $null3.CachedOn | Should -BeOfType [datetime]
+        @(Get-TerraformSchemaCache -Provider 'hashicorp/*').Count | Should -Be 2
+        (Get-TypeData TerraformGraph.CachedSchema).DefaultDisplayPropertySet.ReferencedProperties |
+            Should -Be @('ProviderAddress', 'Version', 'Bytes', 'CachedOn')
+    }
+
+    It "builds the same graph from ConvertTo-TerraformSchemaGraph -Provider null as from the piped document" {
+        Get-TerraformSchemaPack -Provider null -Source $PackDir -ErrorAction Stop
+        $cached = ConvertTo-TerraformSchemaGraph -Provider null -ErrorAction Stop
+        $piped = $Documents['registry.terraform.io/hashicorp/null'].Document | ConvertTo-TerraformSchemaGraph -ErrorAction Stop
+        $cached.NodeCount | Should -Be $piped.NodeCount
+        $cached.EdgeCount | Should -Be $piped.EdgeCount
+        $cached.Nodes[0].Id | Should -Be $piped.Nodes[0].Id
+        $cached.Nodes[-1].Id | Should -Be $piped.Nodes[-1].Id
+        $cached.Providers | Should -Be @('registry.terraform.io/hashicorp/null')
+    }
+
+    It "throws for an uncached ConvertTo-TerraformSchemaGraph -Provider and names both ways to fill the cache" {
+        { ConvertTo-TerraformSchemaGraph -Provider azurerm -ErrorAction Stop } |
+            Should -Throw "No cached schema matches 'azurerm'. Download a schema pack with Get-TerraformSchemaPack -Provider azurerm, or harvest it locally with Get-TerraformProviderSchema -Provider azurerm -SaveToCache."
+    }
+
+    It "matches the same 5 infra nodes with ConvertTo-TerraformResourceGraph -Provider null,local,terraform as with -SchemaGraph" {
+        Get-TerraformSchemaPack -Source $PackDir -ErrorAction Stop
+        $moduleGraph = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop
+        $schemas = @(foreach ($address in $Documents.Keys) { $Documents[$address].Document | ConvertTo-TerraformSchemaGraph -ErrorAction Stop })
+        $viaSchemaGraph = $moduleGraph | ConvertTo-TerraformResourceGraph -SchemaGraph $schemas -ErrorAction Stop
+        $viaProvider = $moduleGraph | ConvertTo-TerraformResourceGraph -Provider null, local, terraform -ErrorAction Stop
+
+        $viaProvider.MatchedCount | Should -Be 5
+        $viaSchemaGraph.MatchedCount | Should -Be 5
+        @($viaProvider.Edges | ForEach-Object { "$($_.From)>$($_.To)" }) | Should -Be @($viaSchemaGraph.Edges | ForEach-Object { "$($_.From)>$($_.To)" })
+    }
+
+    It "loads every cached provider with -AutoSchema" {
+        Get-TerraformSchemaPack -Source $PackDir -ErrorAction Stop
+        $graph = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop | ConvertTo-TerraformResourceGraph -AutoSchema -ErrorAction Stop
+        $graph.MatchedCount | Should -Be 5
+    }
+
+    It "matches nothing with -AutoSchema and an empty cache, marks every node ProviderNotInSchemaGraph, and never downloads" {
+        Mock -ModuleName TerraformGraph Save-TerraformSchemaPackFile { throw 'must not download' }
+        Mock -ModuleName TerraformGraph Invoke-WebRequest { throw 'must not download' }
+        $graph = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop | ConvertTo-TerraformResourceGraph -AutoSchema -ErrorAction Stop
+        $graph.NodeCount | Should -Be 5
+        $graph.MatchedCount | Should -Be 0
+        @($graph.Nodes | Where-Object Reason -ne 'ProviderNotInSchemaGraph').Count | Should -Be 0
+        Should -Invoke -ModuleName TerraformGraph Save-TerraformSchemaPackFile -Times 0 -Exactly
+        Should -Invoke -ModuleName TerraformGraph Invoke-WebRequest -Times 0 -Exactly
+    }
+
+    Context "-SaveToCache (registry)" -Skip:(-not (Test-Connection registry.terraform.io -Count 1 -Quiet)) {
+
+        It "writes one file into the redirected cache for hashicorp/null 3.2.3" {
+            $dir = Join-Path $TestDrive 'save-to-cache-null'
+            $schema = Get-TerraformProviderSchema -Provider hashicorp/null -Version 3.2.3 -SaveToCache -WorkingDirectory $dir -Cleanup -ErrorAction Stop
+            $schema['provider_schemas'].Keys | Should -Contain 'registry.terraform.io/hashicorp/null'
+            $files = @(Get-ChildItem -LiteralPath $CacheRoot -Recurse -File -Force)
+            $files.Count | Should -Be 1
+            $files[0].FullName | Should -Be (Join-Path $CacheRoot 'registry.terraform.io-hashicorp-null' '3.2.3.json.gz')
+            (Get-TerraformSchemaCache -Provider null).Version | Should -Be '3.2.3'
+        }
+    }
+}

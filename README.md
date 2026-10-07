@@ -19,7 +19,7 @@ Parse Terraform configurations into an HCL AST and build graphs of module calls 
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.9.0**. Not yet published to the PowerShell Gallery.
+Source version **0.10.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -343,6 +343,75 @@ The bundled file is refreshed when cutting a release, not in the default build:
 ```powershell
 Invoke-Build BuildRegistry   # writes src/TerraformGraph/data/registry.json, prints ProviderCount, VersionCount, Elapsed
 ```
+
+## Schema packs
+
+A provider schema is the dictionary: every resource, data source, block and attribute the provider accepts. A resource graph only opens the pages a repository touches, meaning the providers its blocks resolve to. Getting the dictionary normally means `terraform init` for the provider (a provider binary download, about 220 MB for azurerm 5.8.0) and then `terraform providers schema -json`. Schema packs skip that. They keep the schema in a local cache, so building a schema graph or checking a repository needs neither terraform nor the network.
+
+Schemas are **not** bundled with the module, which stays small. They live in a local cache:
+
+```
+$env:LOCALAPPDATA\TerraformGraph\schemas\
+  registry.terraform.io-hashicorp-azurerm\5.8.0.json.gz
+  registry.terraform.io-microsoft-azuredevops\1.16.0.json.gz
+  registry.terraform.io-vmware-vsphere\2.17.1.json.gz
+```
+
+Each file is one provider version's `terraform providers schema -json` document as compact, gzipped JSON. The folder name is the lowercase provider address with `/` replaced by `-`. There are two ways to fill the cache:
+
+| | `Get-TerraformSchemaPack` | `Get-TerraformProviderSchema -Provider … -SaveToCache` |
+|---|---|---|
+| Source | Packs cut at release time (default: the latest GitHub release), or a local folder | Harvested on your machine |
+| Needs | HTTPS to GitHub (or nothing, for a folder) | terraform on PATH, registry access, the provider download |
+| Providers | Whatever the manifest lists | Any provider and any version |
+| Integrity | sha256 from `manifest.json`, checked before anything is written | What terraform reports |
+
+The packs shipped for a release match that module release and are attached to its GitHub release as `manifest.json` plus one `<address-slug>.<version>.json.gz` per provider. The author publishes the release separately: until a release has packs attached, `Get-TerraformSchemaPack` with the default `-Source` has nothing to download. Use `-SaveToCache`, or point `-Source` at a folder you built (see below).
+
+Worked example with azurerm, azuredevops and vsphere:
+
+```powershell
+# 1. Fill the cache: three packs, about 270 KB in total. A cached version is skipped (Status Cached) unless -Force.
+Get-TerraformSchemaPack -Provider hashicorp/azurerm, microsoft/azuredevops, vmware/vsphere -PassThru
+
+# ...or harvest one locally instead of downloading the pack.
+$null = Get-TerraformProviderSchema -Provider vmware/vsphere -SaveToCache -Cleanup
+
+# 2. What is cached: ProviderAddress, Version, Bytes, CachedOn.
+Get-TerraformSchemaCache
+Get-TerraformSchemaCache 'azure*'
+
+# 3. Schema graphs straight from the cache. Wildcards match the bare name in any namespace.
+$azure = ConvertTo-TerraformSchemaGraph -Provider 'azure*'     # azurerm + azuredevops, one graph
+$azure.Summary
+ConvertTo-TerraformSchemaGraph -Provider vsphere -Version 2.17.1
+
+# 4. Check a repository against whatever is cached for the providers it uses.
+$graph = Get-TerraformModuleGraph -Path C:\src\platform -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema
+$graph.Nodes | Format-Table ResourceAddress, ProviderAddress, SchemaMatched, Reason
+$graph.Nodes | Where-Object { $_.UnknownAttributes -or $_.UnknownBlocks -or $_.MissingRequired } |
+    Format-List ResourceAddress, UnknownAttributes, UnknownBlocks, MissingRequired
+```
+
+In step 3 the `azure*` graph has 36,282 nodes (1,237 resources, 442 data sources) and builds in about 11 s. In step 4, a root module that declares the three providers in `required_providers` and also uses `random_pet` matches every azurerm, azuredevops and vsphere block. `random_pet` is not cached, so it shows `Reason` `ProviderNotInSchemaGraph`. A mistyped `colour` argument on `vsphere_folder` shows up in `UnknownAttributes`.
+
+- `ConvertTo-TerraformSchemaGraph -Provider` (no `-Schema`) loads the newest cached version of each provider, or `-Version`, and behaves exactly as if that document had been piped in. A provider that is not cached is a terminating error that names both `Get-TerraformSchemaPack` and `Get-TerraformProviderSchema -SaveToCache`.
+- `ConvertTo-TerraformResourceGraph -Provider` builds the schema graphs from the cache for the providers you name, as an alternative to `-SchemaGraph`. `-AutoSchema` takes the provider addresses the module graph resolves to, loads whichever are cached and marks the rest `ProviderNotInSchemaGraph`.
+- Neither `-AutoSchema` nor any argument completer downloads anything. Only `Get-TerraformSchemaPack` reads packs over the network, and only `-SaveToCache` runs terraform.
+
+### Cut your own pack
+
+`BuildSchemaPack` harvests providers at their latest version from the registry cache, saves them to your schema cache, and writes `dist/schema-packs/` (gitignored): one `.json.gz` per provider plus `manifest.json` (`builtOn`, then per pack `address`, `version`, `file`, `sha256`, `bytes`, `nodeCount`, `resourceCount`, `dataSourceCount`). It is not part of the default build. With no `-Provider` it packs the three providers above. The folder is recreated on every run.
+
+```powershell
+Invoke-Build BuildSchemaPack                                       # hashicorp/azurerm, microsoft/azuredevops, vmware/vsphere
+Invoke-Build BuildSchemaPack -Provider hashicorp/aws, hashicorp/google
+
+# Install from the folder on this or another machine (copy dist\schema-packs over, or serve it over HTTPS).
+Get-TerraformSchemaPack -Source .\dist\schema-packs -PassThru      # every pack in the manifest
+```
+
+The vsphere provider moved from `hashicorp/vsphere` (frozen at 2.12.0, April 2025, and no longer in the registry's provider list) to `vmware/vsphere`, so the default packs `vmware/vsphere`. A provider that is not in the registry cache is still packed, at whatever version `terraform init` selects.
 
 ## Agent skills
 

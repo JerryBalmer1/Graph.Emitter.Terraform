@@ -38,3 +38,6 @@ terraform.rc
 
 # Pester output
 testResults.xml
+
+# Schema packs built by Invoke-Build BuildSchemaPack (attached to GitHub releases, not committed)
+dist/

@@ -28,9 +28,11 @@ pwsh -NoProfile -Command 'Invoke-Pester -Path .\tests'
 - `Get-TerraformVariableTrace` — `TerraformGraph.VariableGraph` + `-Id` (`-Direction Upstream|Downstream|Both`, `-MaxDepth`) → `TerraformGraph.VariableTrace` (Nodes `TerraformGraph.VariableTraceNode` with `Distance`, Edges).
 - `Update-TerraformRegistryCache` — (`-Scope OfficialPartner|All`, `-Path`, `-ThrottleLimit`, `-PassThru`) harvests the public registry's provider list and versions into the user cache `$env:LOCALAPPDATA\TerraformGraph\registry.json` → nothing, or `TerraformGraph.RegistryCache` with `-PassThru`. The only command that reads the provider list over the network.
 - `Get-TerraformRegistryProvider` — `-Name` patterns (`-Tier official|partner|community`, `-NoBundledData`) → `TerraformGraph.RegistryProvider` (ProviderAddress, Source, Tier, Latest, VersionCount, Versions newest first) from the cache, never the network. The user cache wins over the copy bundled with the module.
-- `Get-TerraformProviderSchema` — `-Path` initialized dir, or `-Provider` fetched on demand (`-Version`, `-WorkingDirectory`, `-Cleanup`, `-Force`, `-NoBundledData`) → `OrderedDictionary` (default) or JSON string (`-OutputFormat Json`). Needs `terraform` on PATH; `-Provider` needs registry access.
-- `ConvertTo-TerraformSchemaGraph` — provider schema (dictionary, JSON text, or PSCustomObject) (`-Provider`, `-IncludeFunctions`) → `TerraformGraph.SchemaGraph` (Providers, Nodes `TerraformGraph.SchemaNode`, Edges `Contains`, Summary).
-- `ConvertTo-TerraformResourceGraph` — `TerraformGraph.ModuleGraph` + optional `-SchemaGraph` array → `TerraformGraph.ResourceGraph` (Nodes `TerraformGraph.ResourceNode`, `InstanceOf` Edges, Skipped, Providers, MatchedCount, UnmatchedCount, Findings).
+- `Get-TerraformProviderSchema` — `-Path` initialized dir, or `-Provider` fetched on demand (`-Version`, `-WorkingDirectory`, `-Cleanup`, `-Force`, `-NoBundledData`, `-SaveToCache`) → `OrderedDictionary` (default) or JSON string (`-OutputFormat Json`). Needs `terraform` on PATH; `-Provider` needs registry access. `-SaveToCache` also writes the schema to the local schema cache at the version terraform selected.
+- `Get-TerraformSchemaPack` — `-Provider` (wildcards via the registry cache; default every manifest entry), `-Version`, `-Source` (URL, default the latest GitHub release, or a local folder), `-Force`, `-PassThru` → downloads `manifest.json` and pack files, checks sha256, writes them into the schema cache; `TerraformGraph.SchemaPack` (ProviderAddress, Version, Path, Bytes, Status `Downloaded|Cached|Updated`) with `-PassThru`.
+- `Get-TerraformSchemaCache` — `-Provider` patterns → `TerraformGraph.CachedSchema` (ProviderAddress, Version, Path, Bytes, CachedOn). Read only.
+- `ConvertTo-TerraformSchemaGraph` — provider schema (dictionary, JSON text, or PSCustomObject) (`-Provider` filter, `-IncludeFunctions`), or with no schema `-Provider` patterns (`-Version`, default newest cached) loaded from the schema cache → `TerraformGraph.SchemaGraph` (Providers, Nodes `TerraformGraph.SchemaNode`, Edges `Contains`, Summary).
+- `ConvertTo-TerraformResourceGraph` — `TerraformGraph.ModuleGraph` + one of: optional `-SchemaGraph` array, `-Provider` (schema graphs from the cache for those providers), or `-AutoSchema` (cached schemas for every provider the module graph resolves to) → `TerraformGraph.ResourceGraph` (Nodes `TerraformGraph.ResourceNode`, `InstanceOf` Edges, Skipped, Providers, MatchedCount, UnmatchedCount, Findings).
 - `ConvertTo-TerraformJson` — any object → JSON string with no 100-level depth cap (`-Depth`, `-Compress`, `-AsArray`).
 - `ConvertFrom-TerraformJson` — JSON string → PSCustomObject, or ordered dictionaries with `-AsHashtable` (`-Depth`, `-NoEnumerate`).
 
@@ -39,6 +41,12 @@ Use `ConvertTo-TerraformJson` / `ConvertFrom-TerraformJson` instead of the built
 ## Provider names and wildcards
 
 Name patterns match by shape: `aws` or `aws*` matches the bare name in any namespace, `hashicorp/aws*` matches namespace/name, and `registry.terraform.io/hashicorp/aws` matches the full address. `Get-TerraformProviderSchema -Provider` with a wildcard resolves against the registry cache and must match exactly one provider; otherwise it stops before running terraform, with every match listed (`'aws*' matches 4 providers: hashicorp/aws, hashicorp/awscc, ... Specify one.`). A `-Provider` without a wildcard needs no cache. Tab completion of `-Provider`, `-Version` and `Get-TerraformRegistryProvider -Name` reads the cache only.
+
+## Schema cache
+
+Provider schemas are not bundled. They live in `$env:LOCALAPPDATA\TerraformGraph\schemas\<address-slug>\<version>.json.gz`, where address-slug is the lowercase provider address with `/` → `-` (`registry.terraform.io-hashicorp-azurerm\5.8.0.json.gz`). Fill it with `Get-TerraformSchemaPack` (release packs, no terraform needed) or `Get-TerraformProviderSchema -Provider <p> -SaveToCache` (any provider and version, needs terraform and the registry). Then `ConvertTo-TerraformSchemaGraph -Provider <p>` and `ConvertTo-TerraformResourceGraph -Provider <p>` or `-AutoSchema` work offline. A provider that is not cached is a terminating error naming both fill commands. With `-AutoSchema`, providers that are not cached are marked `ProviderNotInSchemaGraph`. Check with `Get-TerraformSchemaCache` before assuming a schema is there.
+
+Rule: never download inside a completer or `-AutoSchema`. Both read local caches only. `Get-TerraformSchemaPack` is the only command that fetches packs, and it does that only when called explicitly.
 
 ## Canonical Ids
 
@@ -92,6 +100,14 @@ $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformRe
 $graph   # Root, NodeCount, MatchedCount, UnmatchedCount, Findings
 $graph.Nodes | Where-Object { $_.UnknownAttributes -or $_.UnknownBlocks -or $_.MissingRequired } |
     Format-List ResourceAddress, UnknownAttributes, UnknownBlocks, MissingRequired
+```
+
+Same check against the schema cache, with no terraform and no network:
+
+```powershell
+Get-TerraformSchemaPack -Provider hashicorp/azurerm, microsoft/azuredevops, vmware/vsphere   # once
+$graph = Get-TerraformModuleGraph -Path . -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema
+$graph.Nodes | Where-Object { -not $_.SchemaMatched } | Format-Table ResourceAddress, ProviderAddress, Reason
 ```
 
 Only the top level of each resource block is checked against the schema. Unmatched nodes carry `Reason` `NoSchemaGraph`, `ProviderNotInSchemaGraph` or `TypeNotInProvider`.

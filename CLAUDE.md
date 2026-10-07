@@ -15,12 +15,13 @@ src/TerraformGraph/       PowerShell module root
   lib/                  TerraformGraph.dll (build artifact, gitignored) + TerraformGraph.h
   skills/terraformgraph/SKILL.md  Canonical agent skill (shipped with the module)
   data/registry.json    Bundled provider registry cache (Invoke-Build BuildRegistry; shipped)
+dist/schema-packs/      Schema packs from Invoke-Build BuildSchemaPack (gitignored; attached to GitHub releases)
 .claude/skills/terraformgraph/  Generated copy of the skill (Install-TerraformGraphSkill)
 AGENTS.md               Generated pointer section (Install-TerraformGraphSkill)
 infra/                  Fixture modules used by tests and README examples
-tests/                  Pester 6.1+ (*.Tests.ps1)
+tests/                  Pester 6.1+ (*.Tests.ps1); fixtures/schemas holds real null 3.2.3 and local 2.5.2 schemas
 Dockerfile              Cross-compile Windows DLL with mingw from Linux
-.build.ps1              InvokeBuild: CheckDependencies, BuildDLL, Test, Package
+.build.ps1              InvokeBuild: CheckDependencies, BuildDLL, Test, Package, BuildRegistry, BuildSchemaPack
 ```
 
 Module name is **TerraformGraph**. Do not reintroduce `PS.Util.Terraform`.
@@ -29,15 +30,17 @@ Exported functions:
 - `Get-TerraformAST` — parse `.tf` files into HCL blocks; `-Path` directory (optional `-Recurse`) or `-FilePath` one `.tf` file.
 - `ConvertTo-TerraformJson` — serialize objects to JSON with no 100-level depth cap (`-Depth`, `-Compress`, `-AsArray`).
 - `ConvertFrom-TerraformJson` — parse deep JSON into PSCustomObjects or ordered dictionaries (`-Depth`, `-AsHashtable`, `-NoEnumerate`).
-- `Get-TerraformProviderSchema` — run `terraform providers schema -json` in `-Path`, or fetch one provider on demand with `-Provider` (`-Version`, `-WorkingDirectory`, `-Cleanup`, `-Force`; init only when no lock file); `-OutputFormat OrderedHashtable|Json`.
+- `Get-TerraformProviderSchema` — run `terraform providers schema -json` in `-Path`, or fetch one provider on demand with `-Provider` (`-Version`, `-WorkingDirectory`, `-Cleanup`, `-Force`; init only when no lock file; `-SaveToCache` also writes the schema cache at the lock-file version, else `terraform version -json`); `-OutputFormat OrderedHashtable|Json`.
 - `Get-TerraformModuleGraph` — module-call graph (Nodes, Edges, Unresolved) from `module` blocks in `-Path`; `-Recurse`, `-GroupBy Call|Source`; non-local sources via `.terraform/modules/modules.json`, never runs init.
-- `ConvertTo-TerraformSchemaGraph` — provider schema (dictionary, Json text, or PSCustomObject) to a graph of SchemaNodes (Providers, Nodes, Edges, Summary); `-Provider` filter (throws if absent), `-IncludeFunctions`; attribute `Type` rendered by private `ConvertTo-TerraformTypeString`.
+- `ConvertTo-TerraformSchemaGraph` — provider schema (dictionary, Json text, or PSCustomObject) to a graph of SchemaNodes (Providers, Nodes, Edges, Summary); `-Provider` filter (throws if absent; no wildcards with `-Schema`), `-IncludeFunctions`; attribute `Type` rendered by private `ConvertTo-TerraformTypeString`. Default parameter set is `Cache`: `-Provider` patterns alone (`-Version`, default newest cached) load from the schema cache as if piped; not cached is a terminating error naming `Get-TerraformSchemaPack` and `-SaveToCache`.
 - `ConvertTo-TerraformVariableGraph` — ModuleGraph to a graph of variables, locals and outputs (Nodes, Edges, Unresolved, Skipped, Summary); edges Reference, Argument, OutputReference from declaration expressions and module call arguments only; references found by private `Get-TerraformExpressionReferences`; never reparses.
 - `Get-TerraformVariableTrace` — breadth-first walk of a VariableGraph from `-Id` (`-Direction Upstream|Downstream|Both`, `-MaxDepth`); nodes copied with `Distance`, negative upstream under Both.
-- `ConvertTo-TerraformResourceGraph` — ModuleGraph (plus optional `-SchemaGraph` array) to an inventory of resource/data blocks (Nodes, Edges, Skipped, Providers, MatchedCount, UnmatchedCount, Findings); `InstanceOf` edge to the schema node when matched; top-level-only `UnknownAttributes`, `UnknownBlocks`, `MissingRequired`; Reason `NoSchemaGraph|ProviderNotInSchemaGraph|TypeNotInProvider`; never reparses.
+- `ConvertTo-TerraformResourceGraph` — ModuleGraph (plus optional `-SchemaGraph` array) to an inventory of resource/data blocks (Nodes, Edges, Skipped, Providers, MatchedCount, UnmatchedCount, Findings); `InstanceOf` edge to the schema node when matched; top-level-only `UnknownAttributes`, `UnknownBlocks`, `MissingRequired`; Reason `NoSchemaGraph|ProviderNotInSchemaGraph|TypeNotInProvider`; never reparses. Parameter sets `SchemaGraph` (default), `Provider` (schema graphs from the cache), `AutoSchema` (cached schemas for the resolved addresses; uncached ones are ProviderNotInSchemaGraph; never downloads).
 - `Install-TerraformGraphSkill` — copy `skills/*` into `<Path>/<tool skills folder>/` (`-Tool Claude|Codex|Cursor|Gemini|Copilot|All`, default Claude; `-Force`, `-PassThru` → SkillInstall); creates or appends once to `AGENTS.md` behind `<!-- terraformgraph-skill -->`; no network.
 - `Test-TerraformGraphSkill` — per tool SkillStatus (Detected, Installed, Stale, SkillPath); read only. Private `Show-TerraformGraphSkillHint` runs it at import and prints one host line for detected-but-not-installed tools; `TERRAFORMGRAPH_SKILL_HINT=0` silences it. Tool paths live only in the private `$script:TerraformGraphSkillTools` table.
 - `Update-TerraformRegistryCache` — harvest registry.terraform.io (v2 list, 100/page; per provider v1 `/versions` for protocols + v2 `include=provider-versions` for dates, `ForEach-Object -Parallel`, 2 retries on 429/5xx) into `-Path` (default user cache), atomic write; `-Scope OfficialPartner|All`, `-ThrottleLimit`, `-PassThru` → RegistryCache.
+- `Get-TerraformSchemaPack` — read `manifest.json` from `-Source` (default `https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download`, or a local folder), pick each `-Provider` entry (wildcards via `Resolve-TerraformRegistryProvider`; default every entry; `-Version` default newest in manifest), download via private `Save-TerraformSchemaPackFile`, verify sha256, move into the schema cache; skips cached unless `-Force`; no entry → terminating error naming `Get-TerraformProviderSchema -SaveToCache`; `-PassThru` → SchemaPack (Status `Downloaded|Cached|Updated`).
+- `Get-TerraformSchemaCache` — CachedSchema (ProviderAddress, Version, Path, Bytes, CachedOn) per cached file, `-Provider` patterns; read only.
 - `Get-TerraformRegistryProvider` — RegistryProvider objects from the cache, never the network; `-Name` patterns (no slash = bare name in any namespace, one = namespace/name, two = address), `-Tier`, `-NoBundledData`. No cache: one warning, no output. `Get-TerraformProviderSchema -Provider` with a wildcard resolves through private `Resolve-TerraformRegistryProvider` (exactly one match, else a terminating error listing matches); without a wildcard it needs no cache.
 
 Planned: none.
@@ -61,6 +64,12 @@ Node types never have a property named `Address`, `Count`, `Length`, or any othe
 ## Registry cache
 
 Private `Get-TerraformRegistryCache` reads `$script:TerraformRegistryUserCachePath` (`$env:LOCALAPPDATA\TerraformGraph\registry.json`), else `$script:TerraformRegistryBundledPath` (`data/registry.json`), memoized per file version; tests repoint both with `InModuleScope` and never touch the real paths. `Invoke-Build BuildRegistry` regenerates the bundled file; it is not in the default build and is run when cutting a release (stage the result). Argument completers (`-Provider`, `-Version`, `Get-TerraformRegistryProvider -Name`) never touch the network: they read the cache only and swallow every error.
+
+## Schema cache
+
+Provider schemas are never bundled. Private `Get-TerraformSchemaCachePath`, `Write-TerraformSchemaCache` (compact JSON, GZipStream, temp file + Move-Item; other providers in the document dropped) and `Read-TerraformSchemaCache` work on `$script:TerraformSchemaCacheRoot` (`$env:LOCALAPPDATA\TerraformGraph\schemas`), laid out `<address-slug>\<version>.json.gz`, address-slug = lowercase address with `/` → `-` (via `ConvertTo-TerraformProviderAddress`). Listing reads the address from the first `provider_schemas` key in the first 4 KB, never the slug (namespaces and names contain `-`). Tests repoint the root with `InModuleScope` and never touch the real path. `Save-TerraformSchemaPackFile` is the only network call; `-AutoSchema` and completers never download.
+
+`Invoke-Build BuildSchemaPack [-Provider ...]` (default hashicorp/azurerm, microsoft/azuredevops, vmware/vsphere; hashicorp/vsphere is frozen at 2.12.0) resolves latest via the registry cache, runs `Get-TerraformProviderSchema -SaveToCache`, copies the cached files to `dist/schema-packs/<address-slug>.<version>.json.gz` and writes `manifest.json` (`builtOn`, `packs[]`: address, version, file, sha256, bytes, nodeCount, resourceCount, dataSourceCount). Not in the default build. Release step: run it, then attach everything in `dist/schema-packs/` to the GitHub release (the author does this). Never stage `dist/`.
 
 ## AST
 
@@ -99,7 +108,7 @@ After any Go rebuild, run tests in a fresh pwsh process (pwsh -NoProfile -Comman
 
 - Work on `main` only for now.
 - Keep changes scoped. No drive-by refactors.
-- Do not commit secrets, `.tfstate`, compiled `.dll` files, or `TerraformGraph.zip`.
+- Do not commit secrets, `.tfstate`, compiled `.dll` files, `TerraformGraph.zip`, or `dist/` (gitignored).
 - PowerShell 7.4+. Go module is `hcl_parser`.
 - Fixtures live under `infra/`. Do not resurrect root `test.tf`.
 

@@ -1,5 +1,9 @@
 [CmdletBinding()]
-Param()
+Param(
+    # BuildSchemaPack: providers to pack, as namespace/name or a full address.
+    [string[]]
+    $Provider = @('hashicorp/azurerm', 'microsoft/azuredevops', 'vmware/vsphere')
+)
 
 ######################################################################################################
 # InvokeBuild - ArgumentCompleters
@@ -306,6 +310,77 @@ task BuildRegistry RemoveModule, ImportModule, {
     Write-Host "VersionCount:  $($result.VersionCount)"
     Write-Host "Elapsed:       $($result.Elapsed)"
     Write-Host "Size:          $((Get-Item -LiteralPath $path).Length) bytes ($path)"
+}
+
+# Not part of the default build. Run when cutting a release, then attach everything in
+# dist\schema-packs to the GitHub release: harvests each -Provider at its latest version
+# from the registry cache (terraform init, network), saves it to the local schema cache,
+# copies the cached file to dist\schema-packs\<address-slug>.<version>.json.gz and writes
+# manifest.json. dist\ is gitignored; the folder is recreated on every run.
+task BuildSchemaPack RemoveModule, ImportModule, {
+    $total = [System.Diagnostics.Stopwatch]::StartNew()
+    $dist = Join-Path $PSScriptRoot 'dist\schema-packs'
+    if (Test-Path -LiteralPath $dist) { Remove-Item -LiteralPath $dist -Recurse -Force -ErrorAction Stop }
+    $null = New-Item -ItemType Directory -Path $dist -Force -ErrorAction Stop
+
+    $packs = foreach ($name in $Provider) {
+        $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $found = @(Get-TerraformRegistryProvider -Name $name -WarningAction SilentlyContinue)
+        if ($found.Count -gt 1) {
+            throw "'$name' matches $($found.Count) providers in the registry cache: $(@($found.Source) -join ', '). Use namespace/name."
+        }
+        $schemaArgs = @{ Provider = $name; SaveToCache = $true; ErrorAction = 'Stop' }
+        if ($found.Count -eq 1 -and $found[0].Latest) {
+            $schemaArgs.Provider = $found[0].ProviderAddress
+            $schemaArgs.Version = "= $($found[0].Latest)"
+            Write-Host "$name -> $($found[0].ProviderAddress) $($found[0].Latest) (registry cache)"
+        }
+        else {
+            Write-Warning "$name is not in the registry cache; terraform init picks the version."
+        }
+
+        $null = Get-TerraformProviderSchema @schemaArgs
+        $cached = @(Get-TerraformSchemaCache -Provider $schemaArgs.Provider)
+        $entry = if ($schemaArgs.Version) {
+            $cached | Where-Object Version -eq $found[0].Latest | Select-Object -First 1
+        }
+        else {
+            $cached | Sort-Object CachedOn -Descending | Select-Object -First 1
+        }
+        if (-not $entry) { throw "No cached schema for $name after Get-TerraformProviderSchema -SaveToCache." }
+        $harvested = $stopwatch.Elapsed
+
+        $slug = Split-Path -Path (Split-Path -Path $entry.Path -Parent) -Leaf
+        $file = "$slug.$($entry.Version).json.gz"
+        $target = Join-Path $dist $file
+        Copy-Item -LiteralPath $entry.Path -Destination $target -ErrorAction Stop
+
+        $graph = ConvertTo-TerraformSchemaGraph -Provider $entry.ProviderAddress -Version $entry.Version -ErrorAction Stop
+        $summary = $graph.Summary
+        $stopwatch.Stop()
+
+        [ordered]@{
+            address         = $entry.ProviderAddress
+            version         = $entry.Version
+            file            = $file
+            sha256          = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+            bytes           = (Get-Item -LiteralPath $target).Length
+            nodeCount       = $graph.NodeCount
+            resourceCount   = [int]$summary['Resource']
+            dataSourceCount = [int]$summary['DataSource']
+        }
+        Write-Host ("{0} {1}: {2:N0} bytes, {3:N0} nodes, {4} resources, {5} data sources; harvest {6:mm\:ss}, total {7:mm\:ss}" -f
+            $entry.ProviderAddress, $entry.Version, (Get-Item -LiteralPath $target).Length, $graph.NodeCount,
+            [int]$summary['Resource'], [int]$summary['DataSource'], $harvested, $stopwatch.Elapsed)
+    }
+
+    $manifest = [ordered]@{
+        builtOn = [datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [cultureinfo]::InvariantCulture)
+        packs   = [object[]]@($packs)
+    }
+    $manifest | ConvertTo-TerraformJson | Set-Content -LiteralPath (Join-Path $dist 'manifest.json') -Encoding utf8NoBOM -ErrorAction Stop
+    $total.Stop()
+    Write-Host "Wrote $(@($packs).Count) packs and manifest.json to $dist in $($total.Elapsed)"
 }
 
 task Package {

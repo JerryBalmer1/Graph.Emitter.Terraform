@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.9.0
+Module version: 0.10.0
 Last updated: 2026-10-06
 
 ## 0 Setup
@@ -17,9 +17,9 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.9.0`, then thirteen names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformVariableTrace, Install-TerraformGraphSkill, Test-TerraformGraphSkill, Update-TerraformRegistryCache.
+Expect: `0.10.0`, then fifteen names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformVariableTrace, Install-TerraformGraphSkill, Test-TerraformGraphSkill, Update-TerraformRegistryCache.
 
-Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph"
+Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph", "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from TerraformGraph"
 
 ## 1 Get-TerraformAST
 
@@ -1230,7 +1230,8 @@ Pester: "prints nothing on import when TERRAFORMGRAPH_SKILL_HINT is 0"
 
 ## 11 Update-TerraformRegistryCache and Get-TerraformRegistryProvider
 
-Items 11.1 to 11.5 read the bundled cache (harvested 2026-10-07). If a user cache exists at `$env:LOCALAPPDATA\TerraformGraphegistry.json` it is read instead, and counts and versions can differ.
+Items 11.1 to 11.5 read the bundled cache (harvested 2026-10-07). If a user cache exists at `$env:LOCALAPPDATA\TerraformGraph
+egistry.json` it is read instead, and counts and versions can differ.
 
 ### 11.1 Wildcard
 
@@ -1359,3 +1360,110 @@ finally {
 Expect: ProviderCount about 428, VersionCount about 25,000 (25053 on 2026-10-06), Scope `official,partner`, Elapsed under a minute; the folder holds only registry.json (no leftover temp file).
 
 Pester: "harvests official and partner providers to a TestDrive path", "writes versions newest first and a Latest that skips pre-releases"
+
+## 12 Schema packs: Get-TerraformSchemaPack, Get-TerraformSchemaCache, -SaveToCache, cached schema graphs
+
+These items write to the real schema cache, `$env:LOCALAPPDATA\TerraformGraph\schemas`. Items 12.1 to 12.4 harvest hashicorp/null 3.2.3 first (network, a few seconds, 1 KB in the cache). Rows from other providers you have cached also appear in 12.2 and can change the match counts in 12.4.
+
+### 12.1 -SaveToCache for null 3.2.3
+
+Fetches the schema with terraform and also writes it to the cache at the version from the lock file.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformProviderSchema -Provider hashicorp/null -Version 3.2.3 -SaveToCache -Cleanup -Verbose | Out-Null
+Get-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'TerraformGraph\schemas\registry.terraform.io-hashicorp-null\3.2.3.json.gz') | Format-Table Name, Length
+```
+
+Expect: Verbose lines for terraform init and providers schema, then `VERBOSE: Saved registry.terraform.io/hashicorp/null 3.2.3 to ...\TerraformGraph\schemas\registry.terraform.io-hashicorp-null\3.2.3.json.gz`, then one row: `3.2.3.json.gz` with Length 1028.
+
+Pester: "writes one file into the redirected cache for hashicorp/null 3.2.3", "writes registry.terraform.io-hashicorp-null/3.2.3.json.gz and reads back byte-identical JSON"
+
+### 12.2 Get-TerraformSchemaCache
+
+Lists cached schemas, then shows every property of one provider.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$null = Get-TerraformProviderSchema -Provider hashicorp/null -Version 3.2.3 -SaveToCache -Cleanup
+Get-TerraformSchemaCache
+Get-TerraformSchemaCache -Provider null | Format-List *
+```
+
+Expect: A table with columns ProviderAddress, Version, Bytes, CachedOn that includes `registry.terraform.io/hashicorp/null 3.2.3 1028`, plus any other cached providers (after 12.6: azurerm 5.8.0, azuredevops 1.16.0, vsphere 2.17.1). Then a list with ProviderAddress, Version `3.2.3`, Path ending in `registry.terraform.io-hashicorp-null\3.2.3.json.gz`, Bytes `1028`, CachedOn (UTC).
+
+Pester: "lists cached schemas with Get-TerraformSchemaCache"
+
+### 12.3 ConvertTo-TerraformSchemaGraph -Provider null
+
+Builds the schema graph from the cache, with no schema document in the pipeline.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$null = Get-TerraformProviderSchema -Provider hashicorp/null -Version 3.2.3 -SaveToCache -Cleanup
+$graph = ConvertTo-TerraformSchemaGraph -Provider null -Version 3.2.3
+$graph
+$graph.Nodes | Format-Table Kind, Path, Type, Required, Depth
+```
+
+Expect: Providers `{registry.terraform.io/hashicorp/null}`, NodeCount 10, EdgeCount 9; then ten nodes: Provider null, Resource null_resource with id and triggers (`map(string)`), DataSource null_data_source with has_computed_default, id, inputs, outputs, random.
+
+Pester: "builds the same graph from ConvertTo-TerraformSchemaGraph -Provider null as from the piped document", "throws for an uncached ConvertTo-TerraformSchemaGraph -Provider and names both ways to fill the cache"
+
+### 12.4 ConvertTo-TerraformResourceGraph -AutoSchema on infra
+
+Joins infra with whatever the cache holds for the providers it resolves to. Nothing is downloaded.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$null = Get-TerraformProviderSchema -Provider hashicorp/null -Version 3.2.3 -SaveToCache -Cleanup
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema
+$graph
+$graph.Nodes | Format-Table ResourceAddress, ProviderAddress, SchemaMatched, Reason
+```
+
+Expect: NodeCount 5, MatchedCount 2, UnmatchedCount 3, Findings 0. The two null_resource nodes are SchemaMatched True; terraform_data.placeholder, data.local_file.readme and the endpoint's terraform_data.listener show ProviderNotInSchemaGraph. If you have also cached hashicorp/local or the built-in terraform provider, those nodes match too.
+
+Pester: "loads every cached provider with -AutoSchema", "matches nothing with -AutoSchema and an empty cache, marks every node ProviderNotInSchemaGraph, and never downloads", "matches the same 5 infra nodes with ConvertTo-TerraformResourceGraph -Provider null,local,terraform as with -SchemaGraph"
+
+### 12.5 Get-TerraformSchemaPack -Source dist\schema-packs for vsphere
+
+Installs the vsphere pack from the folder BuildSchemaPack writes, forces it again, then asks for a provider the manifest does not have. Builds the folder first (as in 12.6) if it is missing.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+if (-not (Test-Path -LiteralPath .\dist\schema-packs\manifest.json)) { Invoke-Build BuildSchemaPack }
+Get-TerraformSchemaPack -Provider vsphere -Source .\dist\schema-packs -PassThru
+Get-TerraformSchemaPack -Provider vsphere -Source .\dist\schema-packs -Force -PassThru
+Get-TerraformSchemaPack -Provider hashicorp/aws -Source .\dist\schema-packs
+```
+
+Expect: `registry.terraform.io/vmware/vsphere 2.17.1 Cached 34740` (BuildSchemaPack already cached it), then the same row with Status `Updated`, then the error `Get-TerraformSchemaPack found no pack for registry.terraform.io/hashicorp/aws in 'C:\__Code\TerraformGraph\dist\schema-packs' (packs: registry.terraform.io/hashicorp/azurerm 5.8.0, registry.terraform.io/microsoft/azuredevops 1.16.0, registry.terraform.io/vmware/vsphere 2.17.1). Harvest it locally instead with Get-TerraformProviderSchema -Provider hashicorp/aws -SaveToCache.`
+
+Pester: "downloads a pack from a directory Source, then reports Cached, then Updated with -Force", "throws for a provider with no manifest entry and names Get-TerraformSchemaPack and Get-TerraformProviderSchema -SaveToCache", "throws on a sha256 mismatch and leaves nothing in the cache"
+
+### 12.6 Invoke-Build BuildSchemaPack elapsed
+
+Harvests hashicorp/azurerm, microsoft/azuredevops and vmware/vsphere at their latest version in the registry cache and writes dist\schema-packs. Needs the network; the first run downloads about 220 MB for azurerm.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Invoke-Build BuildSchemaPack
+Get-ChildItem .\dist\schema-packs | Format-Table Name, Length
+```
+
+Expect: One line per provider, `registry.terraform.io/hashicorp/azurerm 5.8.0: 217,891 bytes, 33,699 nodes, 1106 resources, 396 data sources`, `registry.terraform.io/microsoft/azuredevops 1.16.0: 16,955 bytes, 2,583 nodes, 131 resources, 46 data sources` and `registry.terraform.io/vmware/vsphere 2.17.1: 34,740 bytes, 1,512 nodes, 52 resources, 35 data sources`, each with harvest and total times. Then `Wrote 3 packs and manifest.json ... in` about 25 s on a first run, or 19 s when the provider working directories already exist. The folder holds manifest.json (1172 bytes) and the three .json.gz files. Versions follow the registry cache, so they change after Update-TerraformRegistryCache.
+
+Pester: none
