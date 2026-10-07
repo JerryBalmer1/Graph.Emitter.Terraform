@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.5.1
+Module version: 0.6.0
 Last updated: 2026-10-06
 
 ## 0 Setup
@@ -17,9 +17,9 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.5.1`, then six names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformSchemaGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema.
+Expect: `0.6.0`, then eight names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema, Get-TerraformVariableTrace.
 
-Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph"
+Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph"
 
 ## 1 Get-TerraformAST
 
@@ -878,3 +878,111 @@ $graph.Nodes | Where-Object Id -like 'registry.terraform.io/hashicorp/tls/config
 Expect: Five rows: `registry.terraform.io/hashicorp/tls/config/proxy` Block `tls.proxy` Depth 1, then Attributes from_env `bool`, password `string`, url `string`, username `string` at Depth 2 with Ids under `.../config/proxy/` and Paths `tls.proxy.<name>`.
 
 Pester: "adds the proxy config Block under the Provider node", "adds the proxy config Attributes one level deeper", "emits the config subtree right after the Provider node, before resources"
+
+## 7 ConvertTo-TerraformVariableGraph
+
+### 7.1 infra -Recurse and Summary
+
+Builds the variable graph for the whole infra tree and counts nodes by Kind.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+$graph | Format-Table
+$graph.Summary
+```
+
+Expect: Root `C:\__Code\TerraformGraph\infra`, NodeCount 20, EdgeCount 8, UnresolvedCount 0; Summary lists Variable 13, Local 2, Output 5 in that order.
+
+Pester: "has one node per variable, local and output in root, network and endpoint", "gives every edge a From and To that exist in Nodes", "has no Unresolved or Skipped entries for infra"
+
+### 7.2 Variables bound by a module call argument
+
+Lists the child module variables whose value comes from the parent's module call.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+$graph.Nodes | Where-Object Binding -eq 'Argument' | Format-Table Module, Name, @{ n = 'Argument'; e = { $_.ArgumentExpr.Raw } }, ArgumentLiteral
+```
+
+Expect: Five rows: module.network aws_region, instance_count and tags with Argument `var.aws_region`, `var.instance_count`, `var.tags` and no ArgumentLiteral; module.network.module.endpoint host `"localhost"` (ArgumentLiteral localhost) and port `8080` (ArgumentLiteral 8080).
+
+Pester: "binds module.network var.aws_region to the root call argument", "keeps literal module call arguments on the endpoint variables"
+
+### 7.3 Unresolved: undeclared argument
+
+A module call passes an argument the child does not declare.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-vargraph'
+New-Item -ItemType File -Path (Join-Path $dir 'm\main.tf') -Value 'variable "known" {}' -Force | Out-Null
+Set-Content -Path (Join-Path $dir 'main.tf') -Value "module `"m`" {`n  source = `"./m`"`n  known  = 1`n  nope   = 2`n}"
+try {
+    (Get-TerraformModuleGraph -Path $dir -Recurse | ConvertTo-TerraformVariableGraph).Unresolved | Format-Table
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: One row: Module `module.m`, Root `var.nope`, Reason `UndeclaredArgument`, File `main.tf`, Line 4.
+
+Pester: "reports an argument the child does not declare as UndeclaredArgument"
+
+## 8 Get-TerraformVariableTrace
+
+### 8.1 Upstream from a child variable
+
+Traces where the network module's aws_region comes from.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+($graph | Get-TerraformVariableTrace -Id 'module.network/var/aws_region' -Direction Upstream).Nodes | Format-Table
+```
+
+Expect: Two rows: Distance 0 Variable module.network aws_region Binding Argument; Distance 1 Variable root aws_region Binding Default Literal us-east-1.
+
+Pester: "traces module.network var.aws_region upstream to the root variable at Distance 1"
+
+### 8.2 Downstream from a root variable
+
+Traces what the root aws_region variable feeds.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+($graph | Get-TerraformVariableTrace -Id 'root/var/aws_region' -Direction Downstream).Nodes | Format-Table
+```
+
+Expect: Three rows: Distance 0 Variable root aws_region (Default, us-east-1); Distance 1 Output root region; Distance 1 Variable module.network aws_region (Argument).
+
+Pester: "traces root var.aws_region downstream to the root output and the network variable, and no further"
+
+### 8.3 Error: unknown Id
+
+An Id that is not in the graph is rejected with the same-named nodes.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+$graph | Get-TerraformVariableTrace -Id 'module.network.module.endpoint/var/aws_region'
+```
+
+Expect: `Node 'module.network.module.endpoint/var/aws_region' is not in the variable graph. Nodes named 'aws_region': root/var/aws_region, module.network/var/aws_region.`
+
+Pester: "throws for an unknown Id and names the same-named nodes"

@@ -80,6 +80,32 @@ Update-TypeData -TypeName $schemaGraphTypeName -MemberType ScriptProperty -Membe
 } -Force
 Update-TypeData -TypeName $schemaGraphTypeName -DefaultDisplayPropertySet Providers, NodeCount, EdgeCount -Force
 
+# Variable graph views.
+Update-TypeData -TypeName 'TerraformGraph.VariableNode' -DefaultDisplayPropertySet Kind, Module, Name, Binding, Literal -Force
+Update-TypeData -TypeName 'TerraformGraph.VariableTraceNode' -DefaultDisplayPropertySet Distance, Kind, Module, Name, Binding, Literal -Force
+
+$variableGraphTypeName = 'TerraformGraph.VariableGraph'
+Update-TypeData -TypeName $variableGraphTypeName -MemberType ScriptProperty -MemberName NodeCount -Value {
+    @($this.Nodes).Count
+} -Force
+Update-TypeData -TypeName $variableGraphTypeName -MemberType ScriptProperty -MemberName EdgeCount -Value {
+    @($this.Edges).Count
+} -Force
+Update-TypeData -TypeName $variableGraphTypeName -MemberType ScriptProperty -MemberName UnresolvedCount -Value {
+    @($this.Unresolved).Count
+} -Force
+Update-TypeData -TypeName $variableGraphTypeName -MemberType ScriptProperty -MemberName Summary -Value {
+    # Kinds in a fixed order; only kinds present in the graph.
+    $counts = @{}
+    foreach ($node in $this.Nodes) { $counts[$node.Kind] = 1 + [int]$counts[$node.Kind] }
+    $summary = [ordered]@{}
+    foreach ($kind in 'Variable', 'Local', 'Output') {
+        if ($counts.ContainsKey($kind)) { $summary[$kind] = $counts[$kind] }
+    }
+    $summary
+} -Force
+Update-TypeData -TypeName $variableGraphTypeName -DefaultDisplayPropertySet Root, NodeCount, EdgeCount, UnresolvedCount -Force
+
 function ConvertTo-TerraformGraphBlock {
     param($Block)
     $Block.PSObject.TypeNames.Insert(0, 'TerraformGraph.Block')
@@ -1598,5 +1624,556 @@ function ConvertTo-TerraformSchemaGraph {
         if ($jsonLines.Count -eq 0) { return }
         $document = ($jsonLines -join [Environment]::NewLine) | ConvertFrom-TerraformJson -AsHashtable -ErrorAction Stop
         & $convert $document
+    }
+}
+
+function Get-TerraformExpressionReferences {
+    # Not exported. Walks an expression object from the Go parser and returns every
+    # ScopeTraversalExpr Traversal in source order, deduplicated, as {Traversal, Root}.
+    # Root is the binding root: var.<name>, local.<name> or module.<name>.<output>, with
+    # index and attribute suffixes stripped; $null for anything else (resources, data,
+    # path, terraform, each, count, self, for-expression variables).
+    param(
+        [AllowNull()]
+        $Expr
+    )
+
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $found = [System.Collections.Generic.List[object]]::new()
+
+    $walk = {
+        param($e)
+        if ($null -eq $e) { return }
+        switch ([string]$e.Kind) {
+            'ScopeTraversalExpr' {
+                $traversal = [string]$e.Traversal
+                if ($seen.Add($traversal)) {
+                    # One index step is [key]; a quoted key may contain ] or an escaped ".
+                    $index = '\[(?:"(?:[^"\\]|\\.)*"|[^\]"]*)\]'
+                    $root = $null
+                    if ($traversal -match '^(var|local)\.([A-Za-z_][\w-]*)') {
+                        $root = "$($Matches[1]).$($Matches[2])"
+                    }
+                    elseif ($traversal -match "^module\.([A-Za-z_][\w-]*)(?:$index)*\.([A-Za-z_][\w-]*)") {
+                        $root = "module.$($Matches[1]).$($Matches[2])"
+                    }
+                    $found.Add([pscustomobject]@{ Traversal = $traversal; Root = $root })
+                }
+            }
+            'TemplateExpr'          { foreach ($p in @($e.Parts)) { & $walk $p } }
+            'FunctionCallExpr'      { foreach ($a in @($e.Args)) { & $walk $a } }
+            'ObjectConsExpr'        { foreach ($i in @($e.Items)) { & $walk $i.Key; & $walk $i.Value } }
+            'TupleConsExpr'         { foreach ($x in @($e.Exprs)) { & $walk $x } }
+            'ConditionalExpr'       { & $walk $e.Condition; & $walk $e.TrueResult; & $walk $e.FalseResult }
+            'BinaryOpExpr'          { & $walk $e.LHS; & $walk $e.RHS }
+            'UnaryOpExpr'           { & $walk $e.Val }
+            'IndexExpr'             { & $walk $e.Collection; & $walk $e.Key }
+            'SplatExpr'             { & $walk $e.Source; & $walk $e.Each }
+            'ForExpr'               { & $walk $e.CollExpr; & $walk $e.KeyExpr; & $walk $e.ValExpr; & $walk $e.CondExpr }
+            'ParenthesesExpr'       { & $walk $e.Expression }
+            'TemplateWrapExpr'      { & $walk $e.Wrapped }
+            # A RelativeTraversalExpr's Traversal is relative to Source (.id), not a scope.
+            'RelativeTraversalExpr' { & $walk $e.Source }
+        }
+    }
+    & $walk $Expr
+
+    , $found.ToArray()
+}
+
+function Get-TerraformExpressionLiteral {
+    # Not exported. Value of a literal expression (a LiteralValueExpr, or a TemplateExpr with
+    # IsLiteral), else $null. The leading comma keeps a list value from being unrolled.
+    param(
+        [AllowNull()]
+        $Expr
+    )
+
+    if ($null -eq $Expr) { return $null }
+    if ($Expr.Kind -eq 'LiteralValueExpr' -or $Expr.IsLiteral) { return , $Expr.Value }
+    $null
+}
+
+function ConvertTo-TerraformVariableGraph {
+    <#
+    .SYNOPSIS
+        Builds a graph of variables, locals and outputs across a module tree.
+
+    .DESCRIPTION
+        ConvertTo-TerraformVariableGraph reads the blocks Get-TerraformModuleGraph already
+        parsed and returns one TerraformGraph.VariableGraph. Every variable, every local
+        (one per attribute of a locals block) and every output in every parsed module
+        becomes a TerraformGraph.VariableNode. Nothing is parsed again.
+
+        Edges follow values. A declaration whose expression reads var.x or local.x gets a
+        Reference edge from that node. A module call argument a = expr gets an Argument
+        edge from each var. or local. it reads in the calling module to the child's
+        variable a. Reading module.c.o, in a declaration or a call argument, gets an
+        OutputReference edge from the child's output o.
+
+        Variables in a child module carry Binding: Argument when the parent's module call
+        sets them (ArgumentExpr and ArgumentLiteral hold what it passed), Default when
+        it does not and the variable has a default, Unset otherwise. Root variables are
+        Default or Unset; their values come from tfvars or the command line, which this
+        does not read.
+
+        Module nodes whose Blocks are $null (not parsed without -Recurse, unresolved, or
+        Cycle) contribute nothing and are listed in Skipped. Arguments to, and outputs
+        of, a skipped module make no edges and are not reported as unresolved.
+
+    .PARAMETER ModuleGraph
+        A TerraformGraph.ModuleGraph from Get-TerraformModuleGraph. Use -Recurse there to
+        include every module in the tree.
+
+    .EXAMPLE
+        Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+
+        Variable graph for the whole infra tree. The default view is Root, NodeCount,
+        EdgeCount and UnresolvedCount; Summary counts nodes by Kind.
+
+    .EXAMPLE
+        $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+        $graph.Unresolved | Where-Object Reason -eq 'UndeclaredArgument'
+
+        List module call arguments that name a variable the child does not declare.
+
+    .EXAMPLE
+        $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+        $graph.Nodes | Where-Object Binding -eq 'Unset'
+
+        Variables that no caller sets and that have no default: in the root they must
+        come from tfvars or -var; in a child module Terraform rejects the call.
+
+    .OUTPUTS
+        TerraformGraph.VariableGraph with Root, Nodes, Edges, Unresolved and Skipped, plus
+        NodeCount, EdgeCount, UnresolvedCount and Summary (ordered Kind -> count). Default
+        view is Root, NodeCount, EdgeCount, UnresolvedCount. Nodes are
+        TerraformGraph.VariableNode (default view Kind, Module, Name, Binding, Literal),
+        edges TerraformGraph.VariableEdge.
+
+    .NOTES
+        Id scheme, where <module> is the ModuleAddress ('root' for the root module):
+            Variable    <module>/var/<name>
+            Local       <module>/local/<name>
+            Output      <module>/output/<name>
+
+        Only declaration expressions (variable default, local value, output value) and
+        module call arguments are read; resource, data, check and other blocks make no
+        edges. The module call meta-arguments source, version, count, for_each,
+        providers and depends_on are not arguments.
+
+        Every reference is listed on its node (References), but only roots that name a
+        node make an edge: var.<name>, local.<name> and module.<call>.<output>. Index
+        and attribute suffixes are dropped (var.tags["a"] binds var.tags) and kept in
+        Via. Resources, data sources, path., terraform., each., count., self. and
+        for-expression variables are references only, and so is a bare module.<call>,
+        which names no single output.
+
+        Unresolved records, each with Module, Root, Reason, File and Line:
+            UndeclaredReference  var. or local. with no such node in its module
+            UndeclaredArgument   a call argument the child does not declare
+                                 (Module is the child, Root var.<argument>)
+            UndeclaredOutput     module.<call>.<output> where the parsed child has no
+                                 such output, or there is no such call
+
+    .LINK
+        Get-TerraformModuleGraph
+
+    .LINK
+        Get-TerraformVariableTrace
+
+    .LINK
+        https://github.com/JerryBalmer1/TerraformGraph
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0, ValueFromPipeline)]
+        [object]
+        $ModuleGraph
+    )
+
+    process {
+        $metaArguments = 'source', 'version', 'count', 'for_each', 'providers', 'depends_on'
+
+        $nodes = [System.Collections.Generic.List[object]]::new()
+        $edges = [System.Collections.Generic.List[object]]::new()
+        $unresolved = [System.Collections.Generic.List[object]]::new()
+        $skipped = [System.Collections.Generic.List[string]]::new()
+        $byId = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+
+        $leaf = { param($range) if ($range -and $range.Filename) { Split-Path -Path $range.Filename -Leaf } }
+        # Literal value of an attribute, else its source text; $null when absent.
+        $attributeValue = {
+            param($attribute)
+            if ($null -eq $attribute) { return $null }
+            $literal = Get-TerraformExpressionLiteral -Expr $attribute.Expr
+            if ($null -ne $literal) { return , $literal }
+            $attribute.Expr.Raw
+        }
+        # Attributes of a body in source order (the parser keys them by name).
+        $sortedAttributes = {
+            param($body)
+            if ($null -eq $body -or $null -eq $body.Attributes) { return }
+            @($body.Attributes.PSObject.Properties.Value) | Sort-Object { $_.SrcRange.Start.Byte }
+        }
+        $childAddressOf = {
+            param($address, $label)
+            if ($address -eq 'root') { "module.$label" } else { "$address.module.$label" }
+        }
+
+        $moduleNodes = @($ModuleGraph.Nodes)
+        $byAddress = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+        foreach ($module in $moduleNodes) { $byAddress[[string]$module.ModuleAddress] = $module }
+
+        $newNode = {
+            param($Kind, $Name, $Module, $File, $Line, $Expr, $Raw)
+            $segment = @{ Variable = 'var'; Local = 'local'; Output = 'output' }[$Kind]
+            [pscustomobject]@{
+                PSTypeName      = 'TerraformGraph.VariableNode'
+                Id              = "$Module/$segment/$Name"
+                Kind            = $Kind
+                Name            = $Name
+                Module          = $Module
+                File            = $File
+                Line            = $Line
+                Expr            = $Expr
+                Literal         = Get-TerraformExpressionLiteral -Expr $Expr
+                References      = Get-TerraformExpressionReferences -Expr $Expr
+                Type            = $null
+                Description     = $null
+                Sensitive       = $null
+                Nullable        = $null
+                HasDefault      = $null
+                Binding         = $null
+                ArgumentExpr    = $null
+                ArgumentLiteral = $null
+                Raw             = $Raw
+            }
+        }
+
+        # Pass 1: every node, so edge targets exist before any edge is built.
+        foreach ($module in $moduleNodes) {
+            $address = [string]$module.ModuleAddress
+            if ($null -eq $module.Blocks) {
+                $skipped.Add($address)
+                continue
+            }
+            $blocks = @($module.Blocks)
+            $callArguments = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+            if ($module.Block) {
+                foreach ($attribute in & $sortedAttributes $module.Block.Body) {
+                    if ($metaArguments -cnotcontains $attribute.Name) { $callArguments[[string]$attribute.Name] = $attribute }
+                }
+            }
+
+            $variables = foreach ($block in @($blocks | Where-Object Type -eq 'variable')) {
+                $attributes = $block.Body.Attributes
+                $default = $attributes.PSObject.Properties['default']
+                $node = & $newNode Variable ([string]$block.Labels[0]) $address $block.File $block.Line ($default ? $default.Value.Expr : $null) $block
+                $sensitive = & $attributeValue $attributes.sensitive
+                $nullable = & $attributeValue $attributes.nullable
+                $node.Type        = $attributes.PSObject.Properties['type'] ? $attributes.type.Expr.Raw : $null
+                $node.Description = & $attributeValue $attributes.description
+                $node.Sensitive   = ($null -ne $sensitive) ? $sensitive : $false
+                $node.Nullable    = ($null -ne $nullable) ? $nullable : $true
+                $node.HasDefault  = $null -ne $default
+                $argument = $null
+                if ($callArguments.TryGetValue($node.Name, [ref]$argument)) {
+                    $node.Binding         = 'Argument'
+                    $node.ArgumentExpr    = $argument.Expr
+                    $node.ArgumentLiteral = Get-TerraformExpressionLiteral -Expr $argument.Expr
+                }
+                else {
+                    $node.Binding = $node.HasDefault ? 'Default' : 'Unset'
+                }
+                $node
+            }
+            $locals = foreach ($block in @($blocks | Where-Object Type -eq 'locals')) {
+                foreach ($attribute in & $sortedAttributes $block.Body) {
+                    & $newNode Local ([string]$attribute.Name) $address (& $leaf $attribute.NameRange) $attribute.NameRange.Start.Line $attribute.Expr $attribute
+                }
+            }
+            $outputs = foreach ($block in @($blocks | Where-Object Type -eq 'output')) {
+                $attributes = $block.Body.Attributes
+                $node = & $newNode Output ([string]$block.Labels[0]) $address $block.File $block.Line $attributes.value.Expr $block
+                $sensitive = & $attributeValue $attributes.sensitive
+                $node.Sensitive = ($null -ne $sensitive) ? $sensitive : $false
+                $node
+            }
+
+            foreach ($group in @(, @($variables)) + @(, @($locals)) + @(, @($outputs))) {
+                # Ordinal by name, so the order never depends on culture.
+                $sorted = [System.Collections.Generic.List[object]]::new()
+                foreach ($node in $group) { if ($null -ne $node) { $sorted.Add($node) } }
+                $sorted.Sort([System.Comparison[object]] { param($a, $b) [string]::CompareOrdinal($a.Name, $b.Name) })
+                foreach ($node in $sorted) {
+                    $nodes.Add($node)
+                    $byId[$node.Id] = $node
+                }
+            }
+        }
+
+        # Edges for one expression in module $address toward node Id $to. $to is $null
+        # when the target is in a skipped module or undeclared: references are still
+        # checked, but no edge is made.
+        $connect = {
+            param($address, $expr, $to, $kind)
+            $file = & $leaf $expr.SrcRange
+            $line = $expr.SrcRange.Start.Line
+            # Assigned first: the helper returns one array, which foreach would not unroll.
+            $references = Get-TerraformExpressionReferences -Expr $expr
+            foreach ($reference in $references) {
+                $root = $reference.Root
+                if ($null -eq $root) { continue }
+                $parts = $root.Split('.')
+                $edgeKind = $kind
+                if ($parts[0] -eq 'module') {
+                    $childAddress = & $childAddressOf $address $parts[1]
+                    $child = $null
+                    if ($byAddress.TryGetValue($childAddress, [ref]$child) -and $null -eq $child.Blocks) { continue }
+                    $from = "$childAddress/output/$($parts[2])"
+                    if (-not $byId.ContainsKey($from)) {
+                        $unresolved.Add([pscustomobject]@{ Module = $address; Root = $root; Reason = 'UndeclaredOutput'; File = $file; Line = $line })
+                        continue
+                    }
+                    $edgeKind = 'OutputReference'
+                }
+                else {
+                    $from = "$address/$($parts[0])/$($parts[1])"
+                    if (-not $byId.ContainsKey($from)) {
+                        $unresolved.Add([pscustomobject]@{ Module = $address; Root = $root; Reason = 'UndeclaredReference'; File = $file; Line = $line })
+                        continue
+                    }
+                }
+                if ($null -eq $to) { continue }
+                $edges.Add([pscustomobject]@{
+                    PSTypeName = 'TerraformGraph.VariableEdge'
+                    From       = $from
+                    To         = $to
+                    Kind       = $edgeKind
+                    Via        = $reference.Traversal
+                    File       = $file
+                    Line       = $line
+                })
+            }
+        }
+
+        # Pass 2: edges, per module in ModuleGraph order: declarations in node order, then
+        # module call arguments, calls in source order and arguments in source order.
+        $index = 0
+        foreach ($module in $moduleNodes) {
+            if ($null -eq $module.Blocks) { continue }
+            $address = [string]$module.ModuleAddress
+
+            while ($index -lt $nodes.Count -and $nodes[$index].Module -ceq $address) {
+                $node = $nodes[$index++]
+                if ($null -ne $node.Expr) { & $connect $address $node.Expr $node.Id 'Reference' }
+            }
+
+            foreach ($call in @($module.Blocks | Where-Object Type -eq 'module')) {
+                $childAddress = & $childAddressOf $address ([string]$call.Labels[0])
+                $child = $null
+                $childParsed = $byAddress.TryGetValue($childAddress, [ref]$child) -and $null -ne $child.Blocks
+                foreach ($attribute in & $sortedAttributes $call.Body) {
+                    $name = [string]$attribute.Name
+                    if ($metaArguments -ccontains $name) { continue }
+                    $to = $null
+                    if ($childParsed) {
+                        $to = "$childAddress/var/$name"
+                        if (-not $byId.ContainsKey($to)) {
+                            $unresolved.Add([pscustomobject]@{
+                                Module = $childAddress
+                                Root   = "var.$name"
+                                Reason = 'UndeclaredArgument'
+                                File   = & $leaf $attribute.NameRange
+                                Line   = $attribute.NameRange.Start.Line
+                            })
+                            $to = $null
+                        }
+                    }
+                    & $connect $address $attribute.Expr $to 'Argument'
+                }
+            }
+        }
+
+        [pscustomobject]@{
+            PSTypeName = 'TerraformGraph.VariableGraph'
+            Root       = $ModuleGraph.Root
+            Nodes      = $nodes.ToArray()
+            Edges      = $edges.ToArray()
+            Unresolved = $unresolved.ToArray()
+            Skipped    = $skipped.ToArray()
+        }
+    }
+}
+
+function Get-TerraformVariableTrace {
+    <#
+    .SYNOPSIS
+        Follows a variable, local or output through a variable graph.
+
+    .DESCRIPTION
+        Get-TerraformVariableTrace starts at one node of a TerraformGraph.VariableGraph and
+        walks its edges breadth-first. Upstream follows edges backwards (To to From) and
+        answers where a value comes from; Downstream follows them forwards (From to To)
+        and answers what a value feeds. Both does upstream first, then downstream.
+
+        Each returned node is a copy of the graph's node with a Distance property: 0 for
+        the start, 1, 2, ... downstream, and -1, -2, ... upstream when -Direction is Both
+        (with Upstream alone distances are positive). A node is returned once, at the
+        distance it was first reached. Cycles, such as locals that reference each other,
+        terminate because no node is expanded twice.
+
+    .PARAMETER VariableGraph
+        A TerraformGraph.VariableGraph from ConvertTo-TerraformVariableGraph.
+
+    .PARAMETER Id
+        The Id of the start node, such as module.network/var/aws_region. An Id that is
+        not in the graph is a terminating error that lists up to 10 nodes with the same
+        Name in any module.
+
+    .PARAMETER Direction
+        Upstream, Downstream or Both (default).
+
+    .PARAMETER MaxDepth
+        Maximum number of edges from the start node. Default 50.
+
+    .EXAMPLE
+        $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+        ($graph | Get-TerraformVariableTrace -Id 'module.network/var/aws_region' -Direction Upstream).Nodes
+
+        Where the network module's aws_region comes from: the root variable that the
+        module call passes in.
+
+    .EXAMPLE
+        $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+        ($graph | Get-TerraformVariableTrace -Id 'root/var/aws_region' -Direction Downstream).Nodes
+
+        Everything the root aws_region variable feeds: the root output that echoes it and
+        the network module variable it is passed to.
+
+    .EXAMPLE
+        $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+        $trace = $graph | Get-TerraformVariableTrace -Id 'module.network.module.endpoint/output/address'
+        $trace.Nodes
+        $trace.Edges | Format-Table From, To, Kind, Via
+
+        Both directions from a middle node: the host and port variables that build the
+        endpoint address at Distance -1, the network output that re-exports it at 1,
+        and the edges walked.
+
+    .OUTPUTS
+        TerraformGraph.VariableTrace with Start, Direction, Nodes and Edges. Nodes are
+        TerraformGraph.VariableTraceNode (default view Distance, Kind, Module, Name,
+        Binding, Literal); Edges are the TerraformGraph.VariableEdge objects walked.
+
+    .LINK
+        ConvertTo-TerraformVariableGraph
+
+    .LINK
+        https://github.com/JerryBalmer1/TerraformGraph
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0, ValueFromPipeline)]
+        [object]
+        $VariableGraph,
+
+        [Parameter(Mandatory)]
+        [string]
+        $Id,
+
+        [ValidateSet('Upstream', 'Downstream', 'Both')]
+        [string]
+        $Direction = 'Both',
+
+        [ValidateRange(0, [int]::MaxValue)]
+        [int]
+        $MaxDepth = 50
+    )
+
+    process {
+        $byId = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+        foreach ($node in @($VariableGraph.Nodes)) { $byId[$node.Id] = $node }
+
+        $start = $null
+        if (-not $byId.TryGetValue($Id, [ref]$start)) {
+            $name = $Id.Split('/')[-1]
+            $near = @($VariableGraph.Nodes | Where-Object Name -ceq $name | Select-Object -First 10 -ExpandProperty Id)
+            $hint = if ($near.Count) { " Nodes named '$name': $($near -join ', ')." } else { " No node is named '$name'." }
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.ArgumentException]::new("Node '$Id' is not in the variable graph.$hint"),
+                'VariableNodeNotFound',
+                [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                $Id))
+        }
+
+        # Adjacency as indexes into Edges, in Edges order, so the walk is deterministic.
+        # Indexes rather than the edges themselves: every PSCustomObject compares equal.
+        $allEdges = @($VariableGraph.Edges)
+        $outgoing = [System.Collections.Generic.Dictionary[string, System.Collections.Generic.List[int]]]::new([System.StringComparer]::Ordinal)
+        $incoming = [System.Collections.Generic.Dictionary[string, System.Collections.Generic.List[int]]]::new([System.StringComparer]::Ordinal)
+        for ($i = 0; $i -lt $allEdges.Count; $i++) {
+            foreach ($pair in @(@($outgoing, $allEdges[$i].From), @($incoming, $allEdges[$i].To))) {
+                if (-not $pair[0].ContainsKey($pair[1])) { $pair[0][$pair[1]] = [System.Collections.Generic.List[int]]::new() }
+                $pair[0][$pair[1]].Add($i)
+            }
+        }
+
+        $visited = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        $walkedEdges = [System.Collections.Generic.HashSet[int]]::new()
+        $resultNodes = [System.Collections.Generic.List[object]]::new()
+        $resultEdges = [System.Collections.Generic.List[object]]::new()
+
+        $emit = {
+            param($node, $distance)
+            $copy = [pscustomobject]@{ PSTypeName = 'TerraformGraph.VariableTraceNode'; Distance = $distance }
+            foreach ($property in $node.PSObject.Properties) {
+                $copy.PSObject.Properties.Add([psnoteproperty]::new($property.Name, $property.Value))
+            }
+            $resultNodes.Add($copy)
+        }
+
+        $null = $visited.Add($start.Id)
+        & $emit $start 0
+
+        $passes = @(switch ($Direction) {
+            'Upstream'   { , @('Upstream', 1) }
+            'Downstream' { , @('Downstream', 1) }
+            'Both'       { @('Upstream', -1), @('Downstream', 1) }
+        })
+        foreach ($pass in $passes) {
+            $adjacency = ($pass[0] -eq 'Upstream') ? $incoming : $outgoing
+            $sign = $pass[1]
+            $frontier = [System.Collections.Generic.List[string]]::new()
+            $frontier.Add($start.Id)
+            $depth = 0
+            while ($frontier.Count -gt 0 -and $depth -lt $MaxDepth) {
+                $depth++
+                $next = [System.Collections.Generic.List[string]]::new()
+                foreach ($current in $frontier) {
+                    $list = $null
+                    if (-not $adjacency.TryGetValue($current, [ref]$list)) { continue }
+                    foreach ($edgeIndex in $list) {
+                        $edge = $allEdges[$edgeIndex]
+                        if ($walkedEdges.Add($edgeIndex)) { $resultEdges.Add($edge) }
+                        $neighbor = ($pass[0] -eq 'Upstream') ? $edge.From : $edge.To
+                        if ($visited.Add($neighbor)) {
+                            & $emit $byId[$neighbor] ($sign * $depth)
+                            $next.Add($neighbor)
+                        }
+                    }
+                }
+                $frontier = $next
+            }
+        }
+
+        [pscustomobject]@{
+            PSTypeName = 'TerraformGraph.VariableTrace'
+            Start      = $start
+            Direction  = $Direction
+            Nodes      = $resultNodes.ToArray()
+            Edges      = $resultEdges.ToArray()
+        }
     }
 }

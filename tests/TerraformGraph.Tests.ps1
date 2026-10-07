@@ -830,4 +830,286 @@ Describe "TerraformGraph" {
             }
         }
     }
+
+    Context "ConvertTo-TerraformVariableGraph" {
+
+        BeforeAll {
+            $graph = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop | ConvertTo-TerraformVariableGraph -ErrorAction Stop
+            Set-Variable -Name VarGraph -Value $graph -Scope Script
+
+            # One root that trips each Unresolved reason once.
+            $bad = Join-Path $TestDrive 'vargraph-unresolved'
+            New-Item -ItemType Directory -Path (Join-Path $bad 'm') -Force | Out-Null
+            Set-Content -Path (Join-Path $bad 'main.tf') -Value @'
+module "m" {
+  source = "./m"
+  nope   = 1
+}
+
+output "x" {
+  value = module.m.missing
+}
+'@
+            Set-Content -Path (Join-Path $bad 'm\main.tf') -Value @'
+locals {
+  a = var.ghost
+}
+'@
+            Set-Variable -Name UnresolvedGraph -Scope Script -Value (
+                Get-TerraformModuleGraph -Path $bad -Recurse -ErrorAction Stop | ConvertTo-TerraformVariableGraph -ErrorAction Stop)
+
+            $refs = Join-Path $TestDrive 'vargraph-refs.tf'
+            Set-Content -Path $refs -Value @'
+locals {
+  indexed  = var.tags["k"]
+  listed   = var.zones[0]
+  called   = format("%s-%s", var.region, local.prefix)
+  resource = aws_instance.web.id
+  output   = module.net.ids[0]
+}
+'@
+            Set-Variable -Name RefsTf -Value $refs -Scope Script
+        }
+
+        It "exports both variable graph functions from TerraformGraph" {
+            (Get-Command ConvertTo-TerraformVariableGraph -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+            (Get-Command Get-TerraformVariableTrace -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        }
+
+        It "has one node per variable, local and output in root, network and endpoint" {
+            # root 7 variables, 2 locals, 2 outputs; network 4 variables, 2 outputs; endpoint 2 variables, 1 output.
+            $VarGraph.NodeCount | Should -Be 20
+            $VarGraph.Summary['Variable'] | Should -Be 13
+            $VarGraph.Summary['Local'] | Should -Be 2
+            $VarGraph.Summary['Output'] | Should -Be 5
+        }
+
+        It "binds root var.aws_region to its default" {
+            $node = $VarGraph.Nodes | Where-Object Id -eq 'root/var/aws_region'
+            $node.Kind | Should -Be 'Variable'
+            $node.Binding | Should -Be 'Default'
+            $node.HasDefault | Should -BeTrue
+            $node.Literal | Should -Be 'us-east-1'
+            $node.Type | Should -Be 'string'
+        }
+
+        It "binds module.network var.aws_region to the root call argument" {
+            $node = $VarGraph.Nodes | Where-Object Id -eq 'module.network/var/aws_region'
+            $node.Binding | Should -Be 'Argument'
+            $node.ArgumentExpr | Should -Not -BeNullOrEmpty
+            $node.ArgumentExpr.Raw | Should -Be 'var.aws_region'
+            $edge = @($VarGraph.Edges | Where-Object { $_.From -eq 'root/var/aws_region' -and $_.To -eq 'module.network/var/aws_region' })
+            $edge.Count | Should -Be 1
+            $edge[0].Kind | Should -Be 'Argument'
+            $edge[0].Via | Should -Be 'var.aws_region'
+        }
+
+        It "binds module.network var.availability_zone, which the root does not pass, to its default" {
+            $node = $VarGraph.Nodes | Where-Object Id -eq 'module.network/var/availability_zone'
+            $node.Binding | Should -Be 'Default'
+            $node.Literal | Should -Be 'us-east-1a'
+        }
+
+        It "keeps literal module call arguments on the endpoint variables" {
+            ($VarGraph.Nodes | Where-Object Id -eq 'module.network.module.endpoint/var/host').ArgumentLiteral | Should -Be 'localhost'
+            ($VarGraph.Nodes | Where-Object Id -eq 'module.network.module.endpoint/var/port').ArgumentLiteral | Should -Be 8080
+        }
+
+        It "adds an OutputReference edge for module.endpoint.address in network's endpoint output" {
+            $edge = @($VarGraph.Edges | Where-Object Kind -eq 'OutputReference')
+            $edge.Count | Should -Be 1
+            $edge[0].From | Should -Be 'module.network.module.endpoint/output/address'
+            $edge[0].To | Should -Be 'module.network/output/endpoint'
+            $edge[0].Via | Should -Be 'module.endpoint.address'
+        }
+
+        It "makes no edge for root output network, which reads the whole module.network" {
+            @($VarGraph.Edges | Where-Object To -eq 'root/output/network').Count | Should -Be 0
+            ($VarGraph.Nodes | Where-Object Id -eq 'root/output/network').References.Traversal | Should -Be 'module.network'
+        }
+
+        It "adds a Reference edge for local.enabled reading var.enable_public_ip" {
+            $edge = @($VarGraph.Edges | Where-Object To -eq 'root/local/enabled')
+            $edge.Count | Should -Be 1
+            $edge[0].From | Should -Be 'root/var/enable_public_ip'
+            $edge[0].Kind | Should -Be 'Reference'
+        }
+
+        It "gives every edge a From and To that exist in Nodes" {
+            $ids = @($VarGraph.Nodes.Id)
+            foreach ($edge in $VarGraph.Edges) {
+                $ids | Should -Contain $edge.From
+                $ids | Should -Contain $edge.To
+            }
+            $VarGraph.EdgeCount | Should -Be 8
+        }
+
+        It "has no Unresolved or Skipped entries for infra" {
+            $VarGraph.UnresolvedCount | Should -Be 0
+            @($VarGraph.Skipped).Count | Should -Be 0
+        }
+
+        It "lists module.network in Skipped without -Recurse and has no module.network nodes" {
+            $graph = Get-TerraformModuleGraph -Path $Infra -ErrorAction Stop | ConvertTo-TerraformVariableGraph -ErrorAction Stop
+            @($graph.Skipped) | Should -Be @('module.network')
+            @($graph.Nodes | Where-Object Module -ne 'root').Count | Should -Be 0
+            @($graph.Edges | Where-Object Kind -eq 'Argument').Count | Should -Be 0
+            $graph.UnresolvedCount | Should -Be 0
+        }
+
+        It "reports an argument the child does not declare as UndeclaredArgument" {
+            $record = @($UnresolvedGraph.Unresolved | Where-Object Reason -eq 'UndeclaredArgument')
+            $record.Count | Should -Be 1
+            $record[0].Module | Should -Be 'module.m'
+            $record[0].Root | Should -Be 'var.nope'
+            $record[0].Line | Should -Be 3
+        }
+
+        It "reports module.m.missing as UndeclaredOutput" {
+            $record = @($UnresolvedGraph.Unresolved | Where-Object Reason -eq 'UndeclaredOutput')
+            $record.Count | Should -Be 1
+            $record[0].Module | Should -Be 'root'
+            $record[0].Root | Should -Be 'module.m.missing'
+        }
+
+        It "reports var.ghost in a child local as UndeclaredReference" {
+            $record = @($UnresolvedGraph.Unresolved | Where-Object Reason -eq 'UndeclaredReference')
+            $record.Count | Should -Be 1
+            $record[0].Module | Should -Be 'module.m'
+            $record[0].Root | Should -Be 'var.ghost'
+            $UnresolvedGraph.EdgeCount | Should -Be 0
+        }
+
+        It "returns the same node and edge sequences on every run" {
+            $again = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop | ConvertTo-TerraformVariableGraph -ErrorAction Stop
+            $again.Nodes.Id | Should -Be $VarGraph.Nodes.Id
+            ($again.Edges | ForEach-Object { "$($_.From)>$($_.To)>$($_.Kind)>$($_.Via)" }) |
+                Should -Be ($VarGraph.Edges | ForEach-Object { "$($_.From)>$($_.To)>$($_.Kind)>$($_.Via)" })
+        }
+
+        It "orders nodes by module, then Variable, Local, Output, each by name" {
+            @($VarGraph.Nodes | Where-Object Module -eq 'root').Id | Should -Be @(
+                'root/var/availability_zones', 'root/var/aws_region', 'root/var/enable_public_ip', 'root/var/endpoint'
+                'root/var/instance_count', 'root/var/pair', 'root/var/tags'
+                'root/local/enabled', 'root/local/name_prefix'
+                'root/output/network', 'root/output/region'
+            )
+        }
+
+        It "sets the default display properties" {
+            (Get-TypeData TerraformGraph.VariableNode).DefaultDisplayPropertySet.ReferencedProperties |
+                Should -Be @('Kind', 'Module', 'Name', 'Binding', 'Literal')
+            (Get-TypeData TerraformGraph.VariableGraph).DefaultDisplayPropertySet.ReferencedProperties |
+                Should -Be @('Root', 'NodeCount', 'EdgeCount', 'UnresolvedCount')
+        }
+
+        It "finds a plain var reference in an infra expression" {
+            $expr = ((Get-TerraformAST -FilePath $MainTf | Where-Object Type -eq 'locals').Body.Attributes.enabled.Expr)
+            InModuleScope TerraformGraph -Parameters @{ Expr = $expr } {
+                $refs = @(Get-TerraformExpressionReferences -Expr $Expr)
+                $refs.Count | Should -Be 1
+                $refs[0].Traversal | Should -Be 'var.enable_public_ip'
+                $refs[0].Root | Should -Be 'var.enable_public_ip'
+            }
+        }
+
+        It "gives path.module in an infra template a null Root" {
+            $expr = ((Get-TerraformAST -FilePath $MainTf | Where-Object Type -eq 'data').Body.Attributes.filename.Expr)
+            InModuleScope TerraformGraph -Parameters @{ Expr = $expr } {
+                $refs = @(Get-TerraformExpressionReferences -Expr $Expr)
+                $refs.Traversal | Should -Be 'path.module'
+                $refs[0].Root | Should -BeNullOrEmpty
+            }
+        }
+
+        It "strips index suffixes, finds both refs in a function call, and leaves a resource Root null" {
+            $attributes = (Get-TerraformAST -FilePath $RefsTf).Body.Attributes
+            InModuleScope TerraformGraph -Parameters @{ A = $attributes } {
+                $indexed = @(Get-TerraformExpressionReferences -Expr $A.indexed.Expr)
+                $indexed[0].Traversal | Should -Be 'var.tags["k"]'
+                $indexed[0].Root | Should -Be 'var.tags'
+
+                (@(Get-TerraformExpressionReferences -Expr $A.listed.Expr))[0].Root | Should -Be 'var.zones'
+
+                $called = @(Get-TerraformExpressionReferences -Expr $A.called.Expr)
+                $called.Traversal | Should -Be @('var.region', 'local.prefix')
+                $called.Root | Should -Be @('var.region', 'local.prefix')
+
+                $resource = @(Get-TerraformExpressionReferences -Expr $A.resource.Expr)
+                $resource[0].Traversal | Should -Be 'aws_instance.web.id'
+                $resource[0].Root | Should -BeNullOrEmpty
+
+                (@(Get-TerraformExpressionReferences -Expr $A.output.Expr))[0].Root | Should -Be 'module.net.ids'
+            }
+        }
+    }
+
+    Context "Get-TerraformVariableTrace" {
+
+        BeforeAll {
+            $graph = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop | ConvertTo-TerraformVariableGraph -ErrorAction Stop
+            Set-Variable -Name TraceGraph -Value $graph -Scope Script
+
+            $cycle = Join-Path $TestDrive 'vartrace-cycle'
+            New-Item -ItemType Directory -Path $cycle -Force | Out-Null
+            Set-Content -Path (Join-Path $cycle 'main.tf') -Value @'
+locals {
+  a = local.b
+  b = local.a
+}
+'@
+            Set-Variable -Name CycleDir -Value $cycle -Scope Script
+        }
+
+        It "traces module.network var.aws_region upstream to the root variable at Distance 1" {
+            $trace = $TraceGraph | Get-TerraformVariableTrace -Id 'module.network/var/aws_region' -Direction Upstream -ErrorAction Stop
+            $trace.Start.Id | Should -Be 'module.network/var/aws_region'
+            $trace.Nodes.Id | Should -Be @('module.network/var/aws_region', 'root/var/aws_region')
+            ($trace.Nodes | Where-Object Id -eq 'root/var/aws_region').Distance | Should -Be 1
+            $trace.Edges.Kind | Should -Be 'Argument'
+        }
+
+        It "traces root var.aws_region downstream to the root output and the network variable, and no further" {
+            $trace = $TraceGraph | Get-TerraformVariableTrace -Id 'root/var/aws_region' -Direction Downstream -ErrorAction Stop
+            $trace.Nodes.Id | Should -Be @('root/var/aws_region', 'root/output/region', 'module.network/var/aws_region')
+            ($trace.Nodes | Where-Object Id -eq 'module.network/var/aws_region').Distance | Should -Be 1
+        }
+
+        It "has negative and positive distances with Both from the endpoint address output" {
+            $trace = $TraceGraph | Get-TerraformVariableTrace -Id 'module.network.module.endpoint/output/address' -ErrorAction Stop
+            $trace.Direction | Should -Be 'Both'
+            ($trace.Nodes | ForEach-Object { "$($_.Distance) $($_.Id)" }) | Should -Be @(
+                '0 module.network.module.endpoint/output/address'
+                '-1 module.network.module.endpoint/var/host'
+                '-1 module.network.module.endpoint/var/port'
+                '1 module.network/output/endpoint'
+            )
+            $trace.Edges.Count | Should -Be 3
+        }
+
+        It "throws for an unknown Id and names the same-named nodes" {
+            { $TraceGraph | Get-TerraformVariableTrace -Id 'module.network.module.endpoint/var/aws_region' -ErrorAction Stop } |
+                Should -Throw "Node 'module.network.module.endpoint/var/aws_region' is not in the variable graph. Nodes named 'aws_region': root/var/aws_region, module.network/var/aws_region."
+        }
+
+        It "terminates on locals that reference each other and returns both" {
+            $graph = Get-TerraformModuleGraph -Path $CycleDir -ErrorAction Stop | ConvertTo-TerraformVariableGraph -ErrorAction Stop
+            $graph.EdgeCount | Should -Be 2
+            $trace = $graph | Get-TerraformVariableTrace -Id 'root/local/a' -ErrorAction Stop
+            @($trace.Nodes.Id | Sort-Object) | Should -Be @('root/local/a', 'root/local/b')
+            $trace.Edges.Count | Should -Be 2
+        }
+
+        It "stops at -MaxDepth" {
+            $id = 'module.network/output/endpoint'
+            @(($TraceGraph | Get-TerraformVariableTrace -Id $id -Direction Upstream -ErrorAction Stop).Nodes).Count | Should -Be 4
+            $limited = $TraceGraph | Get-TerraformVariableTrace -Id $id -Direction Upstream -MaxDepth 1 -ErrorAction Stop
+            $limited.Nodes.Id | Should -Be @('module.network/output/endpoint', 'module.network.module.endpoint/output/address')
+        }
+
+        It "sets the default display properties of trace nodes" {
+            (Get-TypeData TerraformGraph.VariableTraceNode).DefaultDisplayPropertySet.ReferencedProperties |
+                Should -Be @('Distance', 'Kind', 'Module', 'Name', 'Binding', 'Literal')
+        }
+    }
 }

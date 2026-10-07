@@ -19,7 +19,7 @@ Parse Terraform configurations into an HCL AST and build graphs of module calls 
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.5.1**. Not yet published to the PowerShell Gallery.
+Source version **0.6.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -228,6 +228,48 @@ $graph.Nodes | Where-Object Kind -eq 'Resource' | Select-Object Path, Id
 | Function | `<address>/function/<name>` |
 | Block | `<parent Id>/<block name>` |
 | Attribute | `<parent Id>/<attribute name>` |
+| Variable | `<module>/var/<name>`, where `<module>` is the ModuleAddress (`root` for the root module), e.g. `module.network/var/aws_region` |
+| Local | `<module>/local/<name>` |
+| Output | `<module>/output/<name>` |
+
+The last three are `ConvertTo-TerraformVariableGraph` node Ids; the rest are `ConvertTo-TerraformSchemaGraph` node Ids.
+
+### Variable graph (`ConvertTo-TerraformVariableGraph`)
+
+Turn a module graph into a graph of values: every variable, local and output in every parsed module becomes a `TerraformGraph.VariableNode`, and edges follow where each value comes from. A declaration that reads `var.x` or `local.x` gets a `Reference` edge; a module call argument `a = var.x` gets an `Argument` edge to the child's `var/a`; reading `module.c.o` gets an `OutputReference` edge from the child's output. Child variables carry `Binding` — `Argument` (with `ArgumentExpr` and `ArgumentLiteral`), `Default`, or `Unset` — and every node keeps `Expr`, `Literal` and `References`. Nothing is parsed again; modules the module graph did not parse are listed in `Skipped`.
+
+```powershell
+# Whole tree; Summary counts nodes by Kind.
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+$graph.Summary
+
+# Arguments that name a variable the child does not declare.
+$graph.Unresolved | Where-Object Reason -eq 'UndeclaredArgument'
+
+# Variables nothing sets and that have no default.
+$graph.Nodes | Where-Object Binding -eq 'Unset'
+```
+
+Only declaration expressions (variable default, local value, output value) and module call arguments make edges; references from resources, data sources and other blocks do not. A reference binds by its root with index and attribute suffixes dropped (`var.tags["a"]` binds `var.tags`; the full traversal is the edge's `Via`). `Unresolved` lists `UndeclaredReference` (a `var.` or `local.` with no such node in its module), `UndeclaredArgument` and `UndeclaredOutput`.
+
+### Variable trace (`Get-TerraformVariableTrace`)
+
+Walk a variable graph breadth-first from one node Id. `Upstream` answers where a value comes from, `Downstream` what it feeds, `Both` (default) does both, with upstream nodes at negative `Distance`. `-MaxDepth` (default 50) caps the walk and cycles terminate. An unknown Id throws and names the nodes with the same Name in other modules.
+
+```powershell
+$graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
+
+# Where the network module's aws_region comes from.
+($graph | Get-TerraformVariableTrace -Id 'module.network/var/aws_region' -Direction Upstream).Nodes
+
+# What the root aws_region feeds.
+($graph | Get-TerraformVariableTrace -Id 'root/var/aws_region' -Direction Downstream).Nodes
+
+# Both directions from a middle node, with the edges walked.
+$trace = $graph | Get-TerraformVariableTrace -Id 'module.network.module.endpoint/output/address'
+$trace.Nodes
+$trace.Edges | Format-Table From, To, Kind, Via
+```
 
 ---
 
