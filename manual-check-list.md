@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.10.0
+Module version: 0.11.0
 Last updated: 2026-10-06
 
 ## 0 Setup
@@ -1465,5 +1465,119 @@ Get-ChildItem .\dist\schema-packs | Format-Table Name, Length
 ```
 
 Expect: One line per provider, `registry.terraform.io/hashicorp/azurerm 5.8.0: 217,891 bytes, 33,699 nodes, 1106 resources, 396 data sources`, `registry.terraform.io/microsoft/azuredevops 1.16.0: 16,955 bytes, 2,583 nodes, 131 resources, 46 data sources` and `registry.terraform.io/vmware/vsphere 2.17.1: 34,740 bytes, 1,512 nodes, 52 resources, 35 data sources`, each with harvest and total times. Then `Wrote 3 packs and manifest.json ... in` about 25 s on a first run, or 19 s when the provider working directories already exist. The folder holds manifest.json (1172 bytes) and the three .json.gz files. Versions follow the registry cache, so they change after Update-TerraformRegistryCache.
+
+Pester: none
+
+### 12.7 Get-TerraformSchemaPack -Provider vsphere from the real release
+
+Downloads the vsphere schema pack from the latest GitHub release again. With no GH_TOKEN this uses the anonymous releases/latest/download URL. With $env:GH_TOKEN (or $env:GITHUB_TOKEN) set, it goes through the GitHub releases API, which is what a private repository needs. Needs the network.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformSchemaPack -Provider vsphere -Force -PassThru
+```
+
+Expect: One row, `registry.terraform.io/vmware/vsphere 2.17.1 Updated 34740` (Status `Downloaded` if vsphere was not cached before). With GH_TOKEN set and -Verbose, the WebRequest lines show api.github.com/repos/JerryBalmer1/TerraformGraph/releases/latest, then two releases/assets/<id> downloads.
+
+Pester: "uses the releases API with a Bearer token when GH_TOKEN is set", "uses the anonymous download URL when no token is set", "says the repository may be private and names GH_TOKEN on a 404 without a token"
+
+## 13 Provider docs: Update-TerraformProviderDocCache, Get-TerraformProviderDoc, Get-TerraformDocPack, Get-TerraformDocCache
+
+Docs live in $env:LOCALAPPDATA\TerraformGraph\docs\<address-slug>\<version>.json.gz, keyed on schema node Ids. Items 13.1 to 13.4 write the null (and local) docs into the real docs cache.
+
+### 13.1 Update-TerraformProviderDocCache for null 3.2.3
+
+Harvests the hashicorp/null 3.2.3 docs from the registry and matches them against the cached null schema. Needs the network.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -Force -PassThru
+```
+
+Expect: A list with ProviderAddress `registry.terraform.io/hashicorp/null`, Version `3.2.3`, Status `Harvested` the first time (`Updated` after that), DocCount `4`, UnmatchedCount `0` and Elapsed about 2 s. If the null schema is not cached, a warning names Get-TerraformSchemaPack and UnmatchedCount is empty.
+
+Pester: "harvests hashicorp/null 3.2.3 into the redirected docs cache"
+
+### 13.2 Get-TerraformProviderDoc -Type wildcard
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3
+Get-TerraformProviderDoc -Provider null -Type 'null_*'
+```
+
+Expect: Two rows with columns Id, Category, Title, Subcategory: `registry.terraform.io/hashicorp/null/resource/null_resource` (resources, resource) and `registry.terraform.io/hashicorp/null/data/null_data_source` (data-sources, data_source). The overview and the guide have no Type, so they are not listed.
+
+Pester: "gets docs by -Id, -Type wildcard and -Category"
+
+### 13.3 Get-TerraformProviderDoc -Examples
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3
+Get-TerraformProviderDoc -Provider null -Type null_resource -Examples | Format-List Id, ExampleCount, Content
+```
+
+Expect: Id `registry.terraform.io/hashicorp/null/resource/null_resource`, ExampleCount `1`, and Content is the HCL only: `resource "aws_instance" "cluster" {` through the `resource "null_resource" "cluster"` block with its `provisioner "remote-exec"`. No ``` fences, front matter or prose.
+
+Pester: "returns only hcl and terraform code blocks with -Examples"
+
+### 13.4 The agent pipeline on infra
+
+The resource graph's nodes piped into Get-TerraformProviderDoc: the pages for the types infra uses, once each, from the caches only. The first two lines fill the null and local schema cache with terraform only when it is missing.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+if (-not (Get-TerraformSchemaCache -Provider hashicorp/null)) { $null = Get-TerraformProviderSchema -Provider hashicorp/null -Version '= 3.2.3' -SaveToCache -Cleanup }
+if (-not (Get-TerraformSchemaCache -Provider hashicorp/local)) { $null = Get-TerraformProviderSchema -Provider hashicorp/local -Version '= 2.5.2' -SaveToCache -Cleanup }
+Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3
+Update-TerraformProviderDocCache -Provider hashicorp/local -Version 2.5.2
+Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema |
+    Select-Object -ExpandProperty Nodes | Get-TerraformProviderDoc
+```
+
+Expect: Two rows and no warnings: `registry.terraform.io/hashicorp/null/resource/null_resource` (one page for the two null_resource blocks) and `registry.terraform.io/hashicorp/local/data/local_file` (data-sources, file). The two terraform_data blocks use the built-in provider and are skipped.
+
+Pester: "returns one doc per distinct matched null/local schema type for a ResourceGraph of infra piped in"
+
+### 13.5 Get-TerraformDocPack -Source dist\schema-packs for vsphere
+
+Needs dist\schema-packs from item 13.6 (or 12.6).
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformDocPack -Provider vsphere -Source .\dist\schema-packs -Force -PassThru | Format-Table
+Get-TerraformDocCache -Provider vsphere | Format-Table
+```
+
+Expect: `registry.terraform.io/vmware/vsphere 2.17.1 Updated 104225` (Status `Downloaded` if the docs were not cached), then the cache row `registry.terraform.io/vmware/vsphere 2.17.1` with DocCount `87`, UnmatchedCount `0`, Bytes `104225`.
+
+Pester: "downloads only the docs entry with Get-TerraformDocPack from a manifest with both kinds"
+
+### 13.6 Invoke-Build BuildSchemaPack elapsed with docs
+
+Replaces the Expect of 12.6 from 0.11.0: each provider now gets a schema pack and a docs pack. Needs the network.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Invoke-Build BuildSchemaPack
+Get-ChildItem .\dist\schema-packs | Format-Table Name, Length
+```
+
+Expect: After each schema line, a docs line: `registry.terraform.io/hashicorp/azurerm 5.8.0 docs: 1518 pages, 1 unmatched, 1,182,564 bytes; harvest 00:44; unmatched e.g. data-sources/container_app_environment_dapr_component`, `registry.terraform.io/microsoft/azuredevops 1.16.0 docs: 183 pages, 1 unmatched, 91,929 bytes; ... unmatched e.g. resources/environment_kubernetes_resource` and `registry.terraform.io/vmware/vsphere 2.17.1 docs: 87 pages, 0 unmatched, 104,225 bytes`. Then `Wrote 6 packs (schema and docs) and manifest.json ... in` about 1:17. The folder holds manifest.json (2342 bytes, every entry with a kind), the three schema .json.gz files and three docs.*.json.gz files. Versions and counts follow the registry, so they change over time.
 
 Pester: none

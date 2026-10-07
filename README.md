@@ -19,7 +19,7 @@ Parse Terraform configurations into an HCL AST and build graphs of module calls 
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.10.0**. Not yet published to the PowerShell Gallery.
+Source version **0.11.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -366,7 +366,9 @@ Each file is one provider version's `terraform providers schema -json` document 
 | Providers | Whatever the manifest lists | Any provider and any version |
 | Integrity | sha256 from `manifest.json`, checked before anything is written | What terraform reports |
 
-The packs shipped for a release match that module release and are attached to its GitHub release as `manifest.json` plus one `<address-slug>.<version>.json.gz` per provider. The author publishes the release separately: until a release has packs attached, `Get-TerraformSchemaPack` with the default `-Source` has nothing to download. Use `-SaveToCache`, or point `-Source` at a folder you built (see below).
+The packs shipped for a release match that module release and are attached to its GitHub release as `manifest.json` plus one `<address-slug>.<version>.json.gz` per provider (and, from 0.11.0, one `docs.<address-slug>.<version>.json.gz` per provider; see [Provider docs](#provider-docs)). Each manifest entry has a `kind`, `schema` or `docs`. `Get-TerraformSchemaPack` reads only `schema` entries, and treats an entry with no `kind` (manifests before 0.11.0) as `schema`. The author publishes the release separately: until a release has packs attached, `Get-TerraformSchemaPack` with the default `-Source` has nothing to download. Use `-SaveToCache`, or point `-Source` at a folder you built (see below).
+
+A private repository's release download URLs return 404 even to someone who can read the repository. Set `$env:GH_TOKEN` (or `$env:GITHUB_TOKEN`) to a token that can read it, and `Get-TerraformSchemaPack` / `Get-TerraformDocPack` fetch the release through the GitHub API instead (`releases/latest`, or `releases/tags/<tag>` for a `-Source` of `https://github.com/<owner>/<repo>/releases/download/<tag>`). They find each file among the release assets by name and download it with that token. Without a token the anonymous URL is used, and a 404 says the repository may be private and names `GH_TOKEN`.
 
 Worked example with azurerm, azuredevops and vsphere:
 
@@ -401,21 +403,91 @@ In step 3 the `azure*` graph has 36,282 nodes (1,237 resources, 442 data sources
 
 ### Cut your own pack
 
-`BuildSchemaPack` harvests providers at their latest version from the registry cache, saves them to your schema cache, and writes `dist/schema-packs/` (gitignored): one `.json.gz` per provider plus `manifest.json` (`builtOn`, then per pack `address`, `version`, `file`, `sha256`, `bytes`, `nodeCount`, `resourceCount`, `dataSourceCount`). It is not part of the default build. With no `-Provider` it packs the three providers above. The folder is recreated on every run.
+`BuildSchemaPack` harvests providers at their latest version from the registry cache, saves them to your schema cache, harvests the same version's docs into your docs cache, and writes `dist/schema-packs/` (gitignored). The folder holds one schema `.json.gz` and one `docs.*.json.gz` per provider, plus `manifest.json`: `builtOn`, then per pack `kind`, `address`, `version`, `file`, `sha256` and `bytes`. Schema entries add `nodeCount`, `resourceCount` and `dataSourceCount`; docs entries add `docCount` and `unmatchedCount`. It is not part of the default build. With no `-Provider` it packs the three providers above. The folder is recreated on every run.
 
 ```powershell
 Invoke-Build BuildSchemaPack                                       # hashicorp/azurerm, microsoft/azuredevops, vmware/vsphere
 Invoke-Build BuildSchemaPack -Provider hashicorp/aws, hashicorp/google
 
 # Install from the folder on this or another machine (copy dist\schema-packs over, or serve it over HTTPS).
-Get-TerraformSchemaPack -Source .\dist\schema-packs -PassThru      # every pack in the manifest
+Get-TerraformSchemaPack -Source .\dist\schema-packs -PassThru      # every schema pack in the manifest
+Get-TerraformDocPack -Source .\dist\schema-packs -PassThru         # every docs pack in the manifest
 ```
 
 The vsphere provider moved from `hashicorp/vsphere` (frozen at 2.12.0, April 2025, and no longer in the registry's provider list) to `vmware/vsphere`, so the default packs `vmware/vsphere`. A provider that is not in the registry cache is still packed, at whatever version `terraform init` selects.
 
+## Provider docs
+
+The schema says which arguments a resource takes. The registry docs say what they mean, with examples. TerraformGraph keeps the registry's markdown pages in a local cache next to the schemas. Each page is keyed on the Id of the schema node it documents, so docs join to schema graphs and resource graphs with no lookup tables.
+
+| Page | Doc Id | Joins to |
+|---|---|---|
+| Overview | `<address>` | the schema Provider node |
+| Guide | `<address>/guide/<slug>` | (no schema node) |
+| Resource | `<address>/resource/<type>` | the schema Resource node; a ResourceNode's `SchemaId` |
+| Data source | `<address>/data/<type>` | the schema DataSource node; a ResourceNode's `SchemaId` |
+| Unmatched | `<address>/unmatched/<category>/<slug>` | nothing: the type is not in the schema |
+
+The registry names a page by its type without the provider prefix (`virtual_machine` for `vsphere_virtual_machine`). The harvest rebuilds the type as `<prefix>_<slug>`, where the prefix is the one the provider's cached schema uses, and checks it against that schema. A slug that already carries the prefix (some vsphere pages, such as `vsphere_sso_group`) is also tried. A page whose type is in neither form keeps an `unmatched` Id and is counted in `UnmatchedCount`. That is a finding about the provider's docs, not an error: usually a page for a type that was renamed, removed, or not yet in the schema. Only the overview, guides, resources and data-sources categories are kept, in the hcl language. The registry also has functions, ephemeral-resources, list-resources and actions pages for some providers; those are skipped.
+
+Cache layout, the same shape as the schema cache:
+
+```
+$env:LOCALAPPDATA\TerraformGraph\docs\
+  registry.terraform.io-hashicorp-azurerm\5.8.0.json.gz
+  registry.terraform.io-vmware-vsphere\2.17.1.json.gz
+```
+
+Each file is `{ address, version, harvestedOn, schemaVersion, docCount, unmatchedCount, docs: [ { id, category, title, subcategory, slug, content } ] }`, where `content` is the raw markdown and `schemaVersion` is the cached schema the Ids were checked against. There are two ways to fill it:
+
+| | `Get-TerraformDocPack` | `Update-TerraformProviderDocCache` |
+|---|---|---|
+| Source | `docs` entries in a pack manifest (default: the latest GitHub release), or a local folder | registry.terraform.io, harvested on your machine |
+| Needs | HTTPS to GitHub (or nothing, for a folder) | registry access; a cached schema to match Ids against |
+| Providers | Whatever the manifest lists | Any registry provider and version |
+| Integrity | sha256 from `manifest.json` | What the registry returns |
+
+`Update-TerraformProviderDocCache` lists the pages, fetches them in parallel (`-ThrottleLimit`, default 6, with 429/5xx retries) and writes the file atomically. If the provider has no cached schema, it still writes the docs, but builds Ids from the provider name without checking, leaves `UnmatchedCount` empty, and warns. Fill the schema cache first.
+
+The default packs, as of 2026-10-06: azurerm 5.8.0 has 1,518 pages (1.18 MB gzipped, harvested in 44 s), 1 of them unmatched: a `container_app_environment_dapr_component` data source page with no such type in the schema. azuredevops 1.16.0 has 183 pages (92 KB), 1 unmatched: `environment_kubernetes_resource`. vsphere 2.17.1 has 87 pages (104 KB), none unmatched; 7 of its slugs already carry the `vsphere_` prefix. `BuildSchemaPack` with docs takes about 80 s for the three.
+
+```powershell
+# Fill both caches: schemas, then docs (packs, or harvest).
+Get-TerraformSchemaPack -Provider hashicorp/azurerm, microsoft/azuredevops, vmware/vsphere
+Get-TerraformDocPack    -Provider hashicorp/azurerm, microsoft/azuredevops, vmware/vsphere
+Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -PassThru   # ProviderAddress, Version, Status, DocCount, UnmatchedCount, Elapsed
+
+# What is cached.
+Get-TerraformDocCache
+
+# By type, Id or category. -Type and -Id take wildcards.
+Get-TerraformProviderDoc -Provider azurerm -Type 'azurerm_virtual_*'
+Get-TerraformProviderDoc -Id 'registry.terraform.io/vmware/vsphere/resource/vsphere_virtual_machine' | Select-Object -ExpandProperty Content
+Get-TerraformProviderDoc -Provider vsphere -Category guides, overview
+
+# Only the ```hcl / ```terraform code blocks: Content holds them joined, ExampleCount says how many.
+Get-TerraformProviderDoc -Provider azurerm -Type azurerm_key_vault -Examples | Format-List Id, ExampleCount, Content
+
+# The unmatched pages, as a finding.
+Get-TerraformProviderDoc -Provider vsphere -Id '*/unmatched/*' | Format-Table Category, Slug
+```
+
+### The agent pipeline
+
+Pipe resource graph nodes in and you get the pages for exactly the resource and data source types the configuration uses, each page once. Everything comes from the local caches:
+
+```powershell
+Get-TerraformModuleGraph -Path . -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema |
+    Select-Object -ExpandProperty Nodes | Get-TerraformProviderDoc
+```
+
+A ResourceNode is looked up by its `SchemaId`, and a SchemaNode by its `Id`. A nested Block or Attribute node returns its resource's page, and a Provider or provider config node returns the overview. On `infra/`, with the null and local docs cached, that gives two pages: `.../hashicorp/null/resource/null_resource` for the two `null_resource` blocks, and `.../hashicorp/local/data/local_file`. The `terraform_data` blocks resolve to the built-in provider, which has no registry docs, and are skipped. A provider with no cached docs gets one warning naming `Get-TerraformDocPack` and `Update-TerraformProviderDocCache`. `Get-TerraformProviderDoc -Provider` for something that is not cached is a terminating error naming both.
+
+Nothing here downloads except `Get-TerraformDocPack` and `Update-TerraformProviderDocCache`, and only when called. `Get-TerraformProviderDoc`, `Get-TerraformDocCache`, `-AutoSchema` and the argument completers read local files only.
+
 ## Agent skills
 
-The module ships an agent skill at `skills/terraformgraph/SKILL.md` inside the module folder. It follows the open Agent Skills format: YAML front matter with `name` and `description` (when an agent should load it), then a Markdown body. The body covers importing the module, the functions in pipeline order with their input and output types, the canonical Id scheme, the `ModuleAddress`/`ResourceAddress` naming rule, and three example pipelines.
+The module ships an agent skill at `skills/terraformgraph/SKILL.md` inside the module folder. It follows the open Agent Skills format: YAML front matter with `name` and `description` (when an agent should load it), then a Markdown body. The body covers importing the module, the functions in pipeline order with their input and output types, the canonical Id scheme, the `ModuleAddress`/`ResourceAddress` naming rule, and example pipelines, led by the provider docs pipeline.
 
 `Install-TerraformGraphSkill` copies that folder into a repository's project skills folder for each agent tool you name, and makes sure `AGENTS.md` at the repository root points at it. `Test-TerraformGraphSkill` reports, per tool, whether the repository uses it (`Detected`), whether the skill is there (`Installed`), and whether the copy differs from the module's (`Stale`). Neither touches the network.
 

@@ -3301,49 +3301,59 @@ Register-ArgumentCompleter -CommandName Get-TerraformProviderSchema -ParameterNa
 Register-ArgumentCompleter -CommandName Get-TerraformProviderSchema -ParameterName Version -ScriptBlock $script:TerraformRegistryVersionCompleter
 Register-ArgumentCompleter -CommandName Get-TerraformRegistryProvider -ParameterName Name -ScriptBlock $script:TerraformRegistryProviderCompleter
 
-# Provider schema cache: one gzipped schema document per provider version, at
+# Provider schema and docs caches: one gzipped document per provider version, at
 # <root>\<address-slug>\<version>.json.gz, where address-slug is the lowercase address with
-# '/' -> '-'. Nothing is bundled. Get-TerraformSchemaPack and Get-TerraformProviderSchema
-# -SaveToCache write it; everything else only reads it. Tests repoint the root with
-# InModuleScope. Save-TerraformSchemaPackFile is the only network call in this section.
+# '/' -> '-'. The schema root is ...\schemas, the docs root ...\docs; the helpers below take
+# -Kind Schema|Docs to pick one. Nothing is bundled. Get-TerraformSchemaPack,
+# Get-TerraformDocPack, Get-TerraformProviderSchema -SaveToCache and
+# Update-TerraformProviderDocCache write them; everything else only reads them. Tests repoint
+# both roots with InModuleScope. Save-TerraformSchemaPackFile is the only pack network call.
 $script:TerraformSchemaCacheRoot = Join-Path ($env:LOCALAPPDATA ?? [Environment]::GetFolderPath('LocalApplicationData')) 'TerraformGraph' 'schemas'
+$script:TerraformDocCacheRoot = Join-Path ($env:LOCALAPPDATA ?? [Environment]::GetFolderPath('LocalApplicationData')) 'TerraformGraph' 'docs'
 $script:TerraformSchemaPackSource = 'https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download'
 
 Update-TypeData -TypeName 'TerraformGraph.SchemaPack' -DefaultDisplayPropertySet ProviderAddress, Version, Status, Bytes -Force
+Update-TypeData -TypeName 'TerraformGraph.DocPack' -DefaultDisplayPropertySet ProviderAddress, Version, Status, Bytes -Force
 Update-TypeData -TypeName 'TerraformGraph.CachedSchema' -DefaultDisplayPropertySet ProviderAddress, Version, Bytes, CachedOn -Force
+Update-TypeData -TypeName 'TerraformGraph.CachedDoc' -DefaultDisplayPropertySet ProviderAddress, Version, DocCount, UnmatchedCount, Bytes -Force
 
 function Get-TerraformSchemaCachePath {
-    # Not exported. Cache file for one provider version. The address is normalized with
-    # ConvertTo-TerraformProviderAddress and lowercased, as terraform keys provider_schemas.
-    param([string]$Provider, [string]$Version)
+    # Not exported. Cache file for one provider version under the -Kind root. The address is
+    # normalized with ConvertTo-TerraformProviderAddress and lowercased, as terraform keys
+    # provider_schemas.
+    param([string]$Provider, [string]$Version, [ValidateSet('Schema', 'Docs')][string]$Kind = 'Schema')
 
     if ($Version -notmatch '^[0-9A-Za-z][0-9A-Za-z.+_-]*$') {
         throw "Version '$Version' is not a provider version such as 3.2.3."
     }
     $slug = (ConvertTo-TerraformProviderAddress -Provider $Provider).Address.ToLowerInvariant().Replace('/', '-')
-    Join-Path $script:TerraformSchemaCacheRoot $slug "$Version.json.gz"
+    $root = if ($Kind -eq 'Docs') { $script:TerraformDocCacheRoot } else { $script:TerraformSchemaCacheRoot }
+    Join-Path $root $slug "$Version.json.gz"
 }
 
 function Write-TerraformSchemaCache {
-    # Not exported. Writes a schema document (dictionary, PSCustomObject or JSON text) for one
+    # Not exported. Writes a document (dictionary, PSCustomObject or JSON text) for one
     # provider version as compact gzipped JSON, atomically: a temporary file in the same
-    # folder, then Move-Item. Other providers in the document are dropped. Returns the path.
-    param([string]$Provider, [string]$Version, $Document)
+    # folder, then Move-Item. Returns the path. -Kind Schema: other providers in the schema
+    # document are dropped. -Kind Docs: the docs document is written as given.
+    param([string]$Provider, [string]$Version, $Document, [ValidateSet('Schema', 'Docs')][string]$Kind = 'Schema')
 
     $address = (ConvertTo-TerraformProviderAddress -Provider $Provider).Address
-    $path = Get-TerraformSchemaCachePath -Provider $address -Version $Version
+    $path = Get-TerraformSchemaCachePath -Provider $address -Version $Version -Kind $Kind
     if ($Document -is [string]) { $Document = [TerraformGraph.Json]::Deserialize($Document, 1024, $true) }
 
-    $schemas = Get-TerraformSchemaMember -InputObject $Document -Name 'provider_schemas'
-    $keys = @(Get-TerraformSchemaKeys -InputObject $schemas)
-    $key = $keys | Where-Object { $_ -eq $address } | Select-Object -First 1
-    if (-not $key) {
-        throw "The schema document has no provider_schemas entry for $address."
-    }
-    if ($keys.Count -gt 1) {
-        $Document = [ordered]@{
-            format_version   = Get-TerraformSchemaMember -InputObject $Document -Name 'format_version'
-            provider_schemas = [ordered]@{ $key = Get-TerraformSchemaMember -InputObject $schemas -Name $key }
+    if ($Kind -eq 'Schema') {
+        $schemas = Get-TerraformSchemaMember -InputObject $Document -Name 'provider_schemas'
+        $keys = @(Get-TerraformSchemaKeys -InputObject $schemas)
+        $key = $keys | Where-Object { $_ -eq $address } | Select-Object -First 1
+        if (-not $key) {
+            throw "The schema document has no provider_schemas entry for $address."
+        }
+        if ($keys.Count -gt 1) {
+            $Document = [ordered]@{
+                format_version   = Get-TerraformSchemaMember -InputObject $Document -Name 'format_version'
+                provider_schemas = [ordered]@{ $key = Get-TerraformSchemaMember -InputObject $schemas -Name $key }
+            }
         }
     }
 
@@ -3394,24 +3404,53 @@ function Read-TerraformSchemaCacheText {
 }
 
 function Read-TerraformSchemaCache {
-    # Not exported. A cache file as the ordered dictionaries Get-TerraformProviderSchema
-    # returns.
+    # Not exported. A cache file (either kind) as ordered dictionaries, the shape
+    # Get-TerraformProviderSchema returns.
     param([string]$Path)
 
     [TerraformGraph.Json]::Deserialize((Read-TerraformSchemaCacheText -Path $Path), 1024, $true)
 }
 
 function Get-TerraformSchemaCacheEntry {
-    # Not exported. Every cached schema as TerraformGraph.CachedSchema, by address, newest
-    # version first. The address is read from the first provider_schemas key in the first
-    # few KB of the file, so listing never decompresses a whole schema; a file that does
-    # not start that way is parsed in full.
-    $root = $script:TerraformSchemaCacheRoot
+    # Not exported. Every cached file of -Kind, by address, newest version first:
+    # TerraformGraph.CachedSchema or TerraformGraph.CachedDoc. Schema: the address is the
+    # first provider_schemas key. Docs: address, docCount and unmatchedCount are the first
+    # members. Both are read from the first few KB, so listing never decompresses a whole
+    # file; a file that does not start that way is parsed in full.
+    param([ValidateSet('Schema', 'Docs')][string]$Kind = 'Schema')
+
+    $root = if ($Kind -eq 'Docs') { $script:TerraformDocCacheRoot } else { $script:TerraformSchemaCacheRoot }
     if (-not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) { return }
 
     $entries = foreach ($file in Get-ChildItem -LiteralPath $root -Filter '*.json.gz' -File -Recurse -Depth 1) {
         try {
             $head = Read-TerraformSchemaCacheText -Path $file.FullName -MaxChars 4096
+            $version = $file.Name.Substring(0, $file.Name.Length - '.json.gz'.Length)
+            if ($Kind -eq 'Docs') {
+                if ($head -match '^\s*\{\s*"address"\s*:\s*"([^"]+)"' -and $head -match '"docCount"\s*:\s*(\d+)') {
+                    $address = $head -replace '(?s)^\s*\{\s*"address"\s*:\s*"([^"]+)".*$', '$1'
+                    $docCount = [int]$Matches[1]
+                    $unmatchedCount = if ($head -match '"unmatchedCount"\s*:\s*(\d+)') { [int]$Matches[1] } else { $null }
+                }
+                else {
+                    $document = Read-TerraformSchemaCache -Path $file.FullName
+                    $address = $document['address']
+                    $docCount = @($document['docs']).Count
+                    $unmatchedCount = $document['unmatchedCount']
+                }
+                if (-not $address) { continue }
+                [pscustomobject]@{
+                    PSTypeName      = 'TerraformGraph.CachedDoc'
+                    ProviderAddress = [string]$address
+                    Version         = $version
+                    Path            = $file.FullName
+                    Bytes           = $file.Length
+                    CachedOn        = $file.LastWriteTimeUtc
+                    DocCount        = $docCount
+                    UnmatchedCount  = $unmatchedCount
+                }
+                continue
+            }
             $address = if ($head -match '"provider_schemas"\s*:\s*\{\s*"([^"]+)"') {
                 $Matches[1]
             }
@@ -3422,7 +3461,7 @@ function Get-TerraformSchemaCacheEntry {
             [pscustomobject]@{
                 PSTypeName      = 'TerraformGraph.CachedSchema'
                 ProviderAddress = [string]$address
-                Version         = $file.Name.Substring(0, $file.Name.Length - '.json.gz'.Length)
+                Version         = $version
                 Path            = $file.FullName
                 Bytes           = $file.Length
                 CachedOn        = $file.LastWriteTimeUtc
@@ -3462,10 +3501,11 @@ function Resolve-TerraformSchemaCacheProvider {
     # Not exported. One cached schema per provider the -Name patterns select, at -Version or
     # the newest cached version. A name without a wildcard that matches several namespaces
     # resolves to the hashicorp one, else is an error. Throws when anything is not cached,
-    # naming both ways to fill the cache; callers turn that into their own terminating error.
-    param([string[]]$Name, [string]$Version)
+    # naming both ways to fill the -Kind cache; callers turn that into their own terminating
+    # error.
+    param([string[]]$Name, [string]$Version, [ValidateSet('Schema', 'Docs')][string]$Kind = 'Schema')
 
-    $entries = @(Get-TerraformSchemaCacheEntry)
+    $entries = @(Get-TerraformSchemaCacheEntry -Kind $Kind)
     $addresses = [System.Collections.Generic.List[string]]::new()
     foreach ($pattern in $Name) {
         $found = @(Select-TerraformSchemaCacheEntry -Entry $entries -Name $pattern | ForEach-Object ProviderAddress | Select-Object -Unique)
@@ -3478,6 +3518,9 @@ function Resolve-TerraformSchemaCacheProvider {
             $found = $preferred
         }
         if (-not $found.Count) {
+            if ($Kind -eq 'Docs') {
+                throw "No cached provider docs match '$pattern'. Download a docs pack with Get-TerraformDocPack -Provider $pattern, or harvest them from the registry with Update-TerraformProviderDocCache -Provider $pattern."
+            }
             throw "No cached schema matches '$pattern'. Download a schema pack with Get-TerraformSchemaPack -Provider $pattern, or harvest it locally with Get-TerraformProviderSchema -Provider $pattern -SaveToCache."
         }
         foreach ($address in $found) {
@@ -3490,6 +3533,9 @@ function Resolve-TerraformSchemaCacheProvider {
         if (-not $Version) { $versions[0]; continue }
         $entry = $versions | Where-Object Version -eq $Version | Select-Object -First 1
         if (-not $entry) {
+            if ($Kind -eq 'Docs') {
+                throw "Docs for $address $Version are not cached (cached: $(@($versions.Version) -join ', ')). Download them with Get-TerraformDocPack -Provider $address -Version $Version, or harvest them with Update-TerraformProviderDocCache -Provider $address -Version $Version."
+            }
             throw "$address $Version is not cached (cached: $(@($versions.Version) -join ', ')). Download it with Get-TerraformSchemaPack -Provider $address -Version $Version, or harvest it locally with Get-TerraformProviderSchema -Provider $address -Version '= $Version' -SaveToCache."
         }
         $entry
@@ -3516,14 +3562,237 @@ function Get-TerraformSchemaCacheDocument {
 
 function Save-TerraformSchemaPackFile {
     # Not exported. Copies <Source>/<Name> to -Destination: a download for an http(s)
-    # Source, a file copy for a directory. The only network call in the schema cache code.
-    param([string]$Source, [string]$Name, [string]$Destination)
+    # Source, a file copy for a directory. The only network call in the pack code.
+    #
+    # A GitHub release Source (https://github.com/<owner>/<repo>/releases/latest/download or
+    # .../releases/download/<tag>) with $env:GH_TOKEN or $env:GITHUB_TOKEN set goes through
+    # the API instead, because releases/.../download/<file> is 404 for a private repo even
+    # with a token: GET api.github.com/repos/<owner>/<repo>/releases/latest (or
+    # /releases/tags/<tag>) with Authorization: Bearer, find the asset by name, then GET its
+    # api url with Accept: application/octet-stream. -State is a hashtable the caller keeps
+    # for one pack run so the release is looked up once. Without a token the anonymous URL is
+    # used, and a 404 says the repository may be private and names GH_TOKEN.
+    param([string]$Source, [string]$Name, [string]$Destination, [hashtable]$State = @{})
 
-    if ($Source -match '^https?://') {
+    if ($Source -notmatch '^https?://') {
+        Copy-Item -LiteralPath (Join-Path $Source $Name) -Destination $Destination -ErrorAction Stop
+        return
+    }
+
+    $token = if ($env:GH_TOKEN) { $env:GH_TOKEN } elseif ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $null }
+    $github = [regex]::Match($Source.TrimEnd('/'), '^https://github\.com/([^/]+)/([^/]+)/releases/(?:latest/download|download/([^/]+))$', 'IgnoreCase')
+
+    if ($github.Success -and $token) {
+        $owner = $github.Groups[1].Value
+        $repo = $github.Groups[2].Value
+        $tag = if ($github.Groups[3].Success) { $github.Groups[3].Value } else { $null }
+        $headers = @{ Authorization = "Bearer $token"; 'X-GitHub-Api-Version' = '2022-11-28' }
+        $releaseUri = if ($tag) { "https://api.github.com/repos/$owner/$repo/releases/tags/$([uri]::EscapeDataString($tag))" } else { "https://api.github.com/repos/$owner/$repo/releases/latest" }
+        if (-not $State.ContainsKey($releaseUri)) {
+            $State[$releaseUri] = Invoke-RestMethod -Uri $releaseUri -Headers ($headers + @{ Accept = 'application/vnd.github+json' }) -TimeoutSec 60 -ErrorAction Stop
+        }
+        $release = $State[$releaseUri]
+        $asset = @($release.assets) | Where-Object { $_.name -ceq $Name } | Select-Object -First 1
+        if (-not $asset) {
+            throw "Release $($release.tag_name) of $owner/$repo has no asset named $Name."
+        }
+        $null = Invoke-WebRequest -Uri $asset.url -Headers ($headers + @{ Accept = 'application/octet-stream' }) -OutFile $Destination -TimeoutSec 600 -ErrorAction Stop
+        return
+    }
+
+    try {
         $null = Invoke-WebRequest -Uri "$($Source.TrimEnd('/'))/$Name" -OutFile $Destination -TimeoutSec 600 -ErrorAction Stop
     }
-    else {
-        Copy-Item -LiteralPath (Join-Path $Source $Name) -Destination $Destination -ErrorAction Stop
+    catch {
+        $status = [int]$_.Exception.Response.StatusCode
+        if ($status -eq 404 -and $github.Success) {
+            throw [System.InvalidOperationException]::new("$Name was not found at $Source (404). The repository may be private: set `$env:GH_TOKEN (or `$env:GITHUB_TOKEN) to a token that can read it, and the download goes through the GitHub API.", $_.Exception)
+        }
+        throw
+    }
+}
+
+function Install-TerraformPack {
+    # Not exported. The body of Get-TerraformSchemaPack (-Kind Schema) and
+    # Get-TerraformDocPack (-Kind Docs). Reads manifest.json from -Source, keeps the entries
+    # of -Kind (an entry with no kind is a schema entry, as manifests before 0.11.0 wrote
+    # them), resolves every provider to an entry before downloading anything, downloads,
+    # checks sha256 and moves each file into the -Kind cache. Terminating errors go through
+    # -Cmdlet, the calling function's $PSCmdlet, so they carry its name.
+    param(
+        [System.Management.Automation.PSCmdlet]$Cmdlet,
+        [ValidateSet('Schema', 'Docs')][string]$Kind,
+        [string[]]$Provider,
+        [string]$Version,
+        [string]$Source,
+        [switch]$Force,
+        [switch]$PassThru
+    )
+
+    $isDocs = $Kind -eq 'Docs'
+    $errorPrefix = if ($isDocs) { 'DocPack' } else { 'SchemaPack' }
+    $commandName = if ($isDocs) { 'Get-TerraformDocPack' } else { 'Get-TerraformSchemaPack' }
+    $what = if ($isDocs) { 'docs pack' } else { 'pack' }
+
+    $isUrl = $Source -match '^https?://'
+    if (-not $isUrl) {
+        if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+            $Cmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.IO.DirectoryNotFoundException]::new("Source '$Source' is not an http(s) URL or an existing directory."),
+                "$($errorPrefix)SourceNotFound",
+                [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                $Source))
+        }
+        $Source = (Resolve-Path -LiteralPath $Source).ProviderPath
+    }
+
+    $staging = Join-Path ([System.IO.Path]::GetTempPath()) "TerraformGraph-pack-$([guid]::NewGuid().ToString('n'))"
+    $null = New-Item -ItemType Directory -Path $staging -Force -ErrorAction Stop
+    $downloadState = @{}
+    try {
+        $manifestPath = Join-Path $staging 'manifest.json'
+        try {
+            Save-TerraformSchemaPackFile -Source $Source -Name 'manifest.json' -Destination $manifestPath -State $downloadState
+            $manifest = [TerraformGraph.Json]::Deserialize([System.IO.File]::ReadAllText($manifestPath), 1024, $false)
+        }
+        catch {
+            $Cmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.InvalidOperationException]::new("Could not read manifest.json from '$Source': $($_.Exception.Message)", $_.Exception),
+                "$($errorPrefix)ManifestUnavailable",
+                [System.Management.Automation.ErrorCategory]::ConnectionError,
+                $Source))
+        }
+        $manifestKind = if ($isDocs) { 'docs' } else { 'schema' }
+        $packs = @($manifest.packs | Where-Object { $_ -and ([string]$_.kind -eq $manifestKind -or (-not $isDocs -and -not $_.kind)) })
+
+        # Every provider is resolved to a manifest entry before anything is downloaded.
+        $targets = [System.Collections.Generic.List[string]]::new()
+        if (-not $Provider) {
+            # ForEach-Object, not $packs.address: that member access hits System.Array.Address.
+            foreach ($address in @($packs | ForEach-Object { [string]$_.address } | Select-Object -Unique)) { $targets.Add($address) }
+        }
+        foreach ($name in $Provider) {
+            if ([WildcardPattern]::ContainsWildcardCharacters($name)) {
+                try {
+                    $address = (Resolve-TerraformRegistryProvider -Name $name).ProviderAddress
+                }
+                catch {
+                    $Cmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                        [System.ArgumentException]::new($_.Exception.Message),
+                        'RegistryProviderNotResolved',
+                        [System.Management.Automation.ErrorCategory]::InvalidArgument,
+                        $name))
+                }
+            }
+            else {
+                $address = (ConvertTo-TerraformProviderAddress -Provider $name).Address
+                if (-not ($packs | Where-Object address -eq $address) -and -not $name.Contains('/')) {
+                    $byName = @($packs | Where-Object { ([string]$_.address).Split('/')[-1] -eq $name } | ForEach-Object address | Select-Object -Unique)
+                    if ($byName.Count -eq 1) { $address = [string]$byName[0] }
+                }
+            }
+            if (-not ($targets | Where-Object { $_ -eq $address })) { $targets.Add($address) }
+        }
+
+        $selected = foreach ($address in $targets) {
+            $candidates = @($packs | Where-Object address -eq $address)
+            $entry = if ($Version) {
+                $candidates | Where-Object version -eq $Version | Select-Object -First 1
+            }
+            elseif ($candidates.Count) {
+                (Sort-TerraformRegistryVersion -Versions @($candidates | ForEach-Object { [pscustomobject]@{ Version = [string]$_.version; Pack = $_ } }) |
+                    Select-Object -First 1).Record.Pack
+            }
+            if (-not $entry) {
+                $available = if ($packs.Count) { @($packs | ForEach-Object { "$($_.address) $($_.version)" }) -join ', ' } else { '(none)' }
+                # Not $source: variable names ignore case, so that would overwrite -Source.
+                $providerSource = (ConvertTo-TerraformProviderAddress -Provider $address).Source
+                $versionText = if ($Version) { " $Version" } else { '' }
+                $instead = if ($isDocs) {
+                    "Harvest them from the registry instead with Update-TerraformProviderDocCache -Provider $providerSource$(if ($Version) { " -Version $Version" })."
+                }
+                else {
+                    "Harvest it locally instead with Get-TerraformProviderSchema -Provider $providerSource$(if ($Version) { " -Version '= $Version'" }) -SaveToCache."
+                }
+                $Cmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                    [System.Management.Automation.ItemNotFoundException]::new("$commandName found no $what for $address$versionText in '$Source' ($($what)s: $available). $instead"),
+                    "$($errorPrefix)NotFound",
+                    [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                    $address))
+            }
+            $entry
+        }
+
+        foreach ($entry in @($selected)) {
+            $address = [string]$entry.address
+            $packVersion = [string]$entry.version
+            $cachePath = Get-TerraformSchemaCachePath -Provider $address -Version $packVersion -Kind $Kind
+            $existed = Test-Path -LiteralPath $cachePath -PathType Leaf
+
+            if ($existed -and -not $Force) {
+                Write-Verbose "$address $packVersion is already cached at $cachePath. Use -Force to download it again."
+                $status = 'Cached'
+            }
+            else {
+                $fileName = [string]$entry.file
+                if (-not $fileName -or $fileName -ne [System.IO.Path]::GetFileName($fileName) -or $fileName -in '.', '..') {
+                    $Cmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                        [System.IO.InvalidDataException]::new("The manifest entry for $address $packVersion has an invalid file name '$fileName'."),
+                        "$($errorPrefix)InvalidManifest",
+                        [System.Management.Automation.ErrorCategory]::InvalidData,
+                        $address))
+                }
+                $download = Join-Path $staging $fileName
+                Write-Verbose "Downloading $fileName from $Source"
+                try {
+                    Save-TerraformSchemaPackFile -Source $Source -Name $fileName -Destination $download -State $downloadState
+                }
+                catch {
+                    $Cmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                        [System.InvalidOperationException]::new("Could not download $fileName from '$Source': $($_.Exception.Message)", $_.Exception),
+                        "$($errorPrefix)DownloadFailed",
+                        [System.Management.Automation.ErrorCategory]::ConnectionError,
+                        $address))
+                }
+
+                $hash = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash
+                if ($hash -ne [string]$entry.sha256) {
+                    $Cmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                        [System.IO.InvalidDataException]::new("sha256 mismatch for $fileName ($address $packVersion): expected $($entry.sha256), got $($hash.ToLowerInvariant()). Nothing was written to the cache."),
+                        "$($errorPrefix)HashMismatch",
+                        [System.Management.Automation.ErrorCategory]::InvalidData,
+                        $address))
+                }
+
+                # Verified: move it into the cache folder under a temporary name, then into place.
+                $directory = Split-Path -Path $cachePath -Parent
+                $null = New-Item -ItemType Directory -Path $directory -Force -ErrorAction Stop
+                $temporary = Join-Path $directory ".$([guid]::NewGuid().ToString('n')).tmp"
+                try {
+                    Move-Item -LiteralPath $download -Destination $temporary -ErrorAction Stop
+                    Move-Item -LiteralPath $temporary -Destination $cachePath -Force -ErrorAction Stop
+                }
+                finally {
+                    if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+                }
+                Write-Verbose "Cached $address $packVersion at $cachePath"
+                $status = if ($existed) { 'Updated' } else { 'Downloaded' }
+            }
+
+            if ($PassThru) {
+                [pscustomobject]@{
+                    PSTypeName      = if ($isDocs) { 'TerraformGraph.DocPack' } else { 'TerraformGraph.SchemaPack' }
+                    ProviderAddress = $address
+                    Version         = $packVersion
+                    Path            = $cachePath
+                    Bytes           = (Get-Item -LiteralPath $cachePath).Length
+                    Status          = $status
+                }
+            }
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -3553,6 +3822,14 @@ function Get-TerraformSchemaPack {
         ConvertTo-TerraformResourceGraph -Provider or -AutoSchema read the schema with no
         terraform and no network.
 
+        Only manifest entries with kind schema (or no kind, as manifests before 0.11.0
+        wrote them) are considered; docs entries are for Get-TerraformDocPack.
+
+        For a GitHub release -Source, set $env:GH_TOKEN (or $env:GITHUB_TOKEN) when the
+        repository is private: the files are then fetched through the GitHub releases API
+        with that token, since the plain releases/.../download URL is 404 for a private
+        repository. Without a token the anonymous URL is used.
+
     .PARAMETER Provider
         Providers to download: 'azurerm', 'hashicorp/azurerm', or
         'registry.terraform.io/hashicorp/azurerm'. A name that is not in the manifest as
@@ -3568,7 +3845,8 @@ function Get-TerraformSchemaPack {
     .PARAMETER Source
         Where manifest.json and the pack files are: an http(s) URL, or a local directory
         such as the dist\schema-packs folder Invoke-Build BuildSchemaPack writes. Default:
-        https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download.
+        https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download. A
+        https://github.com/<owner>/<repo>/releases/download/<tag> URL names one release.
 
     .PARAMETER Force
         Download and replace a version that is already cached.
@@ -3626,159 +3904,7 @@ function Get-TerraformSchemaPack {
         $PassThru
     )
 
-    $isUrl = $Source -match '^https?://'
-    if (-not $isUrl) {
-        if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
-            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
-                [System.IO.DirectoryNotFoundException]::new("Source '$Source' is not an http(s) URL or an existing directory."),
-                'SchemaPackSourceNotFound',
-                [System.Management.Automation.ErrorCategory]::ObjectNotFound,
-                $Source))
-        }
-        $Source = (Resolve-Path -LiteralPath $Source).ProviderPath
-    }
-
-    $staging = Join-Path ([System.IO.Path]::GetTempPath()) "TerraformGraph-pack-$([guid]::NewGuid().ToString('n'))"
-    $null = New-Item -ItemType Directory -Path $staging -Force -ErrorAction Stop
-    try {
-        $manifestPath = Join-Path $staging 'manifest.json'
-        try {
-            Save-TerraformSchemaPackFile -Source $Source -Name 'manifest.json' -Destination $manifestPath
-            $manifest = [TerraformGraph.Json]::Deserialize([System.IO.File]::ReadAllText($manifestPath), 1024, $false)
-        }
-        catch {
-            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
-                [System.InvalidOperationException]::new("Could not read manifest.json from '$Source': $($_.Exception.Message)", $_.Exception),
-                'SchemaPackManifestUnavailable',
-                [System.Management.Automation.ErrorCategory]::ConnectionError,
-                $Source))
-        }
-        $packs = @($manifest.packs | Where-Object { $_ })
-
-        # Every provider is resolved to a manifest entry before anything is downloaded.
-        $targets = [System.Collections.Generic.List[string]]::new()
-        if (-not $Provider) {
-            # ForEach-Object, not $packs.address: that member access hits System.Array.Address.
-            foreach ($address in @($packs | ForEach-Object { [string]$_.address } | Select-Object -Unique)) { $targets.Add($address) }
-        }
-        foreach ($name in $Provider) {
-            if ([WildcardPattern]::ContainsWildcardCharacters($name)) {
-                try {
-                    $address = (Resolve-TerraformRegistryProvider -Name $name).ProviderAddress
-                }
-                catch {
-                    $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
-                        [System.ArgumentException]::new($_.Exception.Message),
-                        'RegistryProviderNotResolved',
-                        [System.Management.Automation.ErrorCategory]::InvalidArgument,
-                        $name))
-                }
-            }
-            else {
-                $address = (ConvertTo-TerraformProviderAddress -Provider $name).Address
-                if (-not ($packs | Where-Object address -eq $address) -and -not $name.Contains('/')) {
-                    $byName = @($packs | Where-Object { ([string]$_.address).Split('/')[-1] -eq $name } | ForEach-Object address | Select-Object -Unique)
-                    if ($byName.Count -eq 1) { $address = [string]$byName[0] }
-                }
-            }
-            if (-not ($targets | Where-Object { $_ -eq $address })) { $targets.Add($address) }
-        }
-
-        $selected = foreach ($address in $targets) {
-            $candidates = @($packs | Where-Object address -eq $address)
-            $entry = if ($Version) {
-                $candidates | Where-Object version -eq $Version | Select-Object -First 1
-            }
-            elseif ($candidates.Count) {
-                (Sort-TerraformRegistryVersion -Versions @($candidates | ForEach-Object { [pscustomobject]@{ Version = [string]$_.version; Pack = $_ } }) |
-                    Select-Object -First 1).Record.Pack
-            }
-            if (-not $entry) {
-                $available = if ($packs.Count) { @($packs | ForEach-Object { "$($_.address) $($_.version)" }) -join ', ' } else { '(none)' }
-                # Not $source: variable names ignore case, so that would overwrite -Source.
-                $providerSource = (ConvertTo-TerraformProviderAddress -Provider $address).Source
-                $versionText = if ($Version) { " $Version" } else { '' }
-                $versionArgument = if ($Version) { " -Version '= $Version'" } else { '' }
-                $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
-                    [System.Management.Automation.ItemNotFoundException]::new("Get-TerraformSchemaPack found no pack for $address$versionText in '$Source' (packs: $available). Harvest it locally instead with Get-TerraformProviderSchema -Provider $providerSource$versionArgument -SaveToCache."),
-                    'SchemaPackNotFound',
-                    [System.Management.Automation.ErrorCategory]::ObjectNotFound,
-                    $address))
-            }
-            $entry
-        }
-
-        foreach ($entry in @($selected)) {
-            $address = [string]$entry.address
-            $packVersion = [string]$entry.version
-            $cachePath = Get-TerraformSchemaCachePath -Provider $address -Version $packVersion
-            $existed = Test-Path -LiteralPath $cachePath -PathType Leaf
-
-            if ($existed -and -not $Force) {
-                Write-Verbose "$address $packVersion is already cached at $cachePath. Use -Force to download it again."
-                $status = 'Cached'
-            }
-            else {
-                $fileName = [string]$entry.file
-                if (-not $fileName -or $fileName -ne [System.IO.Path]::GetFileName($fileName) -or $fileName -in '.', '..') {
-                    $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
-                        [System.IO.InvalidDataException]::new("The manifest entry for $address $packVersion has an invalid file name '$fileName'."),
-                        'SchemaPackInvalidManifest',
-                        [System.Management.Automation.ErrorCategory]::InvalidData,
-                        $address))
-                }
-                $download = Join-Path $staging $fileName
-                Write-Verbose "Downloading $fileName from $Source"
-                try {
-                    Save-TerraformSchemaPackFile -Source $Source -Name $fileName -Destination $download
-                }
-                catch {
-                    $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
-                        [System.InvalidOperationException]::new("Could not download $fileName from '$Source': $($_.Exception.Message)", $_.Exception),
-                        'SchemaPackDownloadFailed',
-                        [System.Management.Automation.ErrorCategory]::ConnectionError,
-                        $address))
-                }
-
-                $hash = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash
-                if ($hash -ne [string]$entry.sha256) {
-                    $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
-                        [System.IO.InvalidDataException]::new("sha256 mismatch for $fileName ($address $packVersion): expected $($entry.sha256), got $($hash.ToLowerInvariant()). Nothing was written to the cache."),
-                        'SchemaPackHashMismatch',
-                        [System.Management.Automation.ErrorCategory]::InvalidData,
-                        $address))
-                }
-
-                # Verified: move it into the cache folder under a temporary name, then into place.
-                $directory = Split-Path -Path $cachePath -Parent
-                $null = New-Item -ItemType Directory -Path $directory -Force -ErrorAction Stop
-                $temporary = Join-Path $directory ".$([guid]::NewGuid().ToString('n')).tmp"
-                try {
-                    Move-Item -LiteralPath $download -Destination $temporary -ErrorAction Stop
-                    Move-Item -LiteralPath $temporary -Destination $cachePath -Force -ErrorAction Stop
-                }
-                finally {
-                    if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
-                }
-                Write-Verbose "Cached $address $packVersion at $cachePath"
-                $status = if ($existed) { 'Updated' } else { 'Downloaded' }
-            }
-
-            if ($PassThru) {
-                [pscustomobject]@{
-                    PSTypeName      = 'TerraformGraph.SchemaPack'
-                    ProviderAddress = $address
-                    Version         = $packVersion
-                    Path            = $cachePath
-                    Bytes           = (Get-Item -LiteralPath $cachePath).Length
-                    Status          = $status
-                }
-            }
-        }
-    }
-    finally {
-        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Install-TerraformPack -Cmdlet $PSCmdlet -Kind Schema -Provider $Provider -Version $Version -Source $Source -Force:$Force -PassThru:$PassThru
 }
 
 function Get-TerraformSchemaCache {
@@ -3828,6 +3954,870 @@ function Get-TerraformSchemaCache {
 
     Select-TerraformSchemaCacheEntry -Entry @(Get-TerraformSchemaCacheEntry) -Name $Provider
 }
+
+# Provider docs: the registry's markdown pages for a provider version, keyed on the schema
+# node Id they document, in the docs cache (<docs root>\<address-slug>\<version>.json.gz).
+# Update-TerraformProviderDocCache harvests from the registry and Get-TerraformDocPack
+# downloads packs; Get-TerraformProviderDoc and Get-TerraformDocCache only read the cache.
+# Doc Ids:
+#   <address>                    overview
+#   <address>/guide/<slug>       guides
+#   <address>/resource/<type>    resources (the schema Resource node Id)
+#   <address>/data/<type>        data-sources (the schema DataSource node Id)
+#   <address>/unmatched/<category>/<slug>  a resource or data source page whose type is not
+#                                in the cached schema
+$script:TerraformDocCategories = @('overview', 'guides', 'resources', 'data-sources')
+$script:TerraformDocCacheMemo = @{}
+
+Update-TypeData -TypeName 'TerraformGraph.ProviderDoc' -DefaultDisplayPropertySet Id, Category, Title, Subcategory -Force
+Update-TypeData -TypeName 'TerraformGraph.DocCache' -DefaultDisplayPropertySet ProviderAddress, Version, Status, DocCount, UnmatchedCount, Elapsed -Force
+
+function Find-TerraformProviderDocVersion {
+    # Not exported. The registry's provider-versions record for -Version of
+    # <Namespace>/<Name>, or for its newest version that is not a pre-release when -Version
+    # is empty: [pscustomobject]@{ Version; VersionId }. Network. See
+    # Get-TerraformProviderDocHarvest for the endpoints.
+    param([string]$Namespace, [string]$Name, [string]$Version)
+
+    $registry = "https://$($script:TerraformRegistrySource)"
+    $response = Invoke-TerraformRegistryRequest -Uri "$registry/v2/providers/$Namespace/${Name}?include=provider-versions"
+    $versions = @($response.included | Where-Object { $_.type -eq 'provider-versions' } |
+            ForEach-Object { [pscustomobject]@{ Version = [string]$_.attributes.version; VersionId = [string]$_.id } })
+    if (-not $versions.Count) {
+        throw "The registry lists no versions for $Namespace/$Name."
+    }
+    if ($Version) {
+        $found = $versions | Where-Object Version -eq $Version | Select-Object -First 1
+        if (-not $found) {
+            throw "The registry has no version $Version of $Namespace/$Name."
+        }
+        return $found
+    }
+    $sorted = @(Sort-TerraformRegistryVersion -Versions $versions)
+    $newest = $sorted | Where-Object { -not $_.PreRelease } | Select-Object -First 1
+    if (-not $newest) { $newest = $sorted[0] }
+    $newest.Record
+}
+
+function Get-TerraformProviderDocHarvest {
+    # Not exported. Lists one provider version's docs and fetches every page's markdown from
+    # the public registry. Probed 2026-10-06:
+    #
+    #   Version id: GET https://registry.terraform.io/v2/providers/<namespace>/<name>?include=provider-versions
+    #     included[] holds every version (see Get-TerraformRegistryHarvest). hashicorp/null
+    #     3.2.3 is { "type": "provider-versions", "id": "59862", "attributes": { "version": "3.2.3", ... } }.
+    #
+    #   Listing: GET https://registry.terraform.io/v2/provider-versions/<id>?include=provider-docs
+    #     The listing endpoint in the task, /v2/provider-versions/<id>/provider-docs, is 404.
+    #     The include returns every doc in one response (1645 for azurerm 5.8.0, no paging).
+    #     /v2/provider-docs?filter[provider-version]=<id> also lists, but ignores page[size]
+    #     and pages by 1, so it is not used. One included[] element (null 3.2.3):
+    #       { "type": "provider-docs", "id": "6794557",
+    #         "attributes": { "category": "resources", "language": "hcl",
+    #           "path": "docs/resources/resource.md", "slug": "resource", "subcategory": null,
+    #           "title": "resource", "truncated": false },
+    #         "links": { "self": "/v2/provider-docs/6794557" } }
+    #     Categories seen: overview, guides, resources, data-sources, plus functions,
+    #     ephemeral-resources, list-resources and actions (azurerm 5.8.0, local 2.9.1). Only
+    #     the first four are kept. Languages other than hcl (cdktf) are skipped. The slug is
+    #     usually the type without the provider prefix (resource_pool for
+    #     vsphere_resource_pool) but some providers keep it (vsphere_sso_group).
+    #
+    #   Content: GET https://registry.terraform.io/v2/provider-docs/<doc id>
+    #     data.attributes has category, content (raw markdown, front matter included),
+    #     language, path, slug, subcategory, title, truncated. null 3.2.3 resource starts:
+    #       ---\n# generated by https://github.com/hashicorp/terraform-plugin-docs\n
+    #       page_title: "null_resource Resource - terraform-provider-null"\nsubcategory: ""\n...
+    #
+    # Returns one record per kept doc: Category, Title, Subcategory, Slug, Content.
+    # Content requests run with ForEach-Object -Parallel and Invoke-TerraformRegistryRequest's
+    # retry; if any page still fails, it throws and nothing is returned.
+    param([string]$VersionId, [int]$ThrottleLimit)
+
+    $registry = "https://$($script:TerraformRegistrySource)"
+    $listing = Invoke-TerraformRegistryRequest -Uri "$registry/v2/provider-versions/${VersionId}?include=provider-docs"
+    $listed = [System.Collections.Generic.List[object]]::new()
+    $skipped = [ordered]@{}
+    foreach ($item in @($listing.included)) {
+        if ($item.type -ne 'provider-docs') { continue }
+        $attributes = $item.attributes
+        $category = [string]$attributes.category
+        if ([string]$attributes.language -ne 'hcl' -or $script:TerraformDocCategories -notcontains $category) {
+            $key = "$category ($($attributes.language))"
+            $skipped[$key] = 1 + [int]$skipped[$key]
+            continue
+        }
+        $listed.Add([pscustomobject]@{
+            DocId       = [string]$item.id
+            Category    = $category
+            Title       = [string]$attributes.title
+            Subcategory = if ([string]::IsNullOrEmpty([string]$attributes.subcategory)) { $null } else { [string]$attributes.subcategory }
+            Slug        = [string]$attributes.slug
+        })
+    }
+    foreach ($key in $skipped.Keys) { Write-Verbose "Skipped $($skipped[$key]) docs in category $key" }
+    Write-Verbose "Listed $($listed.Count) docs"
+
+    $requestDefinition = ${function:Invoke-TerraformRegistryRequest}.ToString()
+    $done = 0
+    $fetched = $listed | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
+        Set-Item -Path function:Invoke-TerraformRegistryRequest -Value $using:requestDefinition
+        $doc = $_
+        try {
+            $response = Invoke-TerraformRegistryRequest -Uri "$($using:registry)/v2/provider-docs/$($doc.DocId)"
+            [pscustomobject]@{ Doc = $doc; Content = [string]$response.data.attributes.content; Error = $null }
+        }
+        catch {
+            [pscustomobject]@{ Doc = $doc; Content = $null; Error = $_.Exception.Message }
+        }
+    } | ForEach-Object {
+        $done++
+        Write-Progress -Id 2 -Activity 'Fetching provider docs' -Status "$done of $($listed.Count)" -PercentComplete (100 * $done / [math]::Max(1, $listed.Count))
+        $_
+    }
+    Write-Progress -Id 2 -Activity 'Fetching provider docs' -Completed
+
+    $failed = @($fetched | Where-Object Error)
+    if ($failed.Count) {
+        $names = @($failed | Select-Object -First 10 | ForEach-Object { "$($_.Doc.Category)/$($_.Doc.Slug) ($($_.Error))" })
+        throw "Failed to fetch $($failed.Count) docs: $($names -join '; ')$(if ($failed.Count -gt 10) { '; ...' }). The cache was not written."
+    }
+
+    foreach ($entry in $fetched) {
+        [pscustomobject]@{
+            Category    = $entry.Doc.Category
+            Title       = $entry.Doc.Title
+            Subcategory = $entry.Doc.Subcategory
+            Slug        = $entry.Doc.Slug
+            Content     = $entry.Content
+        }
+    }
+}
+
+function Get-TerraformProviderDocSchemaIndex {
+    # Not exported. The resource and data source types of one provider from the schema
+    # cache, for joining docs to schema node Ids: the schema cached at -Version, else the
+    # newest cached version, else $null. Prefix is the most common text before the first
+    # underscore across those types (azurerm, azuredevops, vsphere, null).
+    param([string]$Address, [string]$Version)
+
+    $entries = @(Get-TerraformSchemaCacheEntry | Where-Object ProviderAddress -eq $Address)
+    if (-not $entries.Count) { return $null }
+    $entry = $entries | Where-Object Version -eq $Version | Select-Object -First 1
+    if (-not $entry) {
+        $entry = $entries[0]
+        Write-Verbose "No cached schema for $Address $Version; matching docs against the cached $($entry.Version) schema"
+    }
+
+    $document = Read-TerraformSchemaCache -Path $entry.Path
+    $schemas = $document['provider_schemas']
+    $key = @($schemas.Keys) | Where-Object { $_ -eq $Address } | Select-Object -First 1
+    $schema = $schemas[$key]
+    $resource = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $data = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    if ($schema['resource_schemas']) { foreach ($type in $schema['resource_schemas'].Keys) { $null = $resource.Add([string]$type) } }
+    if ($schema['data_source_schemas']) { foreach ($type in $schema['data_source_schemas'].Keys) { $null = $data.Add([string]$type) } }
+
+    $prefix = @(@($resource) + @($data) | ForEach-Object { $_.Split('_')[0] } | Group-Object -NoElement |
+            Sort-Object -Property @{ Expression = 'Count'; Descending = $true }, @{ Expression = 'Name'; Descending = $false } |
+            Select-Object -First 1).Name
+    [pscustomobject]@{
+        SchemaVersion = $entry.Version
+        Prefix        = if ($prefix) { $prefix } else { $Address.Split('/')[-1] }
+        Resource      = $resource
+        Data          = $data
+    }
+}
+
+function Resolve-TerraformProviderDocId {
+    # Not exported. The doc Id for one registry doc. Resources and data sources are joined
+    # to the schema: the type is <Prefix>_<slug>, or the slug itself when it already starts
+    # with <Prefix>_ and only that form is in the schema (vsphere_sso_group). A type in
+    # neither form is unmatched: <address>/unmatched/<category>/<slug>, Matched $false. With
+    # no -Index (no cached schema) the type is built the same way without checking and
+    # Matched is $null.
+    param([string]$Address, [string]$Category, [string]$Slug, $Index, [string]$Prefix)
+
+    switch ($Category) {
+        'overview' { return [pscustomobject]@{ Id = $Address; Type = $null; Matched = $true } }
+        'guides'   { return [pscustomobject]@{ Id = "$Address/guide/$Slug"; Type = $null; Matched = $true } }
+    }
+    $segment = if ($Category -eq 'data-sources') { 'data' } else { 'resource' }
+    $candidates = @("$($Prefix)_$Slug")
+    if ($Slug.StartsWith("$($Prefix)_", [System.StringComparison]::Ordinal)) { $candidates += $Slug }
+
+    if ($null -eq $Index) {
+        $type = $candidates[-1]
+        return [pscustomobject]@{ Id = "$Address/$segment/$type"; Type = $type; Matched = $null }
+    }
+    $types = if ($segment -eq 'data') { $Index.Data } else { $Index.Resource }
+    foreach ($type in $candidates) {
+        if ($types.Contains($type)) {
+            return [pscustomobject]@{ Id = "$Address/$segment/$type"; Type = $type; Matched = $true }
+        }
+    }
+    [pscustomobject]@{ Id = "$Address/unmatched/$Category/$Slug"; Type = $null; Matched = $false }
+}
+
+function ConvertTo-TerraformProviderDocDocument {
+    # Not exported. The docs cache document for harvested -Docs records: Ids resolved
+    # against -Index, sorted overview, guides, resources, data-sources, then by slug.
+    # address, version and the counts come first so listing reads them from the head.
+    param([string]$Address, [string]$Version, [object[]]$Docs, $Index, [string]$Prefix)
+
+    $rank = @{ 'overview' = 0; 'guides' = 1; 'resources' = 2; 'data-sources' = 3 }
+    $list = [System.Collections.Generic.List[object]]::new()
+    foreach ($doc in $Docs) {
+        $resolved = Resolve-TerraformProviderDocId -Address $Address -Category $doc.Category -Slug $doc.Slug -Index $Index -Prefix $Prefix
+        $list.Add([pscustomobject]@{ Doc = $doc; Resolved = $resolved })
+    }
+    $list.Sort([System.Comparison[object]] {
+            param($a, $b)
+            $byCategory = ([int]$rank[$a.Doc.Category]).CompareTo([int]$rank[$b.Doc.Category])
+            if ($byCategory) { return $byCategory }
+            [string]::CompareOrdinal($a.Doc.Slug, $b.Doc.Slug)
+        })
+
+    $unmatched = @($list | Where-Object { $_.Resolved.Matched -eq $false })
+    [ordered]@{
+        address        = $Address
+        version        = $Version
+        harvestedOn    = [datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [cultureinfo]::InvariantCulture)
+        schemaVersion  = if ($Index) { $Index.SchemaVersion } else { $null }
+        docCount       = $list.Count
+        unmatchedCount = if ($Index) { $unmatched.Count } else { $null }
+        docs           = [object[]]@(foreach ($item in $list) {
+                [ordered]@{
+                    id          = $item.Resolved.Id
+                    category    = $item.Doc.Category
+                    title       = $item.Doc.Title
+                    subcategory = $item.Doc.Subcategory
+                    slug        = $item.Doc.Slug
+                    content     = $item.Doc.Content
+                }
+            })
+    }
+}
+
+function Read-TerraformProviderDocFile {
+    # Not exported. Every doc in one docs cache file as TerraformGraph.ProviderDoc, plus an
+    # Id index: @{ Docs; ById }. Parsed once per file version and kept in memory, so a
+    # pipeline of many nodes reads each file once. Callers copy before changing a doc.
+    param([string]$Path)
+
+    $item = Get-Item -LiteralPath $Path
+    $key = "$($item.LastWriteTimeUtc.Ticks)|$($item.Length)"
+    $memo = $script:TerraformDocCacheMemo[$item.FullName]
+    if ($memo -and $memo.Key -ceq $key) { return $memo.Value }
+
+    $document = Read-TerraformSchemaCache -Path $item.FullName
+    $address = [string]$document['address']
+    $version = [string]$document['version']
+    $byId = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $docs = foreach ($doc in @($document['docs'])) {
+        $id = [string]$doc['id']
+        $type = if ($id -match '^[^/]+/[^/]+/[^/]+/(?:resource|data)/([^/]+)$') { $Matches[1] } else { $null }
+        $node = [pscustomobject]@{
+            PSTypeName      = 'TerraformGraph.ProviderDoc'
+            Id              = $id
+            ProviderAddress = $address
+            Version         = $version
+            Category        = [string]$doc['category']
+            Title           = [string]$doc['title']
+            Subcategory     = $doc['subcategory']
+            Slug            = [string]$doc['slug']
+            Type            = $type
+            Content         = [string]$doc['content']
+            ExampleCount    = $null
+        }
+        $byId[$id] = $node
+        $node
+    }
+    $value = @{ Docs = @($docs); ById = $byId }
+    $script:TerraformDocCacheMemo[$item.FullName] = @{ Key = $key; Value = $value }
+    $value
+}
+
+function Get-TerraformDocExample {
+    # Not exported. The bodies of the ```hcl and ```terraform fenced code blocks in -Content,
+    # in order. Other fences (shell, json, untagged) are left out.
+    param([string]$Content)
+
+    $pattern = '(?ms)^[ \t]*(`{3,}|~{3,})[ \t]*(?:hcl|terraform)\b[^\r\n]*\r?\n(.*?)\r?\n[ \t]*\1[ \t]*$'
+    foreach ($match in [regex]::Matches($Content, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+        $match.Groups[2].Value
+    }
+}
+
+function Update-TerraformProviderDocCache {
+    <#
+    .SYNOPSIS
+        Harvests a provider version's documentation from the public registry into the docs cache.
+
+    .DESCRIPTION
+        Update-TerraformProviderDocCache lists the docs of one provider version on
+        registry.terraform.io, fetches every page's markdown with ForEach-Object -Parallel
+        (429 and 5xx are retried twice with a short backoff) and writes them atomically to
+        $env:LOCALAPPDATA\TerraformGraph\docs\<address-slug>\<version>.json.gz. If any page
+        still fails, nothing is written.
+
+        Only the overview, guides, resources and data-sources categories are kept, in the
+        hcl language. Each doc gets the Id of the schema node it documents, so docs join to
+        ConvertTo-TerraformSchemaGraph and ConvertTo-TerraformResourceGraph output:
+            <address>                    overview
+            <address>/guide/<slug>       guides
+            <address>/resource/<type>    resources
+            <address>/data/<type>        data-sources
+        The registry slug is the type without the provider prefix (virtual_machine for
+        vsphere_virtual_machine), so the type is rebuilt as <prefix>_<slug>, where prefix
+        is the one the provider's cached schema uses; a slug that already carries the
+        prefix is also tried. Matching uses the cached schema at the same version, else
+        the newest cached schema of that provider. A page whose type is in neither form is
+        kept with Id <address>/unmatched/<category>/<slug> and counted in UnmatchedCount:
+        a finding, not an error. With no cached schema at all, Ids are built from the
+        provider name without checking, UnmatchedCount is empty, and a warning names
+        Get-TerraformSchemaPack.
+
+        A version that is already cached is skipped unless -Force is given. This command
+        and Get-TerraformDocPack are the only ones that fill the docs cache; completers and
+        Get-TerraformProviderDoc never touch the network.
+
+    .PARAMETER Provider
+        Providers to harvest: 'null', 'hashicorp/null' or
+        'registry.terraform.io/hashicorp/null'. A value with a wildcard is resolved against
+        the provider registry cache and must match exactly one provider.
+
+    .PARAMETER Version
+        Version to harvest, such as 3.2.3. Default: the provider's latest version in the
+        registry cache, else the newest version that is not a pre-release on the registry.
+
+    .PARAMETER ThrottleLimit
+        Concurrent page requests. Default 6.
+
+    .PARAMETER Force
+        Harvest and replace a version that is already cached.
+
+    .PARAMETER PassThru
+        Return one TerraformGraph.DocCache per provider.
+
+    .EXAMPLE
+        Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -PassThru
+
+        Harvest the five null 3.2.3 pages and show the counts.
+
+    .EXAMPLE
+        Get-TerraformSchemaPack -Provider vmware/vsphere
+        Update-TerraformProviderDocCache -Provider vmware/vsphere -PassThru -Verbose
+
+        Cache the schema first so every resource and data source page is matched to a
+        schema node Id, then harvest the docs at the latest version.
+
+    .OUTPUTS
+        None, or TerraformGraph.DocCache with -PassThru: ProviderAddress, Version, Path,
+        Status (Harvested, Cached or Updated), DocCount, UnmatchedCount, SchemaVersion,
+        Elapsed. Default view is ProviderAddress, Version, Status, DocCount, UnmatchedCount,
+        Elapsed.
+
+    .LINK
+        Get-TerraformProviderDoc
+
+    .LINK
+        Get-TerraformDocPack
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0)]
+        [string[]]
+        $Provider,
+
+        [string]
+        $Version,
+
+        [ValidateRange(1, 64)]
+        [int]
+        $ThrottleLimit = 6,
+
+        [switch]
+        $Force,
+
+        [switch]
+        $PassThru
+    )
+
+    foreach ($name in $Provider) {
+        $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            if ([WildcardPattern]::ContainsWildcardCharacters($name)) {
+                $registryProvider = Resolve-TerraformRegistryProvider -Name $name
+                $parsed = ConvertTo-TerraformProviderAddress -Provider $registryProvider.ProviderAddress
+            }
+            else {
+                $parsed = ConvertTo-TerraformProviderAddress -Provider $name
+                $registryCache = Get-TerraformRegistryCache
+                $registryProvider = if ($registryCache) {
+                    $registryCache.Providers | Where-Object ProviderAddress -eq $parsed.Address.ToLowerInvariant() | Select-Object -First 1
+                }
+            }
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.ArgumentException]::new($_.Exception.Message),
+                'RegistryProviderNotResolved',
+                [System.Management.Automation.ErrorCategory]::InvalidArgument,
+                $name))
+        }
+        if ($parsed.Host -ne $script:TerraformRegistrySource) {
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.ArgumentException]::new("$($parsed.Address) is not on $($script:TerraformRegistrySource); only registry providers have docs to harvest."),
+                'ProviderDocNotOnRegistry',
+                [System.Management.Automation.ErrorCategory]::InvalidArgument,
+                $name))
+        }
+        $address = $parsed.Address.ToLowerInvariant()
+        $wanted = if ($Version) { $Version } elseif ($registryProvider -and $registryProvider.Latest) { [string]$registryProvider.Latest } else { $null }
+
+        try {
+            $found = Find-TerraformProviderDocVersion -Namespace $parsed.Namespace -Name $parsed.Name -Version $wanted
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.InvalidOperationException]::new($_.Exception.Message, $_.Exception),
+                'ProviderDocHarvestFailed',
+                [System.Management.Automation.ErrorCategory]::ConnectionError,
+                $address))
+        }
+        $docVersion = $found.Version
+        $path = Get-TerraformSchemaCachePath -Provider $address -Version $docVersion -Kind Docs
+        $existed = Test-Path -LiteralPath $path -PathType Leaf
+
+        if ($existed -and -not $Force) {
+            Write-Verbose "Docs for $address $docVersion are already cached at $path. Use -Force to harvest them again."
+            $entry = Get-TerraformSchemaCacheEntry -Kind Docs | Where-Object Path -eq ([System.IO.Path]::GetFullPath($path)) | Select-Object -First 1
+            $stopwatch.Stop()
+            if ($PassThru) {
+                [pscustomobject]@{
+                    PSTypeName      = 'TerraformGraph.DocCache'
+                    ProviderAddress = $address
+                    Version         = $docVersion
+                    Path            = $path
+                    Status          = 'Cached'
+                    DocCount        = $entry.DocCount
+                    UnmatchedCount  = $entry.UnmatchedCount
+                    SchemaVersion   = $null
+                    Elapsed         = $stopwatch.Elapsed
+                }
+            }
+            continue
+        }
+
+        Write-Verbose "Harvesting docs for $address $docVersion (registry version id $($found.VersionId))"
+        try {
+            $docs = @(Get-TerraformProviderDocHarvest -VersionId $found.VersionId -ThrottleLimit $ThrottleLimit)
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.InvalidOperationException]::new($_.Exception.Message, $_.Exception),
+                'ProviderDocHarvestFailed',
+                [System.Management.Automation.ErrorCategory]::ConnectionError,
+                $address))
+        }
+
+        $index = Get-TerraformProviderDocSchemaIndex -Address $address -Version $docVersion
+        if (-not $index) {
+            Write-Warning "No cached schema for $address, so resource and data source doc Ids are built from the '$($parsed.Name)_' prefix without checking. Run Get-TerraformSchemaPack -Provider $($parsed.Source) (or Get-TerraformProviderSchema -Provider $($parsed.Source) -SaveToCache), then Update-TerraformProviderDocCache -Force, to match them to schema nodes."
+        }
+        $prefix = if ($index) { $index.Prefix } else { $parsed.Name }
+        $document = ConvertTo-TerraformProviderDocDocument -Address $address -Version $docVersion -Docs $docs -Index $index -Prefix $prefix
+        foreach ($doc in $document.docs) {
+            if ($doc.id.StartsWith("$address/unmatched/", [System.StringComparison]::Ordinal)) { Write-Verbose "Unmatched: $($doc.category)/$($doc.slug)" }
+        }
+        $path = Write-TerraformSchemaCache -Provider $address -Version $docVersion -Document $document -Kind Docs
+        $stopwatch.Stop()
+        Write-Verbose "Wrote $($document.docCount) docs for $address $docVersion ($(if ($index) { "$($document.unmatchedCount) unmatched against schema $($index.SchemaVersion)" } else { 'not matched: no cached schema' })) to $path in $($stopwatch.Elapsed)"
+
+        if ($PassThru) {
+            [pscustomobject]@{
+                PSTypeName      = 'TerraformGraph.DocCache'
+                ProviderAddress = $address
+                Version         = $docVersion
+                Path            = $path
+                Status          = if ($existed) { 'Updated' } else { 'Harvested' }
+                DocCount        = $document.docCount
+                UnmatchedCount  = $document.unmatchedCount
+                SchemaVersion   = $document.schemaVersion
+                Elapsed         = $stopwatch.Elapsed
+            }
+        }
+    }
+}
+
+function Get-TerraformProviderDoc {
+    <#
+    .SYNOPSIS
+        Gets provider documentation pages from the docs cache, by provider, Id, type or pipeline node.
+
+    .DESCRIPTION
+        Get-TerraformProviderDoc reads the local docs cache, never the network. Each page
+        is a TerraformGraph.ProviderDoc whose Id is the schema node Id it documents:
+        <address>/resource/<type>, <address>/data/<type>, <address> for the overview,
+        <address>/guide/<slug> for guides, <address>/unmatched/<category>/<slug> for pages
+        whose type is not in the schema.
+
+        By provider: -Provider patterns (wildcards, matched by shape as in
+        Get-TerraformSchemaCache) select cached providers at -Version or their newest cached
+        version; with no -Provider every cached provider is read. A pattern with no cached
+        docs is a terminating error that names Get-TerraformDocPack and
+        Update-TerraformProviderDocCache.
+
+        By pipeline: pipe SchemaNode objects (looked up by Id) or ResourceNode objects
+        (looked up by SchemaId). A nested Block or Attribute node returns the page of its
+        resource or data source; a Provider or provider config node returns the overview.
+        Each page is returned once per call however many nodes point to it, so a resource
+        graph's nodes give exactly the pages a configuration uses. A provider with no cached
+        docs gets one warning; terraform.io/builtin providers have no registry docs and are
+        skipped.
+
+        -Id, -Type and -Category filter either way.
+
+    .PARAMETER Provider
+        Cached providers to read: 'azurerm', 'azure*', 'hashicorp/azurerm' or a full
+        address. Default: every provider in the docs cache.
+
+    .PARAMETER Version
+        Cached version to read. Default: the newest cached version of each provider.
+
+    .PARAMETER Id
+        Only pages whose Id matches one of these patterns (wildcards allowed), such as
+        'registry.terraform.io/hashicorp/azurerm/resource/azurerm_virtual_network'.
+
+    .PARAMETER Type
+        Only resource and data source pages whose type matches one of these patterns, such
+        as 'azurerm_virtual_*'.
+
+    .PARAMETER Category
+        Only these categories: resources, data-sources, guides, overview.
+
+    .PARAMETER Examples
+        Return only the ```hcl and ```terraform code blocks of each page: Content holds
+        them joined by a blank line and ExampleCount says how many there were (0 leaves
+        Content empty).
+
+    .PARAMETER InputObject
+        A TerraformGraph.SchemaNode or TerraformGraph.ResourceNode (or anything with a
+        SchemaId or Id property, or an Id string). Accepts pipeline input.
+
+    .EXAMPLE
+        Get-TerraformModuleGraph -Path . -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema |
+            Select-Object -ExpandProperty Nodes | Get-TerraformProviderDoc
+
+        The pages for every resource and data source type the configuration uses, once
+        each, from the cache only.
+
+    .EXAMPLE
+        Get-TerraformProviderDoc -Provider azurerm -Type 'azurerm_virtual_*' -Examples
+
+        The HCL examples of every azurerm resource and data source whose type starts with
+        azurerm_virtual_.
+
+    .EXAMPLE
+        Get-TerraformProviderDoc -Provider vsphere -Category guides, overview
+
+        The vsphere overview and guides.
+
+    .EXAMPLE
+        Get-TerraformProviderDoc -Provider vsphere -Id '*/unmatched/*'
+
+        Pages the registry has for vsphere whose type is not in the cached schema.
+
+    .OUTPUTS
+        TerraformGraph.ProviderDoc: Id, ProviderAddress, Version, Category, Title,
+        Subcategory, Slug, Type (resources and data sources only), Content (raw markdown, or
+        the joined examples with -Examples), ExampleCount (with -Examples). Default view is
+        Id, Category, Title, Subcategory.
+
+    .LINK
+        Update-TerraformProviderDocCache
+
+    .LINK
+        Get-TerraformDocPack
+
+    .LINK
+        ConvertTo-TerraformResourceGraph
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'Provider')]
+    param(
+        [Parameter(ParameterSetName = 'Provider', Position = 0)]
+        [string[]]
+        $Provider,
+
+        [string]
+        $Version,
+
+        [string[]]
+        $Id,
+
+        [string[]]
+        $Type,
+
+        [ValidateSet('resources', 'data-sources', 'guides', 'overview')]
+        [string[]]
+        $Category,
+
+        [switch]
+        $Examples,
+
+        [Parameter(Mandatory, ValueFromPipeline, ParameterSetName = 'InputObject')]
+        [object]
+        $InputObject
+    )
+
+    begin {
+        $emitted = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        $emit = {
+            param($Doc)
+            if ($Category -and $Category -notcontains $Doc.Category) { return }
+            if ($Id) {
+                $hit = $false
+                foreach ($pattern in $Id) { if ($Doc.Id -like $pattern) { $hit = $true; break } }
+                if (-not $hit) { return }
+            }
+            if ($Type) {
+                if (-not $Doc.Type) { return }
+                $hit = $false
+                foreach ($pattern in $Type) { if ($Doc.Type -like $pattern) { $hit = $true; break } }
+                if (-not $hit) { return }
+            }
+            if (-not $emitted.Add($Doc.Id)) { return }
+            $out = $Doc.PSObject.Copy()
+            if ($Examples) {
+                $blocks = @(Get-TerraformDocExample -Content $Doc.Content)
+                $out.Content = $blocks -join "`n`n"
+                $out.ExampleCount = $blocks.Count
+            }
+            $out
+        }
+
+        # Piped input with no -Provider is pipeline mode even if begin still sees the default
+        # parameter set, which happens before the first object is bound.
+        $pipelineMode = $PSCmdlet.ParameterSetName -eq 'InputObject' -or ($MyInvocation.ExpectingInput -and -not $PSBoundParameters.ContainsKey('Provider'))
+        if (-not $pipelineMode) {
+            if ($Provider) {
+                try {
+                    $entries = @(Resolve-TerraformSchemaCacheProvider -Name $Provider -Version $Version -Kind Docs)
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                        [System.Management.Automation.ItemNotFoundException]::new($_.Exception.Message),
+                        'ProviderDocNotCached',
+                        [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                        $Provider))
+                }
+            }
+            else {
+                $all = @(Get-TerraformSchemaCacheEntry -Kind Docs)
+                $entries = @(foreach ($group in @($all | Group-Object { $_.ProviderAddress.ToLowerInvariant() })) {
+                        if ($Version) { $group.Group | Where-Object Version -eq $Version | Select-Object -First 1 }
+                        else { $group.Group[0] }
+                    })
+                if (-not $entries.Count) {
+                    $versionText = if ($Version) { " at version $Version" } else { '' }
+                    $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                        [System.Management.Automation.ItemNotFoundException]::new("No provider docs are cached$versionText. Download a docs pack with Get-TerraformDocPack -Provider <name>, or harvest them from the registry with Update-TerraformProviderDocCache -Provider <name>."),
+                        'ProviderDocNotCached',
+                        [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                        $null))
+                }
+            }
+            foreach ($entry in $entries) {
+                Write-Verbose "Reading docs for $($entry.ProviderAddress) $($entry.Version) from $($entry.Path)"
+                foreach ($doc in (Read-TerraformProviderDocFile -Path $entry.Path).Docs) { & $emit $doc }
+            }
+        }
+        else {
+            $cachedEntries = $null
+            $loaded = @{}
+        }
+    }
+
+    process {
+        if (-not $pipelineMode -or $null -eq $InputObject) { return }
+
+        $key = if ($InputObject -is [string]) { $InputObject }
+        elseif ($InputObject.PSObject.Properties['SchemaId'] -and $InputObject.SchemaId) { [string]$InputObject.SchemaId }
+        elseif ($InputObject.PSObject.Properties['Id']) { [string]$InputObject.Id }
+        if (-not $key) {
+            Write-Verbose 'Skipping an input object with no SchemaId or Id'
+            return
+        }
+        $segments = $key.Split('/')
+        if ($segments.Count -lt 3) {
+            Write-Verbose "Skipping '$key': not a schema node Id"
+            return
+        }
+        # Doc Ids carry the lowercase address, as provider_schemas keys do.
+        $address = ($segments[0..2] -join '/').ToLowerInvariant()
+        $key = $address + $key.Substring($address.Length)
+        if ($segments[0] -eq 'terraform.io' -and $segments[1] -eq 'builtin') {
+            Write-Verbose "Skipping '$key': built-in providers have no registry docs"
+            return
+        }
+
+        if (-not $loaded.ContainsKey($address)) {
+            if ($null -eq $cachedEntries) { $cachedEntries = @(Get-TerraformSchemaCacheEntry -Kind Docs) }
+            $versions = @($cachedEntries | Where-Object { $_.ProviderAddress.ToLowerInvariant() -eq $address })
+            $entry = if ($Version) { $versions | Where-Object Version -eq $Version | Select-Object -First 1 } else { $versions | Select-Object -First 1 }
+            if ($entry) {
+                Write-Verbose "Reading docs for $($entry.ProviderAddress) $($entry.Version) from $($entry.Path)"
+                $loaded[$address] = Read-TerraformProviderDocFile -Path $entry.Path
+            }
+            else {
+                $versionText = if ($Version) { " $Version" } else { '' }
+                $providerSource = (ConvertTo-TerraformProviderAddress -Provider $address).Source
+                Write-Warning "No cached docs for $address$versionText. Download a docs pack with Get-TerraformDocPack -Provider $providerSource, or harvest them with Update-TerraformProviderDocCache -Provider $providerSource."
+                $loaded[$address] = $null
+            }
+        }
+        $file = $loaded[$address]
+        if (-not $file) { return }
+
+        # Exact Id, else the resource or data source a nested node belongs to, else the
+        # overview for the provider and its config nodes.
+        $doc = $null
+        $candidates = @($key)
+        if ($segments.Count -ge 5 -and $segments[3] -in 'resource', 'data') { $candidates += "$address/$($segments[3])/$($segments[4])" }
+        if ($segments.Count -gt 3 -and $segments[3] -eq 'config') { $candidates += $address }
+        foreach ($candidate in $candidates) {
+            if ($file.ById.TryGetValue($candidate, [ref]$doc)) { break }
+        }
+        if ($doc) { & $emit $doc } else { Write-Verbose "No doc for '$key'" }
+    }
+}
+
+function Get-TerraformDocPack {
+    <#
+    .SYNOPSIS
+        Downloads provider docs packs into the local docs cache.
+
+    .DESCRIPTION
+        Get-TerraformDocPack is Get-TerraformSchemaPack for docs: it reads manifest.json
+        from -Source, keeps the entries whose kind is docs, picks the entry for each
+        provider (at -Version, or the newest version in the manifest), downloads the file,
+        checks its sha256 and only then moves it into
+        $env:LOCALAPPDATA\TerraformGraph\docs\<address-slug>\<version>.json.gz. Pack files
+        are named docs.<address-slug>.<version>.json.gz.
+
+        A version that is already cached is skipped unless -Force is given. A provider with
+        no docs entry is a terminating error that names Update-TerraformProviderDocCache,
+        which harvests any registry provider's docs. For a private GitHub release source,
+        set $env:GH_TOKEN (or $env:GITHUB_TOKEN), as for Get-TerraformSchemaPack.
+
+    .PARAMETER Provider
+        Providers to download, as for Get-TerraformSchemaPack: a name, namespace/name or
+        full address; a bare name not in the manifest as written is matched by bare name; a
+        wildcard resolves through the registry cache. Default: every docs entry.
+
+    .PARAMETER Version
+        Version to download. Default: the newest docs version in the manifest per provider.
+
+    .PARAMETER Source
+        Where manifest.json and the pack files are: an http(s) URL or a local directory.
+        Default: https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download.
+
+    .PARAMETER Force
+        Download and replace a version that is already cached.
+
+    .PARAMETER PassThru
+        Return one TerraformGraph.DocPack per provider.
+
+    .EXAMPLE
+        Get-TerraformDocPack -Provider hashicorp/azurerm, microsoft/azuredevops, vmware/vsphere -PassThru
+
+        Download three docs packs from the latest release.
+
+    .EXAMPLE
+        Get-TerraformDocPack -Provider vsphere -Source .\dist\schema-packs -PassThru
+
+        Install a docs pack built locally with Invoke-Build BuildSchemaPack.
+
+    .OUTPUTS
+        None, or TerraformGraph.DocPack with -PassThru: ProviderAddress, Version, Path,
+        Bytes, Status (Downloaded, Cached, or Updated). Default view is ProviderAddress,
+        Version, Status, Bytes.
+
+    .LINK
+        Get-TerraformProviderDoc
+
+    .LINK
+        Update-TerraformProviderDocCache
+
+    .LINK
+        Get-TerraformSchemaPack
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [string[]]
+        $Provider,
+
+        [string]
+        $Version,
+
+        [string]
+        $Source = $script:TerraformSchemaPackSource,
+
+        [switch]
+        $Force,
+
+        [switch]
+        $PassThru
+    )
+
+    Install-TerraformPack -Cmdlet $PSCmdlet -Kind Docs -Provider $Provider -Version $Version -Source $Source -Force:$Force -PassThru:$PassThru
+}
+
+function Get-TerraformDocCache {
+    <#
+    .SYNOPSIS
+        Lists the provider docs in the local docs cache.
+
+    .DESCRIPTION
+        Get-TerraformDocCache lists the files in
+        $env:LOCALAPPDATA\TerraformGraph\docs\<address-slug>\<version>.json.gz, one
+        TerraformGraph.CachedDoc per provider version, newest version first within each
+        provider. It only reads, and never decompresses more than the start of each file.
+
+    .PARAMETER Provider
+        Only these providers. Patterns match by shape and may use wildcards, as for
+        Get-TerraformSchemaCache. Default: every cached provider.
+
+    .EXAMPLE
+        Get-TerraformDocCache
+
+        Every cached docs version with its page and unmatched counts.
+
+    .OUTPUTS
+        TerraformGraph.CachedDoc: ProviderAddress, Version, Path, Bytes, CachedOn (UTC),
+        DocCount, UnmatchedCount (empty when the docs were not matched to a schema). Default
+        view is ProviderAddress, Version, DocCount, UnmatchedCount, Bytes.
+
+    .LINK
+        Get-TerraformProviderDoc
+
+    .LINK
+        Get-TerraformSchemaCache
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [string[]]
+        $Provider
+    )
+
+    Select-TerraformSchemaCacheEntry -Entry @(Get-TerraformSchemaCacheEntry -Kind Docs) -Name $Provider
+}
+
+Register-ArgumentCompleter -CommandName Update-TerraformProviderDocCache -ParameterName Provider -ScriptBlock $script:TerraformRegistryProviderCompleter
+Register-ArgumentCompleter -CommandName Update-TerraformProviderDocCache -ParameterName Version -ScriptBlock $script:TerraformRegistryVersionCompleter
 
 # Agent tools that read project skills: the project-relative folder skills are copied
 # into, and the path whose presence means the tool is used in a repo. These paths are

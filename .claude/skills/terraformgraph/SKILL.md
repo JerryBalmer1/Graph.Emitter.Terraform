@@ -31,6 +31,10 @@ pwsh -NoProfile -Command 'Invoke-Pester -Path .\tests'
 - `Get-TerraformProviderSchema` — `-Path` initialized dir, or `-Provider` fetched on demand (`-Version`, `-WorkingDirectory`, `-Cleanup`, `-Force`, `-NoBundledData`, `-SaveToCache`) → `OrderedDictionary` (default) or JSON string (`-OutputFormat Json`). Needs `terraform` on PATH; `-Provider` needs registry access. `-SaveToCache` also writes the schema to the local schema cache at the version terraform selected.
 - `Get-TerraformSchemaPack` — `-Provider` (wildcards via the registry cache; default every manifest entry), `-Version`, `-Source` (URL, default the latest GitHub release, or a local folder), `-Force`, `-PassThru` → downloads `manifest.json` and pack files, checks sha256, writes them into the schema cache; `TerraformGraph.SchemaPack` (ProviderAddress, Version, Path, Bytes, Status `Downloaded|Cached|Updated`) with `-PassThru`.
 - `Get-TerraformSchemaCache` — `-Provider` patterns → `TerraformGraph.CachedSchema` (ProviderAddress, Version, Path, Bytes, CachedOn). Read only.
+- `Update-TerraformProviderDocCache` — `-Provider` (wildcards via the registry cache), `-Version` (default latest in the registry cache), `-ThrottleLimit`, `-Force`, `-PassThru` → harvests a provider version's registry docs into the docs cache, Ids matched against the cached schema; `TerraformGraph.DocCache` (ProviderAddress, Version, Path, Status `Harvested|Cached|Updated`, DocCount, UnmatchedCount, Elapsed) with `-PassThru`. Network.
+- `Get-TerraformDocPack` — same parameters as `Get-TerraformSchemaPack`, for the manifest's `docs` entries → `TerraformGraph.DocPack` with `-PassThru`.
+- `Get-TerraformDocCache` — `-Provider` patterns → `TerraformGraph.CachedDoc` (ProviderAddress, Version, Path, Bytes, CachedOn, DocCount, UnmatchedCount). Read only.
+- `Get-TerraformProviderDoc` — `-Provider` patterns (default every cached provider), `-Version`, `-Id` and `-Type` wildcards, `-Category resources|data-sources|guides|overview`, `-Examples`, or piped SchemaNode (by `Id`) / ResourceNode (by `SchemaId`) → `TerraformGraph.ProviderDoc` (Id, ProviderAddress, Version, Category, Title, Subcategory, Slug, Type, Content markdown, ExampleCount with `-Examples`). Each page once per call. Cache only.
 - `ConvertTo-TerraformSchemaGraph` — provider schema (dictionary, JSON text, or PSCustomObject) (`-Provider` filter, `-IncludeFunctions`), or with no schema `-Provider` patterns (`-Version`, default newest cached) loaded from the schema cache → `TerraformGraph.SchemaGraph` (Providers, Nodes `TerraformGraph.SchemaNode`, Edges `Contains`, Summary).
 - `ConvertTo-TerraformResourceGraph` — `TerraformGraph.ModuleGraph` + one of: optional `-SchemaGraph` array, `-Provider` (schema graphs from the cache for those providers), or `-AutoSchema` (cached schemas for every provider the module graph resolves to) → `TerraformGraph.ResourceGraph` (Nodes `TerraformGraph.ResourceNode`, `InstanceOf` Edges, Skipped, Providers, MatchedCount, UnmatchedCount, Findings).
 - `ConvertTo-TerraformJson` — any object → JSON string with no 100-level depth cap (`-Depth`, `-Compress`, `-AsArray`).
@@ -46,7 +50,11 @@ Name patterns match by shape: `aws` or `aws*` matches the bare name in any names
 
 Provider schemas are not bundled. They live in `$env:LOCALAPPDATA\TerraformGraph\schemas\<address-slug>\<version>.json.gz`, where address-slug is the lowercase provider address with `/` → `-` (`registry.terraform.io-hashicorp-azurerm\5.8.0.json.gz`). Fill it with `Get-TerraformSchemaPack` (release packs, no terraform needed) or `Get-TerraformProviderSchema -Provider <p> -SaveToCache` (any provider and version, needs terraform and the registry). Then `ConvertTo-TerraformSchemaGraph -Provider <p>` and `ConvertTo-TerraformResourceGraph -Provider <p>` or `-AutoSchema` work offline. A provider that is not cached is a terminating error naming both fill commands. With `-AutoSchema`, providers that are not cached are marked `ProviderNotInSchemaGraph`. Check with `Get-TerraformSchemaCache` before assuming a schema is there.
 
-Rule: never download inside a completer or `-AutoSchema`. Both read local caches only. `Get-TerraformSchemaPack` is the only command that fetches packs, and it does that only when called explicitly.
+Rule: never download inside a completer or `-AutoSchema`. Both read local caches only. `Get-TerraformSchemaPack` and `Get-TerraformDocPack` are the only commands that fetch packs, and only when called explicitly. For a private GitHub release source, set `$env:GH_TOKEN` (or `$env:GITHUB_TOKEN`) and they go through the GitHub API with it; without a token a 404 says the repo may be private.
+
+## Provider docs
+
+Registry markdown pages live in `$env:LOCALAPPDATA\TerraformGraph\docs\<address-slug>\<version>.json.gz`, keyed on schema node Ids: overview `<address>`, guide `<address>/guide/<slug>`, resource `<address>/resource/<type>`, data source `<address>/data/<type>`. A page whose type is not in the cached schema keeps `<address>/unmatched/<category>/<slug>` and counts in `UnmatchedCount`. That is a finding about the provider docs, not an error. Fill with `Get-TerraformDocPack` (release packs) or `Update-TerraformProviderDocCache` (registry; cache the schema first so Ids are checked). Check with `Get-TerraformDocCache`. `Get-TerraformProviderDoc -Provider <p>` for something not cached is a terminating error naming both fill commands; in the pipeline, an uncached provider gets one warning and built-in providers are skipped. Read the page's `Content` (markdown), or use `-Examples` for only the ```hcl / ```terraform blocks.
 
 ## Canonical Ids
 
@@ -66,6 +74,9 @@ Rule: never download inside a completer or `-AutoSchema`. Both read local caches
 | Schema | Block / Attribute | `<parent Id>/<name>` |
 | Resource | Resource | `<module>/resource/<type>.<name>` |
 | Resource | DataSource | `<module>/data/<type>.<name>` |
+| Docs | Overview / Guide | `<address>` / `<address>/guide/<slug>` |
+| Docs | Resource / DataSource page | the schema Id: `<address>/resource/<type>` / `<address>/data/<type>` |
+| Docs | Unmatched page | `<address>/unmatched/<category>/<slug>` |
 
 A schema Id names a resource *type* under a provider; a resource-graph Id names one *block* in one module. A ResourceNode's `SchemaId` holds the schema Id it joins to. Schema nodes also have `Path` (`null_resource.triggers`), which is for display only and can repeat across providers.
 
@@ -74,6 +85,15 @@ A schema Id names a resource *type* under a provider; a resource-graph Id names 
 Node types never have a property named `Address`, `Count`, `Length` or any other member of `System.Array`: on an array of nodes, `.Address` resolves to the array's own method and returns garbage. Use the qualified names: `ModuleAddress` on ModuleNode, `ResourceAddress` on ResourceNode, `ProviderAddress` for providers. `$graph.Nodes.ResourceAddress` works.
 
 ## Examples
+
+Start here when you need provider documentation for a repository. The docs for exactly the resource and data source types the repository uses, each page once, from the local caches with no network:
+
+```powershell
+Get-TerraformModuleGraph -Path . -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema |
+    Select-Object -ExpandProperty Nodes | Get-TerraformProviderDoc
+```
+
+If it warns that a provider has no cached docs, fill the caches once (`Get-TerraformSchemaPack` and `Get-TerraformDocPack` for the pack providers, or `Update-TerraformProviderDocCache -Provider <p>` for any registry provider). Then narrow it down: `Get-TerraformProviderDoc -Provider azurerm -Type 'azurerm_key_vault*' -Examples`.
 
 Module graph to variable trace: where does the network module's `aws_region` come from?
 

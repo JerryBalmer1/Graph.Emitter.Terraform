@@ -1787,3 +1787,385 @@ Describe "Schema cache and packs" {
         }
     }
 }
+
+# Both cache roots are module-scoped paths. Every test points them at TestDrive, so the real
+# LOCALAPPDATA caches are never read or written. tests/fixtures/docs holds real harvests of
+# hashicorp/null 3.2.3 and hashicorp/local 2.5.2 (Update-TerraformProviderDocCache against
+# the schema fixtures), decompressed.
+Describe "Provider docs" {
+
+    BeforeAll {
+        $useRoots = {
+            param([string]$Root)
+            InModuleScope TerraformGraph -Parameters @{ Root = $Root } {
+                param($Root)
+                $script:TerraformSchemaCacheRoot = Join-Path $Root 'schemas'
+                $script:TerraformDocCacheRoot = Join-Path $Root 'docs'
+            }
+        }
+        Set-Variable -Name UseRoots -Scope Script -Value $useRoots
+        Set-Variable -Name SavedRoots -Scope Script -Value (InModuleScope TerraformGraph { @{ Schema = $script:TerraformSchemaCacheRoot; Docs = $script:TerraformDocCacheRoot } })
+        Set-Variable -Name Infra -Scope Script -Value (Join-Path (Split-Path $PSScriptRoot -Parent) 'infra')
+
+        $schemaFixtures = Join-Path $PSScriptRoot 'fixtures' 'schemas'
+        $docFixtures = Join-Path $PSScriptRoot 'fixtures' 'docs'
+        $fixtures = [ordered]@{
+            'registry.terraform.io/hashicorp/null'  = @{ Version = '3.2.3'; Schema = [System.IO.File]::ReadAllText((Join-Path $schemaFixtures 'null-3.2.3.json')); Docs = [System.IO.File]::ReadAllText((Join-Path $docFixtures 'null-3.2.3.json')) }
+            'registry.terraform.io/hashicorp/local' = @{ Version = '2.5.2'; Schema = [System.IO.File]::ReadAllText((Join-Path $schemaFixtures 'local-2.5.2.json')); Docs = [System.IO.File]::ReadAllText((Join-Path $docFixtures 'local-2.5.2.json')) }
+        }
+        Set-Variable -Name Fixtures -Scope Script -Value $fixtures
+
+        # Seed the current roots with the schema and docs fixtures.
+        $seed = {
+            param([switch]$NoDocs)
+            foreach ($address in $Fixtures.Keys) {
+                $item = $Fixtures[$address]
+                InModuleScope TerraformGraph -Parameters @{ A = $address; I = $item; NoDocs = [bool]$NoDocs } {
+                    param($A, $I, $NoDocs)
+                    $null = Write-TerraformSchemaCache -Provider $A -Version $I.Version -Document $I.Schema
+                    if (-not $NoDocs) { $null = Write-TerraformSchemaCache -Provider $A -Version $I.Version -Document $I.Docs -Kind Docs }
+                }
+            }
+        }
+        Set-Variable -Name Seed -Scope Script -Value $seed
+
+        # A pack source with a schema entry and a docs entry for null, both written through
+        # the cache writer and listed with their real sha256.
+        $packDir = Join-Path $TestDrive 'doc-packs'
+        New-Item -ItemType Directory -Path $packDir | Out-Null
+        & $useRoots (Join-Path $TestDrive 'doc-pack-staging')
+        $null3 = $fixtures['registry.terraform.io/hashicorp/null']
+        $paths = InModuleScope TerraformGraph -Parameters @{ I = $null3 } {
+            param($I)
+            @{
+                Schema = Write-TerraformSchemaCache -Provider hashicorp/null -Version $I.Version -Document $I.Schema
+                Docs   = Write-TerraformSchemaCache -Provider hashicorp/null -Version $I.Version -Document $I.Docs -Kind Docs
+            }
+        }
+        $entries = foreach ($kind in 'schema', 'docs') {
+            $file = if ($kind -eq 'docs') { 'docs.registry.terraform.io-hashicorp-null.3.2.3.json.gz' } else { 'registry.terraform.io-hashicorp-null.3.2.3.json.gz' }
+            Copy-Item -LiteralPath ($kind -eq 'docs' ? $paths.Docs : $paths.Schema) -Destination (Join-Path $packDir $file)
+            [ordered]@{
+                kind    = $kind
+                address = 'registry.terraform.io/hashicorp/null'
+                version = '3.2.3'
+                file    = $file
+                sha256  = (Get-FileHash -LiteralPath (Join-Path $packDir $file) -Algorithm SHA256).Hash.ToLowerInvariant()
+                bytes   = (Get-Item -LiteralPath (Join-Path $packDir $file)).Length
+            }
+        }
+        [ordered]@{ builtOn = '2026-10-06T00:00:00Z'; packs = [object[]]@($entries) } |
+            ConvertTo-TerraformJson | Set-Content -LiteralPath (Join-Path $packDir 'manifest.json')
+        Set-Variable -Name DocPackDir -Scope Script -Value $packDir
+        Set-Variable -Name DocPackEntries -Scope Script -Value @($entries)
+
+        Set-Variable -Name SavedTokens -Scope Script -Value @{ GH_TOKEN = $env:GH_TOKEN; GITHUB_TOKEN = $env:GITHUB_TOKEN }
+    }
+
+    AfterAll {
+        InModuleScope TerraformGraph -Parameters @{ S = $SavedRoots } {
+            param($S)
+            $script:TerraformSchemaCacheRoot = $S.Schema
+            $script:TerraformDocCacheRoot = $S.Docs
+        }
+        $env:GH_TOKEN = $SavedTokens.GH_TOKEN
+        $env:GITHUB_TOKEN = $SavedTokens.GITHUB_TOKEN
+    }
+
+    BeforeEach {
+        # New, empty cache roots per test.
+        $root = Join-Path $TestDrive "docs-$([guid]::NewGuid().ToString('n'))"
+        & $UseRoots $root
+        Set-Variable -Name CacheRoot -Scope Script -Value $root
+    }
+
+    It "exports the four docs commands from TerraformGraph" {
+        foreach ($name in 'Update-TerraformProviderDocCache', 'Get-TerraformProviderDoc', 'Get-TerraformDocPack', 'Get-TerraformDocCache') {
+            (Get-Command $name -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        }
+        (Get-TypeData TerraformGraph.ProviderDoc).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('Id', 'Category', 'Title', 'Subcategory')
+    }
+
+    It "reconstructs doc Ids for resources, data sources, overview, guides and an unmatched slug" {
+        $results = InModuleScope TerraformGraph {
+            $address = 'registry.terraform.io/vmware/vsphere'
+            $index = [pscustomobject]@{
+                SchemaVersion = '2.17.1'
+                Prefix        = 'vsphere'
+                Resource      = [System.Collections.Generic.HashSet[string]]::new([string[]]@('vsphere_resource_pool', 'vsphere_sso_group'))
+                Data          = [System.Collections.Generic.HashSet[string]]::new([string[]]@('vsphere_datacenter'))
+            }
+            [ordered]@{
+                Resource  = Resolve-TerraformProviderDocId -Address $address -Category resources -Slug resource_pool -Index $index -Prefix vsphere
+                Prefixed  = Resolve-TerraformProviderDocId -Address $address -Category resources -Slug vsphere_sso_group -Index $index -Prefix vsphere
+                Data      = Resolve-TerraformProviderDocId -Address $address -Category data-sources -Slug datacenter -Index $index -Prefix vsphere
+                Overview  = Resolve-TerraformProviderDocId -Address $address -Category overview -Slug index -Index $index -Prefix vsphere
+                Guide     = Resolve-TerraformProviderDocId -Address $address -Category guides -Slug getting-started -Index $index -Prefix vsphere
+                Unmatched = Resolve-TerraformProviderDocId -Address $address -Category resources -Slug no_such_thing -Index $index -Prefix vsphere
+                DataAsRes = Resolve-TerraformProviderDocId -Address $address -Category data-sources -Slug resource_pool -Index $index -Prefix vsphere
+                NoSchema  = Resolve-TerraformProviderDocId -Address $address -Category resources -Slug resource_pool -Index $null -Prefix vsphere
+            }
+        }
+        $results.Resource.Id | Should -Be 'registry.terraform.io/vmware/vsphere/resource/vsphere_resource_pool'
+        $results.Resource.Type | Should -Be 'vsphere_resource_pool'
+        $results.Resource.Matched | Should -BeTrue
+        $results.Prefixed.Id | Should -Be 'registry.terraform.io/vmware/vsphere/resource/vsphere_sso_group'
+        $results.Data.Id | Should -Be 'registry.terraform.io/vmware/vsphere/data/vsphere_datacenter'
+        $results.Overview.Id | Should -Be 'registry.terraform.io/vmware/vsphere'
+        $results.Guide.Id | Should -Be 'registry.terraform.io/vmware/vsphere/guide/getting-started'
+        $results.Unmatched.Id | Should -Be 'registry.terraform.io/vmware/vsphere/unmatched/resources/no_such_thing'
+        $results.Unmatched.Matched | Should -BeFalse
+        $results.Unmatched.Type | Should -BeNullOrEmpty
+        $results.DataAsRes.Id | Should -Be 'registry.terraform.io/vmware/vsphere/unmatched/data-sources/resource_pool'
+        $results.NoSchema.Id | Should -Be 'registry.terraform.io/vmware/vsphere/resource/vsphere_resource_pool'
+        $results.NoSchema.Matched | Should -BeNullOrEmpty
+    }
+
+    It "counts unmatched docs in the document and derives the prefix from the cached schema" {
+        & $Seed -NoDocs
+        $document = InModuleScope TerraformGraph {
+            $index = Get-TerraformProviderDocSchemaIndex -Address 'registry.terraform.io/hashicorp/null' -Version '3.2.3'
+            $docs = @(
+                [pscustomobject]@{ Category = 'resources'; Title = 'resource'; Subcategory = $null; Slug = 'resource'; Content = 'r' }
+                [pscustomobject]@{ Category = 'resources'; Title = 'gone'; Subcategory = $null; Slug = 'gone'; Content = 'g' }
+                [pscustomobject]@{ Category = 'overview'; Title = 'overview'; Subcategory = $null; Slug = 'index'; Content = 'o' }
+            )
+            @{ Index = $index; Document = ConvertTo-TerraformProviderDocDocument -Address 'registry.terraform.io/hashicorp/null' -Version '3.2.3' -Docs $docs -Index $index -Prefix $index.Prefix }
+        }
+        $document.Index.Prefix | Should -Be 'null'
+        $document.Document.docCount | Should -Be 3
+        $document.Document.unmatchedCount | Should -Be 1
+        $document.Document.schemaVersion | Should -Be '3.2.3'
+        @($document.Document.docs | ForEach-Object { $_.id }) | Should -Be @(
+            'registry.terraform.io/hashicorp/null'
+            'registry.terraform.io/hashicorp/null/unmatched/resources/gone'
+            'registry.terraform.io/hashicorp/null/resource/null_resource'
+        )
+    }
+
+    It "round-trips the null fixture through the docs cache and lists it with Get-TerraformDocCache" {
+        $item = $Fixtures['registry.terraform.io/hashicorp/null']
+        $path = InModuleScope TerraformGraph -Parameters @{ I = $item } {
+            param($I)
+            Write-TerraformSchemaCache -Provider hashicorp/null -Version 3.2.3 -Document $I.Docs -Kind Docs
+        }
+        $path | Should -Be (Join-Path $CacheRoot 'docs' 'registry.terraform.io-hashicorp-null' '3.2.3.json.gz')
+        $back = InModuleScope TerraformGraph -Parameters @{ P = $path } { param($P) Read-TerraformSchemaCache -Path $P }
+        ($back | ConvertTo-TerraformJson -Compress) | Should -BeExactly ($item.Docs | ConvertFrom-TerraformJson -AsHashtable | ConvertTo-TerraformJson -Compress)
+
+        $listed = Get-TerraformDocCache -Provider null
+        $listed.ProviderAddress | Should -Be 'registry.terraform.io/hashicorp/null'
+        $listed.Version | Should -Be '3.2.3'
+        $listed.DocCount | Should -Be 4
+        $listed.UnmatchedCount | Should -Be 0
+        $listed.PSObject.TypeNames[0] | Should -Be 'TerraformGraph.CachedDoc'
+        @(Get-TerraformSchemaCache).Count | Should -Be 0
+    }
+
+    It "gets docs by -Id, -Type wildcard and -Category" {
+        & $Seed
+        $byId = @(Get-TerraformProviderDoc -Id 'registry.terraform.io/hashicorp/null/resource/null_resource' -ErrorAction Stop)
+        $byId.Count | Should -Be 1
+        $byId[0].Type | Should -Be 'null_resource'
+        $byId[0].Version | Should -Be '3.2.3'
+        $byId[0].Content | Should -Match 'null_resource'
+
+        $byType = @(Get-TerraformProviderDoc -Type 'local_*' -ErrorAction Stop)
+        @($byType | ForEach-Object Id) | Should -Be @(
+            'registry.terraform.io/hashicorp/local/resource/local_file'
+            'registry.terraform.io/hashicorp/local/resource/local_sensitive_file'
+            'registry.terraform.io/hashicorp/local/data/local_file'
+            'registry.terraform.io/hashicorp/local/data/local_sensitive_file'
+        )
+        @(Get-TerraformProviderDoc -Provider local -Type '*_sensitive_*' -Category data-sources -ErrorAction Stop).Id |
+            Should -Be 'registry.terraform.io/hashicorp/local/data/local_sensitive_file'
+
+        $guides = @(Get-TerraformProviderDoc -Provider null -Category guides -ErrorAction Stop)
+        $guides.Id | Should -Be 'registry.terraform.io/hashicorp/null/guide/terraform-migration'
+        $guides.Type | Should -BeNullOrEmpty
+        @(Get-TerraformProviderDoc -Category overview -ErrorAction Stop).Id | Should -Be @('registry.terraform.io/hashicorp/local', 'registry.terraform.io/hashicorp/null')
+        @(Get-TerraformProviderDoc -Provider 'hashicorp/n*' -ErrorAction Stop).Count | Should -Be 4
+    }
+
+    It "returns only hcl and terraform code blocks with -Examples" {
+        $content = @(
+            '# Example', '', '```hcl', 'resource "a" "b" {}', '```', '', '```shell', 'terraform import a.b id', '```', '',
+            '```terraform', 'data "c" "d" {}', '```', '', '```json', '{ "x": 1 }', '```', '', '```', 'untagged', '```'
+        ) -join "`n"
+        $document = [ordered]@{
+            address = 'registry.terraform.io/hashicorp/null'; version = '9.9.9'; harvestedOn = '2026-10-06T00:00:00Z'
+            schemaVersion = $null; docCount = 1; unmatchedCount = $null
+            docs = [object[]]@([ordered]@{ id = 'registry.terraform.io/hashicorp/null/resource/null_resource'; category = 'resources'; title = 'resource'; subcategory = $null; slug = 'resource'; content = $content })
+        }
+        InModuleScope TerraformGraph -Parameters @{ D = $document } {
+            param($D)
+            $null = Write-TerraformSchemaCache -Provider hashicorp/null -Version 9.9.9 -Document $D -Kind Docs
+        }
+        $doc = Get-TerraformProviderDoc -Provider null -Examples -ErrorAction Stop
+        $doc.ExampleCount | Should -Be 2
+        $doc.Content | Should -BeExactly "resource `"a`" `"b`" {}`n`ndata `"c`" `"d`" {}"
+
+        $plain = Get-TerraformProviderDoc -Provider null -ErrorAction Stop
+        $plain.ExampleCount | Should -BeNullOrEmpty
+        $plain.Content | Should -BeExactly $content
+    }
+
+    It "returns one doc per distinct matched null/local schema type for a ResourceGraph of infra piped in" {
+        & $Seed
+        $graph = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop | ConvertTo-TerraformResourceGraph -AutoSchema -ErrorAction Stop
+        $matched = @($graph.Nodes | Where-Object { $_.SchemaMatched -and $_.ProviderAddress -match '/hashicorp/(null|local)$' })
+        $matched.Count | Should -Be 3
+        $expected = @($matched | ForEach-Object SchemaId | Select-Object -Unique)
+
+        $docs = @($graph | Select-Object -ExpandProperty Nodes | Get-TerraformProviderDoc -WarningVariable warnings -ErrorAction Stop)
+        @($docs | ForEach-Object Id) | Should -Be $expected
+        @($docs | ForEach-Object Id) | Should -Be @('registry.terraform.io/hashicorp/null/resource/null_resource', 'registry.terraform.io/hashicorp/local/data/local_file')
+        $warnings.Count | Should -Be 0
+    }
+
+    It "maps piped SchemaNodes to their resource, data source or overview page" {
+        & $Seed
+        $schema = ConvertTo-TerraformSchemaGraph -Provider null -ErrorAction Stop
+        $docs = @($schema.Nodes | Get-TerraformProviderDoc -ErrorAction Stop)
+        @($docs | ForEach-Object Id) | Should -Be @(
+            'registry.terraform.io/hashicorp/null'
+            'registry.terraform.io/hashicorp/null/resource/null_resource'
+            'registry.terraform.io/hashicorp/null/data/null_data_source'
+        )
+        $attribute = $schema.Nodes | Where-Object Id -eq 'registry.terraform.io/hashicorp/null/resource/null_resource/triggers'
+        ($attribute | Get-TerraformProviderDoc -ErrorAction Stop).Id | Should -Be 'registry.terraform.io/hashicorp/null/resource/null_resource'
+    }
+
+    It "throws when docs are not cached and names Get-TerraformDocPack and Update-TerraformProviderDocCache" {
+        { Get-TerraformProviderDoc -Provider azurerm -ErrorAction Stop } |
+            Should -Throw "No cached provider docs match 'azurerm'. Download a docs pack with Get-TerraformDocPack -Provider azurerm, or harvest them from the registry with Update-TerraformProviderDocCache -Provider azurerm."
+        { Get-TerraformProviderDoc -ErrorAction Stop } | Should -Throw '*Get-TerraformDocPack*Update-TerraformProviderDocCache*'
+        & $Seed
+        { Get-TerraformProviderDoc -Provider null -Version 1.0.0 -ErrorAction Stop } | Should -Throw '*Get-TerraformDocPack -Provider registry.terraform.io/hashicorp/null -Version 1.0.0*Update-TerraformProviderDocCache*'
+    }
+
+    It "warns once per uncached provider in the pipeline and never downloads" {
+        & $Seed -NoDocs
+        Mock -ModuleName TerraformGraph Invoke-WebRequest { throw 'must not download' }
+        Mock -ModuleName TerraformGraph Invoke-RestMethod { throw 'must not download' }
+        $graph = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop | ConvertTo-TerraformResourceGraph -AutoSchema -ErrorAction Stop
+        $docs = @($graph.Nodes | Get-TerraformProviderDoc -WarningVariable warnings -WarningAction SilentlyContinue)
+        $docs.Count | Should -Be 0
+        @($warnings | ForEach-Object { "$_" }) | Should -Be @(
+            'No cached docs for registry.terraform.io/hashicorp/null. Download a docs pack with Get-TerraformDocPack -Provider hashicorp/null, or harvest them with Update-TerraformProviderDocCache -Provider hashicorp/null.'
+            'No cached docs for registry.terraform.io/hashicorp/local. Download a docs pack with Get-TerraformDocPack -Provider hashicorp/local, or harvest them with Update-TerraformProviderDocCache -Provider hashicorp/local.'
+        )
+        Should -Invoke -ModuleName TerraformGraph Invoke-WebRequest -Times 0 -Exactly
+        Should -Invoke -ModuleName TerraformGraph Invoke-RestMethod -Times 0 -Exactly
+    }
+
+    It "downloads only the docs entry with Get-TerraformDocPack from a manifest with both kinds" {
+        $results = @(Get-TerraformDocPack -Source $DocPackDir -PassThru -ErrorAction Stop)
+        $results.Count | Should -Be 1
+        $results[0].PSObject.TypeNames[0] | Should -Be 'TerraformGraph.DocPack'
+        $results[0].Status | Should -Be 'Downloaded'
+        $results[0].Path | Should -Be (Join-Path $CacheRoot 'docs' 'registry.terraform.io-hashicorp-null' '3.2.3.json.gz')
+        (Get-FileHash -LiteralPath $results[0].Path -Algorithm SHA256).Hash | Should -Be ($DocPackEntries | Where-Object kind -eq 'docs').sha256
+        Test-Path -LiteralPath (Join-Path $CacheRoot 'schemas') | Should -BeFalse
+        (Get-TerraformDocPack -Provider null -Source $DocPackDir -PassThru -ErrorAction Stop).Status | Should -Be 'Cached'
+        (Get-TerraformProviderDoc -Provider null -Category overview -ErrorAction Stop).Id | Should -Be 'registry.terraform.io/hashicorp/null'
+    }
+
+    It "ignores docs entries in Get-TerraformSchemaPack" {
+        $results = @(Get-TerraformSchemaPack -Source $DocPackDir -PassThru -ErrorAction Stop)
+        $results.Count | Should -Be 1
+        $results[0].Path | Should -Be (Join-Path $CacheRoot 'schemas' 'registry.terraform.io-hashicorp-null' '3.2.3.json.gz')
+        (Get-FileHash -LiteralPath $results[0].Path -Algorithm SHA256).Hash | Should -Be ($DocPackEntries | Where-Object kind -eq 'schema').sha256
+        Test-Path -LiteralPath (Join-Path $CacheRoot 'docs') | Should -BeFalse
+    }
+
+    It "throws for Get-TerraformDocPack with no docs entry and names Update-TerraformProviderDocCache" {
+        { Get-TerraformDocPack -Provider hashicorp/local -Source $DocPackDir -ErrorAction Stop } |
+            Should -Throw "Get-TerraformDocPack found no docs pack for registry.terraform.io/hashicorp/local in*Harvest them from the registry instead with Update-TerraformProviderDocCache -Provider hashicorp/local."
+    }
+
+    Context "GitHub release downloads" {
+
+        BeforeEach {
+            $env:GH_TOKEN = $null
+            $env:GITHUB_TOKEN = $null
+        }
+
+        It "uses the releases API with a Bearer token when GH_TOKEN is set" {
+            $env:GH_TOKEN = 'test-token'
+            Mock -ModuleName TerraformGraph Invoke-RestMethod {
+                [pscustomobject]@{
+                    tag_name = 'v0.11.0'
+                    assets   = @(
+                        [pscustomobject]@{ name = 'manifest.json'; url = 'https://api.github.com/repos/o/r/releases/assets/1' }
+                        [pscustomobject]@{ name = 'docs.registry.terraform.io-hashicorp-null.3.2.3.json.gz'; url = 'https://api.github.com/repos/o/r/releases/assets/2' }
+                    )
+                }
+            }
+            Mock -ModuleName TerraformGraph Invoke-WebRequest {
+                $name = if ($Uri -like '*/assets/1') { 'manifest.json' } else { 'docs.registry.terraform.io-hashicorp-null.3.2.3.json.gz' }
+                Copy-Item -LiteralPath (Join-Path $DocPackDir $name) -Destination $OutFile
+            }
+
+            $result = Get-TerraformDocPack -Provider null -Source 'https://github.com/o/r/releases/latest/download' -PassThru -ErrorAction Stop
+            $result.Status | Should -Be 'Downloaded'
+            Should -Invoke -ModuleName TerraformGraph Invoke-RestMethod -Times 1 -Exactly -ParameterFilter {
+                $Uri -eq 'https://api.github.com/repos/o/r/releases/latest' -and $Headers.Authorization -eq 'Bearer test-token'
+            }
+            Should -Invoke -ModuleName TerraformGraph Invoke-WebRequest -Times 2 -Exactly -ParameterFilter {
+                $Uri -like 'https://api.github.com/repos/o/r/releases/assets/*' -and $Headers.Authorization -eq 'Bearer test-token' -and $Headers.Accept -eq 'application/octet-stream'
+            }
+        }
+
+        It "looks up a tagged release with GITHUB_TOKEN" {
+            $env:GITHUB_TOKEN = 'other-token'
+            Mock -ModuleName TerraformGraph Invoke-RestMethod {
+                [pscustomobject]@{ tag_name = 'v0.11.0'; assets = @([pscustomobject]@{ name = 'manifest.json'; url = 'https://api.github.com/repos/o/r/releases/assets/1' }) }
+            }
+            Mock -ModuleName TerraformGraph Invoke-WebRequest { Copy-Item -LiteralPath (Join-Path $DocPackDir 'manifest.json') -Destination $OutFile }
+            { Get-TerraformDocPack -Provider null -Source 'https://github.com/o/r/releases/download/v0.11.0' -ErrorAction Stop } |
+                Should -Throw '*Release v0.11.0 of o/r has no asset named docs.registry.terraform.io-hashicorp-null.3.2.3.json.gz*'
+            Should -Invoke -ModuleName TerraformGraph Invoke-RestMethod -Times 1 -Exactly -ParameterFilter {
+                $Uri -eq 'https://api.github.com/repos/o/r/releases/tags/v0.11.0' -and $Headers.Authorization -eq 'Bearer other-token'
+            }
+        }
+
+        It "uses the anonymous download URL when no token is set" {
+            Mock -ModuleName TerraformGraph Invoke-RestMethod { throw 'must not call the API' }
+            Mock -ModuleName TerraformGraph Invoke-WebRequest {
+                Copy-Item -LiteralPath (Join-Path $DocPackDir ($Uri -split '/')[-1]) -Destination $OutFile
+            }
+            $result = Get-TerraformSchemaPack -Provider null -Source 'https://github.com/o/r/releases/latest/download' -PassThru -ErrorAction Stop
+            $result.Status | Should -Be 'Downloaded'
+            Should -Invoke -ModuleName TerraformGraph Invoke-RestMethod -Times 0 -Exactly
+            Should -Invoke -ModuleName TerraformGraph Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+                $Uri -eq 'https://github.com/o/r/releases/latest/download/manifest.json' -and -not $Headers
+            }
+            Should -Invoke -ModuleName TerraformGraph Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+                $Uri -eq 'https://github.com/o/r/releases/latest/download/registry.terraform.io-hashicorp-null.3.2.3.json.gz' -and -not $Headers
+            }
+        }
+
+        It "says the repository may be private and names GH_TOKEN on a 404 without a token" {
+            Mock -ModuleName TerraformGraph Invoke-WebRequest {
+                throw [Microsoft.PowerShell.Commands.HttpResponseException]::new('Not Found', [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::NotFound))
+            }
+            { Get-TerraformSchemaPack -Provider null -Source 'https://github.com/o/r/releases/latest/download' -ErrorAction Stop } |
+                Should -Throw '*manifest.json was not found at https://github.com/o/r/releases/latest/download (404). The repository may be private: set $env:GH_TOKEN*'
+        }
+    }
+
+    Context "live harvest (registry)" -Skip:(-not (Test-Connection registry.terraform.io -Count 1 -Quiet)) {
+
+        It "harvests hashicorp/null 3.2.3 into the redirected docs cache" {
+            & $Seed -NoDocs
+            $result = Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -PassThru -ErrorAction Stop
+            $result.DocCount | Should -BeGreaterThan 0
+            $result.UnmatchedCount | Should -Be 0
+            $result.Status | Should -Be 'Harvested'
+            $result.Path | Should -Be (Join-Path $CacheRoot 'docs' 'registry.terraform.io-hashicorp-null' '3.2.3.json.gz')
+            (Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -PassThru -ErrorAction Stop).Status | Should -Be 'Cached'
+            (Get-TerraformProviderDoc -Provider null -Type null_resource -ErrorAction Stop).Id | Should -Be 'registry.terraform.io/hashicorp/null/resource/null_resource'
+        }
+    }
+}

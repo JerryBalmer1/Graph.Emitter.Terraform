@@ -315,8 +315,10 @@ task BuildRegistry RemoveModule, ImportModule, {
 # Not part of the default build. Run when cutting a release, then attach everything in
 # dist\schema-packs to the GitHub release: harvests each -Provider at its latest version
 # from the registry cache (terraform init, network), saves it to the local schema cache,
-# copies the cached file to dist\schema-packs\<address-slug>.<version>.json.gz and writes
-# manifest.json. dist\ is gitignored; the folder is recreated on every run.
+# copies the cached file to dist\schema-packs\<address-slug>.<version>.json.gz, harvests
+# the same version's registry docs (Update-TerraformProviderDocCache) into
+# docs.<address-slug>.<version>.json.gz, and writes manifest.json with a kind (schema |
+# docs) per entry. dist\ is gitignored; the folder is recreated on every run.
 task BuildSchemaPack RemoveModule, ImportModule, {
     $total = [System.Diagnostics.Stopwatch]::StartNew()
     $dist = Join-Path $PSScriptRoot 'dist\schema-packs'
@@ -360,6 +362,7 @@ task BuildSchemaPack RemoveModule, ImportModule, {
         $stopwatch.Stop()
 
         [ordered]@{
+            kind            = 'schema'
             address         = $entry.ProviderAddress
             version         = $entry.Version
             file            = $file
@@ -372,6 +375,27 @@ task BuildSchemaPack RemoveModule, ImportModule, {
         Write-Host ("{0} {1}: {2:N0} bytes, {3:N0} nodes, {4} resources, {5} data sources; harvest {6:mm\:ss}, total {7:mm\:ss}" -f
             $entry.ProviderAddress, $entry.Version, (Get-Item -LiteralPath $target).Length, $graph.NodeCount,
             [int]$summary['Resource'], [int]$summary['DataSource'], $harvested, $stopwatch.Elapsed)
+
+        # Docs for the same provider version, matched against the schema just cached.
+        $docs = Update-TerraformProviderDocCache -Provider $entry.ProviderAddress -Version $entry.Version -Force -PassThru -ErrorAction Stop
+        $docFile = "docs.$slug.$($entry.Version).json.gz"
+        $docTarget = Join-Path $dist $docFile
+        Copy-Item -LiteralPath $docs.Path -Destination $docTarget -ErrorAction Stop
+        $docBytes = (Get-Item -LiteralPath $docTarget).Length
+        [ordered]@{
+            kind           = 'docs'
+            address        = $entry.ProviderAddress
+            version        = $entry.Version
+            file           = $docFile
+            sha256         = (Get-FileHash -LiteralPath $docTarget -Algorithm SHA256).Hash.ToLowerInvariant()
+            bytes          = $docBytes
+            docCount       = $docs.DocCount
+            unmatchedCount = $docs.UnmatchedCount
+        }
+        $unmatched = @(Get-TerraformProviderDoc -Provider $entry.ProviderAddress -Version $entry.Version -Id '*/unmatched/*' | ForEach-Object { "$($_.Category)/$($_.Slug)" })
+        Write-Host ("{0} {1} docs: {2} pages, {3} unmatched, {4:N0} bytes; harvest {5:mm\:ss}{6}" -f
+            $entry.ProviderAddress, $entry.Version, $docs.DocCount, $docs.UnmatchedCount, $docBytes, $docs.Elapsed,
+            $(if ($unmatched.Count) { "; unmatched e.g. $(@($unmatched | Select-Object -First 5) -join ', ')" }))
     }
 
     $manifest = [ordered]@{
@@ -380,7 +404,7 @@ task BuildSchemaPack RemoveModule, ImportModule, {
     }
     $manifest | ConvertTo-TerraformJson | Set-Content -LiteralPath (Join-Path $dist 'manifest.json') -Encoding utf8NoBOM -ErrorAction Stop
     $total.Stop()
-    Write-Host "Wrote $(@($packs).Count) packs and manifest.json to $dist in $($total.Elapsed)"
+    Write-Host "Wrote $(@($packs).Count) packs (schema and docs) and manifest.json to $dist in $($total.Elapsed)"
 }
 
 task Package {
