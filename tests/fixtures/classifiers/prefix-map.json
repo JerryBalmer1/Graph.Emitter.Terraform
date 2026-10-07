@@ -1,0 +1,11 @@
+{
+  "rows": [
+    { "provider": "*", "subcategory": "Files", "drawer": "management", "reason": "Fixture: a * row the local row below must beat.", "addedOn": "2026-10-06", "addedBy": "agent" },
+    { "provider": "*", "subcategory": "Utility", "drawer": "devops", "reason": "Fixture: a * row that applies to null_resource.", "addedOn": "2026-10-06", "addedBy": "agent" },
+    { "provider": "registry.terraform.io/hashicorp/local", "subcategory": "Files", "drawer": "storage", "reason": "Fixture: local_file writes files, and the provider row wins over the * row.", "addedOn": "2026-10-06", "addedBy": "agent" },
+    { "provider": "registry.terraform.io/hashicorp/local", "source": "prefix", "subcategory": "file", "drawer": "compute", "reason": "Fixture: matches local_file, whose Files label must win over this prefix row.", "addedOn": "2026-10-07", "addedBy": "agent" },
+    { "provider": "registry.terraform.io/hashicorp/local", "source": "prefix", "subcategory": "sensitive", "drawer": "security", "reason": "Fixture: a shorter prefix that the longer sensitive_file row must beat.", "addedOn": "2026-10-07", "addedBy": "agent" },
+    { "provider": "registry.terraform.io/hashicorp/local", "source": "prefix", "subcategory": "sensitive_file", "drawer": "storage", "reason": "Fixture: places local_sensitive_file, which has no label (resource) and no page (data source).", "addedOn": "2026-10-07", "addedBy": "agent" },
+    { "provider": "registry.terraform.io/hashicorp/null", "source": "prefix", "subcategory": "data", "drawer": "compute", "reason": "Fixture: matches null_data_source, whose Deprecated label the map does not place; a prefix row must not apply to a labelled type.", "addedOn": "2026-10-07", "addedBy": "agent" }
+  ]
+}

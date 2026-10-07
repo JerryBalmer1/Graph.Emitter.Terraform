@@ -325,3 +325,90 @@ Read this file before any classifier work. Append an entry for every judgement y
 - Rejected: A test-only lint.
 - Why: A custom map passed with -MapPath never goes through the repo's tests.
 - Cost if wrong: A half-finished custom map cannot be used until every row has a reason, which is intended.
+
+## 41. Grading the drawer list against the subcategory survey
+
+- Question: Entry 1 fixed twenty drawers from three providers (azurerm, azuredevops, vsphere). Does the doc-label survey of the bundled set (the registry's 34 official providers plus microsoft/azuredevops and vmware/vsphere) support each one, and do labels shared by three or more providers lack a drawer? Keep, rename, add or drop? Does API Management get a drawer?
+- Evidence: `dist/survey/subcategories.json` from Invoke-Build HarvestBundleDocs on 2026-10-07 (bundled registry cache harvested 2026-10-07T02:55:12Z): 36 providers, 14,686 pages, 661 distinct labels, 893 rows. Only 11 providers publish labels at all: aws (260), google and google-beta (181 each, the same list), azurerm (112), ibm (56), kubernetes (24), azuread (17), hcp (12), vsphere (9), azurestack (8), turbonomic (5). The other 25 label nothing (awscc's 4,521 pages, vault's 269, tfe's 117 among them). Because google-beta repeats google and azuread/azurestack share azurerm's vocabulary, support is counted in independent families as well as providers. Each label was assigned to at most one drawer by a keyword probe (first match in a fixed priority order). The probe is evidence for the list, never a map row; 264 of 865 labelled rows matched no pattern, mostly vendor products (AppStream, Chronicle, Firebase, Satellite).
+- Support per drawer (families; providers; labels; pages):
+  - network: 7 (aws, azure, google, hcp, ibm, kubernetes, vsphere); 9; 24; 916. Keep.
+  - compute: 6 (aws, azure, google, ibm, kubernetes, vsphere); 8; 26; 964. Keep.
+  - storage: 6 (aws, azure, google, ibm, kubernetes, vsphere); 8; 32; 470. Keep.
+  - database: 4 (aws, azure, google, ibm); 5; 32; 457. Keep.
+  - identity: 5 (aws, azure, google, hcp, ibm); 7; 36; 538. Keep.
+  - security: 7 (aws, azure, google, hcp, ibm, kubernetes, vsphere); 9; 42; 636. Keep.
+  - messaging: 4 (aws, azure, google, ibm); 5; 22; 360. Keep.
+  - observability: 4 (aws, azure, google, ibm); 5; 25; 286. Keep.
+  - management: 6 (aws, azure, google, ibm, kubernetes, vsphere); 9; 50; 449. Keep. The broadest drawer, but every family has billing, accounts, projects or policy labels that belong nowhere else.
+  - devops: 3 (aws, azure, google); 4; 21; 184. Keep. AWS Code*, Google Cloud Build/Deploy/Artifact Registry, azurerm Dev Center/Load Test/Chaos Studio; azuredevops is all devops by prefix (entry 43).
+  - containers: 5 (aws, azure, google, ibm, turbonomic); 6; 14; 216. Keep.
+  - serverless: 3 (aws, google, ibm); 4; 14; 135. Keep. Lambda, Cloud Functions, Cloud Run, Code Engine, IBM Functions. After entry 42 azurerm puts nothing here: its function apps are compute (entry 14).
+  - dns: 4 (aws, azure, google, ibm); 7; 13; 156. Keep.
+  - cdn: 3 (aws, azure, ibm); 3; 4; 141. Keep. Few labels, but CloudFront, CDN and IBM Internet Services are large.
+  - analytics: 3 (aws, azure, google); 4; 48; 630. Keep.
+  - ai: 3 (aws, azure, google); 4; 22; 340. Keep.
+  - iot: 2 (aws, azure); 2; 4; 52. Keep, the weakest. Google retired IoT Core, so only two families label IoT. Dropping it would break anyone filtering on it to save one row.
+  - media: 3 (aws, azure, google); 4; 14; about 45 (the probe's "streaming" also caught Managed Streaming for Kafka and HCP Log Streaming, which belong elsewhere). Keep.
+  - migration: 3 (aws, azure, google); 4; 5; 68. Keep.
+  - unclassified: the fallback, not graded.
+- Labels in three or more providers (9) and whether a current row places them:
+  - Storage (azurerm, azurestack, vsphere): storage by the `*` row. Placed.
+  - Service Networking (azurerm, google, google-beta): network for azurerm; network fits google.
+  - Base (azuread, azurerm, azurestack): management for azurerm (entry 15); management fits the others.
+  - Cloud IAM (google, google-beta, hcp): identity fits.
+  - Cloud Platform (google, google-beta, hcp): management fits (projects, folders, organizations, service usage).
+  - Container Registry (google, google-beta, ibm): containers fits.
+  - License Manager (aws, google, google-beta): management fits (drawers.json lists licensing).
+  - Agent Registry (aws, google, google-beta): ai fits (registries of AI agents).
+  - API Gateway (aws, google, google-beta): no drawer fits. That is the one gap.
+  No rows are added for these: google, aws, ibm, hcp and azurestack have docs but no cached schema, so they have no classifier to place types in, and a `*` row would decide for them without review (entry 22).
+- Call: Keep all twenty drawers with their names. Add one: `integration`, for API gateways and API management, application and SaaS connectors, and integration workflows (iPaaS). Insert it after messaging in drawers.json, so `unclassified` stays last. That answers the API Management question entry 2 left open: yes, an integration drawer, because three families label it: aws (API Gateway, API Gateway V2, AppFlow, AppSync, EventBridge Pipes), azure (API Management, Connections, Logic App) and google (API Gateway, Apigee, Application Integration, Integration Connectors). They hold 266 pages, the largest block of labels with no home. Entry 42 moves the azurerm rows.
+- Rejected: Renaming devops to "developer tools" (azuredevops and the AWS Code* family call it DevOps). Dropping iot (above). Dropping cdn or migration (three families each). A `desktop` drawer for AWS WorkSpaces/AppStream, azurerm Desktop Virtualization and Google Cloud Workstations: three families, but every one is virtual machines handed to users, which compute already describes. An `industry` drawer for Healthcare (azurerm, google): two families, and entry 35's reason (one vertical spanning three drawers) still holds. A `configuration` drawer for AWS AppConfig and azurerm/ibm App Configuration: two exact labels and 6 azurerm types, left unmapped as entry 28 records; worth another look if a third family labels it. Mapping integration into network or serverless: an API gateway is neither network plumbing nor per-execution compute.
+- Why: The list was given for three providers. The survey shows it carries over to the large clouds: every drawer except iot has three or more families, and the only shared label with nowhere to go is integration. One added drawer is cheap (entry 1); renames and drops are not.
+- Cost if wrong: integration is the 21st drawer; a view gains one row. If integration should have been folded into another drawer, 86 azurerm types move back with a superseding entry. The keyword probe can misplace a label at the edges (it put HCP Log Streaming in media), so the counts are approximate by a label or two per drawer; the conclusions do not rest on any single label.
+
+## 42. integration drawer: API Management, Connections and Logic App move into it
+
+- Question: With integration added (entry 41), where do azurerm "API Management", "Connections" and "Logic App" go?
+- Call: All three map to integration. Supersedes 2 (no integration drawer), 27 (API Management unmapped) and 29 (Connections unmapped). Logic App moves out of serverless. The serverless description drops "workflows" and names serverless containers and state machines instead.
+- Rejected: Leaving Logic App in serverless (entry 2's reason): it does run per trigger with no servers, but it is Azure's integration workflow product, and its connectors are the Connections label. Splitting them across two drawers would separate a workflow from the connectors it calls.
+- Why: Rows map labels to what the label's types are for. API Management (64 types) and Connections (3) had no drawer only because integration did not exist.
+- Cost if wrong: 86 azurerm types change drawer: 67 leave unclassified (azurerm unclassified falls from 101 to 34) and 19 leave serverless, which then holds no azurerm types.
+
+## 43. Prefix rows: a second map source for providers with no labels
+
+- Question: azuredevops publishes no subcategory labels (entry 10), so all 177 of its types were unclassified. How can it be drawered without hand-sorting types?
+- Call: map rows gain an optional `source`. `subcategory` (the default) is the existing row kind. A `prefix` row names one provider address (never `*`) and its `subcategory` field holds a type prefix after the provider token: `git` for `azuredevops_git_*`. Subcategory rows win. A prefix row places only a type that has no label, meaning no doc page or an empty subcategory. A type whose label the map does not place stays `UnmappedSubcategory`, because the provider did say something about it and the map's silence is the finding. A type placed by a prefix row has no finding. Each classifier type records `source` (`subcategory`, `prefix`, or null when unclassified), and the file's top-level `source` is `subcategory,prefix` when any prefix row placed a type. A prefix row that matches no type in the provider's cached schema stops New-TerraformClassifier (`ClassifierMapInvalid`), and Pester checks the bundled map's prefix rows against the bundled classifiers.
+- Rejected: A provider-wide default drawer (entry 10's "obvious next feature"): it would put azuredevops groups and users in devops. Per-type override rows, which would be hand-sorting 177 rows. Letting prefix rows override labels, which would let a prefix silently contradict what the provider published. `*` prefix rows: `git` means something different in every provider.
+- Why: Type names are the one grouping every provider publishes. A prefix is a judgement about a family of types, like a label row is, and it stays reviewable in the map with a reason. Partly supersedes 10: azuredevops still publishes no labels, and the findings are gone because prefix rows now place every type.
+- Cost if wrong: A new azuredevops type whose prefix has no row is `NoSubcategory` again, and a new type under an existing prefix lands in that prefix's drawer silently. The lint only catches prefixes that match nothing.
+
+## 44. Prefixes match at underscore boundaries
+
+- Question: Should prefix `git` match any type whose remainder starts with "git", or only `git` and `git_*`?
+- Call: Only at underscore boundaries: the type without its provider token must equal the prefix or start with the prefix and `_`. The longest matching prefix wins. So `group` matches `azuredevops_group` and `azuredevops_group_membership` but not `azuredevops_groups`, which gets its own row.
+- Rejected: Plain string prefixes, which would let `git` catch a future `github_*` type and `service` catch `serviceendpoint_*`, the fuzzy matching entry 5 rejects for labels. Folding plurals, which is a rule about English, not about the provider.
+- Why: Predictable matching, the same reason as entry 5. Plural data sources (`groups`, `projects`, `teams`, `users`) are few and stable.
+- Cost if wrong: More rows than plain prefixes would need: azuredevops has 41 prefix rows where plain prefixes would need 33. The task expected 10 to 20; its 177 types (154 distinct names) start with 41 distinct leading tokens, so no prefix scheme gets near 20 without leaving families unclassified.
+
+## 45. azuredevops permissions go with the object they guard; security namespaces are identity
+
+- Question: azuredevops has a `*_permissions` type for most objects (`git_permissions`, `build_definition_permissions`, `area_permissions`, `library_permissions`, `tagging_permissions`, ...) and a generic ACL layer (`security_namespace*`, `security_permissions`, `securityrole_*`). Identity, or the object's drawer?
+- Call: A permissions type takes its object's drawer through the object's prefix (`git_permissions` is devops with `git`). The standalone ones get their own rows in devops: `library_permissions` (the pipeline library) and `tagging_permissions` (project tags). The generic ACL layer (`security`, `securityrole`) is identity, as azurerm's "Authorization" role assignments are.
+- Rejected: Every `*_permissions` type in identity, which would need a suffix match (a new map feature) or one row per type.
+- Why: Rows map families, and the family is the object. Someone collapsing a view to devops expects a repository's permissions inside the repository's drawer. The generic namespaces have no object, only principals and access.
+- Cost if wrong: An identity view of azuredevops misses the 14 per-object permission types that sit in devops; only `security_permissions` is identity.
+
+## 46. Individual azuredevops prefix calls
+
+- Question: Where do the azuredevops families that could go two ways belong?
+- Call:
+  - `dashboard` is devops: project dashboards of Boards and pipeline widgets, not infrastructure monitoring (observability).
+  - `servicehook` is devops: hooks that send project events to web hooks and storage queues. They belong to the project's delivery plumbing. Integration (entry 41) was weighed and rejected, because these hooks only serve Azure DevOps events.
+  - `storage_key` is identity: the data source resolves a graph subject descriptor to its storage key, an identity id. It is not storage.
+  - `team` and `teams` are identity: teams are groups of people in a project, with members and administrators. Their area and iteration settings come through the separate `area` and `iteration` families.
+  - `client_config` is management, as azurerm's client config sits under Base (entry 15).
+  - `extension`, `elastic_pool`, `deployment_group`, `environment`, `check`, `feed`, `wiki`, `area`, `iteration` and every `workitem*` family are devops: they are Azure DevOps's own Boards, Pipelines, Artifacts and Repos.
+- Rejected: observability for dashboard; messaging for servicehook; storage for storage_key; devops for team.
+- Why: Each call follows what the type does, not what its name suggests.
+- Cost if wrong: dashboard 1, servicehook 3, storage_key 1, team and teams 5, client_config 1 type.

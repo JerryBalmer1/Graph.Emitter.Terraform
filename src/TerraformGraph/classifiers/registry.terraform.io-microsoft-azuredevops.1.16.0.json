@@ -2,2135 +2,1249 @@
   "provider": "registry.terraform.io/microsoft/azuredevops",
   "version": "1.16.0",
   "docsVersion": "1.16.0",
-  "generatedOn": "2026-10-07T04:27:23Z",
-  "mapVersion": "cae038873f8e",
-  "source": "subcategory",
+  "generatedOn": "2026-10-07T05:22:55Z",
+  "mapVersion": "8edf85177cf6",
+  "source": "subcategory,prefix",
   "types": [
     {
       "type": "azuredevops_agent_pool",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_agent_pool",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_agent_pools",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_agent_queue",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_agent_queue",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_area",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_area",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_area_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_branch_policy_auto_reviewers",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_branch_policy_build_validation",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_branch_policy_comment_resolution",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_branch_policy_merge_types",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_branch_policy_min_reviewers",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_branch_policy_status_check",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_branch_policy_work_item_linking",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_build_definition",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_build_definition",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_build_definition_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_build_folder",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_build_folder_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_check_approval",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_check_branch_control",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_check_business_hours",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_check_exclusive_lock",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_check_required_template",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_check_rest_api",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_client_config",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "management",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_dashboard",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_deployment_group",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_descriptor",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_elastic_pool",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_environment",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_environment",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_environment_resource_kubernetes",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_extension",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_feed",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_feed",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_feed_permission",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_feed_retention_policy",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_git_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_git_repositories",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_git_repository",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_git_repository",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_git_repository_branch",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_git_repository_file",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_git_repository_file",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_group",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_group",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_group_entitlement",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_group_membership",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_group_membership",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_groups",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_identity_group",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_identity_groups",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_identity_user",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_iteration",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_iteration_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_library_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_pipeline_authorization",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_project",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_project",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_project_features",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_project_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_project_pipeline_settings",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_project_tags",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_projects",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_repository_policy_author_email_pattern",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_repository_policy_case_enforcement",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_repository_policy_check_credentials",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_repository_policy_file_path_pattern",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_repository_policy_max_file_size",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_repository_policy_max_path_length",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_repository_policy_reserved_names",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_resource_authorization",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_security_namespace",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_security_namespace_token",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_security_namespaces",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_security_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_securityrole_assignment",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_securityrole_definitions",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_service_principal",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_service_principal_entitlement",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_argocd",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_artifactory",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_aws",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_azure_service_bus",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_azurecr",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_azurecr",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_azuredevops",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_azurerm",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_azurerm",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_bitbucket",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_bitbucket",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_black_duck",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_checkmarx_one",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_checkmarx_sast",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_checkmarx_sca",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_dockerregistry",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_dockerregistry",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_dynamics_lifecycle_services",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_externaltfs",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_gcp_terraform",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_generic",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_generic_git",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_generic_v2",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_generic_v2",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_github",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_github",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_github_enterprise",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_gitlab",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_incomingwebhook",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_jenkins",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_jfrog_artifactory_v2",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_jfrog_distribution_v2",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_jfrog_platform_v2",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_jfrog_xray_v2",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_kubernetes",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_maven",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_nexus",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_npm",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_npm",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_nuget",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_octopusdeploy",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_openshift",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_runpipeline",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_servicefabric",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_snyk",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_sonarcloud",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_sonarcloud",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_sonarqube",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_ssh",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_type",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_types",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_serviceendpoint_visualstudiomarketplace",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_servicehook_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_servicehook_storage_queue_pipelines",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_servicehook_webhook_tfs",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_storage_key",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_tagging_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_team",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_team",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_team_administrators",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_team_members",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_teams",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_user",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_user_entitlement",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_users",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "identity",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_variable_group",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_variable_group",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_variable_group_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_variable_group_variable",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_wiki",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_wiki_page",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitem",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemquery",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemquery_folder",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemquery_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtracking_field",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_control",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_field",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_group",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_inherited_control",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_inherited_page",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_inherited_state",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_list",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_page",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_process",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_process",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_process_permissions",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_processes",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_rule",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_state",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_system_control",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_workitemtype",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_workitemtype",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     },
     {
       "type": "azuredevops_workitemtrackingprocess_workitemtypes",
       "kind": "data-source",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "devops",
+      "source": "prefix"
     }
   ],
-  "findings": [
-    {
-      "type": "azuredevops_agent_pool",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_agent_pool",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_agent_pools",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_agent_queue",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_agent_queue",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_area",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_area",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_area_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_branch_policy_auto_reviewers",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_branch_policy_build_validation",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_branch_policy_comment_resolution",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_branch_policy_merge_types",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_branch_policy_min_reviewers",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_branch_policy_status_check",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_branch_policy_work_item_linking",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_build_definition",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_build_definition",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_build_definition_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_build_folder",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_build_folder_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_check_approval",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_check_branch_control",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_check_business_hours",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_check_exclusive_lock",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_check_required_template",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_check_rest_api",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_client_config",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_dashboard",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_deployment_group",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_descriptor",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_elastic_pool",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_environment",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_environment",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_environment_resource_kubernetes",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoDocPage"
-    },
-    {
-      "type": "azuredevops_extension",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_feed",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_feed",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_feed_permission",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_feed_retention_policy",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_git_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_git_repositories",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_git_repository",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_git_repository",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_git_repository_branch",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_git_repository_file",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_git_repository_file",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_group",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_group",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_group_entitlement",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_group_membership",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_group_membership",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_groups",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_identity_group",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_identity_groups",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_identity_user",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_iteration",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_iteration_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_library_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_pipeline_authorization",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_project",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_project",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_project_features",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_project_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_project_pipeline_settings",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_project_tags",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_projects",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_repository_policy_author_email_pattern",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_repository_policy_case_enforcement",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_repository_policy_check_credentials",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_repository_policy_file_path_pattern",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_repository_policy_max_file_size",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_repository_policy_max_path_length",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_repository_policy_reserved_names",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_resource_authorization",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_security_namespace",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_security_namespace_token",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_security_namespaces",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_security_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_securityrole_assignment",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_securityrole_definitions",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_service_principal",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_service_principal_entitlement",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_argocd",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_artifactory",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_aws",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_azure_service_bus",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_azurecr",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_azurecr",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_azuredevops",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_azurerm",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_azurerm",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_bitbucket",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_bitbucket",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_black_duck",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_checkmarx_one",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_checkmarx_sast",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_checkmarx_sca",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_dockerregistry",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_dockerregistry",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_dynamics_lifecycle_services",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_externaltfs",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_gcp_terraform",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_generic",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_generic_git",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_generic_v2",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_generic_v2",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_github",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_github",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_github_enterprise",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_gitlab",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_incomingwebhook",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_jenkins",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_jfrog_artifactory_v2",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_jfrog_distribution_v2",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_jfrog_platform_v2",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_jfrog_xray_v2",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_kubernetes",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_maven",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_nexus",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_npm",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_npm",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_nuget",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_octopusdeploy",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_openshift",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_runpipeline",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_servicefabric",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_snyk",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_sonarcloud",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_sonarcloud",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_sonarqube",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_ssh",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_type",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_types",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_serviceendpoint_visualstudiomarketplace",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_servicehook_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_servicehook_storage_queue_pipelines",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_servicehook_webhook_tfs",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_storage_key",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_tagging_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_team",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_team",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_team_administrators",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_team_members",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_teams",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_user",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_user_entitlement",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_users",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_variable_group",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_variable_group",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_variable_group_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_variable_group_variable",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_wiki",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_wiki_page",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitem",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemquery",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemquery_folder",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemquery_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtracking_field",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_control",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_field",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_group",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_inherited_control",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_inherited_page",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_inherited_state",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_list",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_page",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_process",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_process",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_process_permissions",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_processes",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_rule",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_state",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_system_control",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_workitemtype",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_workitemtype",
-      "kind": "resource",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    },
-    {
-      "type": "azuredevops_workitemtrackingprocess_workitemtypes",
-      "kind": "data-source",
-      "subcategory": null,
-      "finding": "NoSubcategory"
-    }
-  ]
+  "findings": []
 }

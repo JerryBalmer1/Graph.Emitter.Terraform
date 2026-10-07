@@ -2,7 +2,15 @@
 Param(
     # BuildSchemaPack and BuildClassifier: providers to pack or classify, as namespace/name or a full address.
     [string[]]
-    $Provider = @('hashicorp/azurerm', 'microsoft/azuredevops', 'vmware/vsphere')
+    $Provider = @('hashicorp/azurerm', 'microsoft/azuredevops', 'vmware/vsphere'),
+
+    # HarvestBundleDocs: skip providers whose docs are already cached at their latest version.
+    [switch]
+    $Resume,
+
+    # CheckBundle: also compare against the live registry.
+    [switch]
+    $Online
 )
 
 ######################################################################################################
@@ -438,6 +446,56 @@ task BuildClassifier RemoveModule, ImportModule, {
                 Out-String -Width 200 | Write-Host
         }
     }
+}
+
+# Not part of the default build. Run when cutting a release, after BuildSchemaPack and
+# BuildClassifier, then stage src\TerraformGraph\data\bundle.json: harvests the docs of every
+# provider in the bundled manifest (data\bundle.json: the official tier plus
+# microsoft/azuredevops and vmware/vsphere, resolved against data\registry.json) at its
+# latest version, one provider after another (network; 30-60 minutes at throttle 6),
+# refreshes the manifest's entries from the caches and the bundled classifiers, and writes
+# the subcategory survey to dist\survey\subcategories.json. A provider that fails is a
+# warning and a Failed row, never a stop. -Resume skips providers already cached at their
+# latest version.
+task HarvestBundleDocs RemoveModule, ImportModule, {
+    $bundlePath = Join-Path $PSScriptRoot 'src\TerraformGraph\data\bundle.json'
+    $summary = Update-TerraformProviderDocCache -BundlePath $bundlePath -Resume:$Resume -ErrorAction Stop
+    $summary.Providers |
+        Format-Table ProviderAddress, Version, Status, DocCount, UnmatchedCount, SchemaVersion, @{ Name = 'Elapsed'; Expression = { $_.Elapsed.ToString('hh\:mm\:ss') } } -AutoSize |
+        Out-String -Width 250 | Write-Host
+    Write-Host ("Providers {0}, pages {1:N0}, unmatched {2}, failures {3}, elapsed {4:hh\:mm\:ss}" -f
+        $summary.ProviderCount, $summary.PageCount, $summary.UnmatchedCount, $summary.FailureCount, $summary.Elapsed)
+    foreach ($failure in $summary.Failures) {
+        Write-Host "FAILED $($failure.ProviderAddress) $($failure.Version): $($failure.Error)" -ForegroundColor Yellow
+    }
+
+    $bundle = Get-TerraformGraphBundle -Path $bundlePath -Document -ErrorAction Stop
+    New-TerraformGraphBundle -Tier $bundle.Tiers -Provider $bundle.Providers -Exclude $bundle.Exclude -OutputPath $bundlePath -ErrorAction Stop
+    Write-Host "Refreshed $bundlePath"
+
+    $surveyPath = Join-Path $PSScriptRoot 'dist\survey\subcategories.json'
+    Get-TerraformSubcategorySurvey -BundlePath $bundlePath -OutputPath $surveyPath -ErrorAction Stop
+    $survey = Get-Content -LiteralPath $surveyPath -Raw | ConvertFrom-TerraformJson
+    Write-Host ("Survey: {0} providers ({1} missing), {2} distinct labels, {3} rows, {4} providers with unlabelled pages -> {5}" -f
+        $survey.summary.providerCount, $survey.summary.missingCount, $survey.summary.labelCount, $survey.summary.rowCount,
+        $survey.summary.noSubcategoryProviderCount, $surveyPath)
+    $survey.labels | Select-Object -First 20 subcategory, providerCount, resourceCount, dataSourceCount |
+        Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+}
+
+# Not part of the default build. The release gate: Test-TerraformGraphBundle -Strict on the
+# bundled manifest (registry cache, entries against the docs and schema caches, bundled
+# classifiers' mapVersion against map.json, and dist\schema-packs when it exists). Prints the
+# rows that are not Fresh and fails if there are any. -Online also checks the live registry.
+task CheckBundle RemoveModule, ImportModule, {
+    $bundlePath = Join-Path $PSScriptRoot 'src\TerraformGraph\data\bundle.json'
+    $counts = @{ Fresh = 0; Stale = 0; Missing = 0 }
+    Test-TerraformGraphBundle -BundlePath $bundlePath -DistPath (Join-Path $PSScriptRoot 'dist\schema-packs') -Online:$Online -Strict -ErrorAction Stop |
+        ForEach-Object {
+            $counts[$_.Status]++
+            if ($_.Status -ne 'Fresh') { Write-Host "$($_.Status.PadRight(7)) $($_.Item): $($_.Detail)" -ForegroundColor Yellow }
+        }
+    Write-Host "Bundle is fresh: $($counts.Fresh) checks." -ForegroundColor Green
 }
 
 task Package {

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Table views for typed objects whose default display has more than four properties, which
+     PowerShell would otherwise show as a list. Everything else uses DefaultDisplayPropertySet
+     from Update-TypeData in TerraformGraph.psm1. -->
+<Configuration>
+  <ViewDefinitions>
+    <View>
+      <Name>TerraformGraph.BundleEntry</Name>
+      <ViewSelectedBy>
+        <TypeName>TerraformGraph.BundleEntry</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <TableHeaders>
+          <TableColumnHeader><Label>ProviderAddress</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Version</Label></TableColumnHeader>
+          <TableColumnHeader><Label>DocsVersion</Label></TableColumnHeader>
+          <TableColumnHeader><Label>SchemaVersion</Label></TableColumnHeader>
+          <TableColumnHeader><Label>ClassifierVersion</Label></TableColumnHeader>
+          <TableColumnHeader><Label>HarvestedOn</Label></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>ProviderAddress</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Version</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>DocsVersion</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>SchemaVersion</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>ClassifierVersion</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>HarvestedOn</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+    <View>
+      <Name>TerraformGraph.SubcategorySurveyRow</Name>
+      <ViewSelectedBy>
+        <TypeName>TerraformGraph.SubcategorySurveyRow</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <TableHeaders>
+          <TableColumnHeader><Label>ProviderAddress</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Subcategory</Label></TableColumnHeader>
+          <TableColumnHeader><Label>ResourceCount</Label></TableColumnHeader>
+          <TableColumnHeader><Label>DataSourceCount</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Status</Label></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>ProviderAddress</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Subcategory</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>ResourceCount</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>DataSourceCount</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Status</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+  </ViewDefinitions>
+</Configuration>

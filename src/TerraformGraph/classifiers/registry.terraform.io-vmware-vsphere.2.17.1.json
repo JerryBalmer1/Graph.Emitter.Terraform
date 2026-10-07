@@ -2,531 +2,618 @@
   "provider": "registry.terraform.io/vmware/vsphere",
   "version": "2.17.1",
   "docsVersion": "2.17.1",
-  "generatedOn": "2026-10-07T04:27:24Z",
-  "mapVersion": "cae038873f8e",
+  "generatedOn": "2026-10-07T05:22:55Z",
+  "mapVersion": "8edf85177cf6",
   "source": "subcategory",
   "types": [
     {
       "type": "vsphere_alarm",
       "kind": "data-source",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_alarm",
       "kind": "resource",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_compute_cluster",
       "kind": "data-source",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_compute_cluster",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_compute_cluster_host_group",
       "kind": "data-source",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_compute_cluster_host_group",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_compute_cluster_vm_affinity_rule",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_compute_cluster_vm_anti_affinity_rule",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_compute_cluster_vm_dependency_rule",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_compute_cluster_vm_group",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_compute_cluster_vm_host_rule",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_configuration_profile",
       "kind": "data-source",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_configuration_profile",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_content_library",
       "kind": "data-source",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_content_library",
       "kind": "resource",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_content_library_item",
       "kind": "data-source",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_content_library_item",
       "kind": "resource",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_custom_attribute",
       "kind": "data-source",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_custom_attribute",
       "kind": "resource",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_datacenter",
       "kind": "data-source",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_datacenter",
       "kind": "resource",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_datastore",
       "kind": "data-source",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_datastore_cluster",
       "kind": "data-source",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_datastore_cluster",
       "kind": "resource",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_datastore_cluster_vm_anti_affinity_rule",
       "kind": "resource",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_datastore_stats",
       "kind": "data-source",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_distributed_port_group",
       "kind": "resource",
       "subcategory": "Networking",
-      "drawer": "network"
+      "drawer": "network",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_distributed_virtual_switch",
       "kind": "data-source",
       "subcategory": "Networking",
-      "drawer": "network"
+      "drawer": "network",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_distributed_virtual_switch",
       "kind": "resource",
       "subcategory": "Networking",
-      "drawer": "network"
+      "drawer": "network",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_distributed_virtual_switch_pvlan_mapping",
       "kind": "resource",
       "subcategory": null,
-      "drawer": "unclassified"
+      "drawer": "unclassified",
+      "source": null
     },
     {
       "type": "vsphere_dpm_host_override",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_drs_vm_override",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_dynamic",
       "kind": "data-source",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_entity_permissions",
       "kind": "resource",
       "subcategory": "Security",
-      "drawer": "identity"
+      "drawer": "identity",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_file",
       "kind": "resource",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_folder",
       "kind": "data-source",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_folder",
       "kind": "resource",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_guest_os_customization",
       "kind": "data-source",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_guest_os_customization",
       "kind": "resource",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_ha_vm_override",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_host",
       "kind": "data-source",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_host",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_host_base_images",
       "kind": "data-source",
       "subcategory": "Lifecycle",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_host_pci_device",
       "kind": "data-source",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_host_port_group",
       "kind": "resource",
       "subcategory": "Networking",
-      "drawer": "network"
+      "drawer": "network",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_host_thumbprint",
       "kind": "data-source",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_host_vgpu_profile",
       "kind": "data-source",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_host_virtual_switch",
       "kind": "resource",
       "subcategory": "Networking",
-      "drawer": "network"
+      "drawer": "network",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_license",
       "kind": "data-source",
       "subcategory": "Administration",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_license",
       "kind": "resource",
       "subcategory": "Administration",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_namespace",
       "kind": "data-source",
       "subcategory": "Workload Management",
-      "drawer": "containers"
+      "drawer": "containers",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_namespace",
       "kind": "resource",
       "subcategory": "Workload Management",
-      "drawer": "containers"
+      "drawer": "containers",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_nas_datastore",
       "kind": "resource",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_network",
       "kind": "data-source",
       "subcategory": "Networking",
-      "drawer": "network"
+      "drawer": "network",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_network_protocol_profile",
       "kind": "resource",
       "subcategory": "Networking",
-      "drawer": "network"
+      "drawer": "network",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_offline_software_depot",
       "kind": "resource",
       "subcategory": "Lifecycle",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_ovf_vm_template",
       "kind": "data-source",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_resource_pool",
       "kind": "data-source",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_resource_pool",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_role",
       "kind": "data-source",
       "subcategory": "Security",
-      "drawer": "identity"
+      "drawer": "identity",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_role",
       "kind": "resource",
       "subcategory": "Security",
-      "drawer": "identity"
+      "drawer": "identity",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_sso_group",
       "kind": "data-source",
       "subcategory": "Security",
-      "drawer": "identity"
+      "drawer": "identity",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_sso_group",
       "kind": "resource",
       "subcategory": "Security",
-      "drawer": "identity"
+      "drawer": "identity",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_sso_user",
       "kind": "data-source",
       "subcategory": "Security",
-      "drawer": "identity"
+      "drawer": "identity",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_sso_user",
       "kind": "resource",
       "subcategory": "Security",
-      "drawer": "identity"
+      "drawer": "identity",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_storage_drs_vm_override",
       "kind": "resource",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_storage_policy",
       "kind": "data-source",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_supervisor",
       "kind": "resource",
       "subcategory": "Workload Management",
-      "drawer": "containers"
+      "drawer": "containers",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_supervisor_v2",
       "kind": "resource",
       "subcategory": "Workload Management",
-      "drawer": "containers"
+      "drawer": "containers",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_tag",
       "kind": "data-source",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_tag",
       "kind": "resource",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_tag_category",
       "kind": "data-source",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_tag_category",
       "kind": "resource",
       "subcategory": "Inventory",
-      "drawer": "management"
+      "drawer": "management",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_vapp_container",
       "kind": "data-source",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_vapp_container",
       "kind": "resource",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_vapp_entity",
       "kind": "resource",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_virtual_disk",
       "kind": "resource",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_virtual_machine",
       "kind": "data-source",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_virtual_machine",
       "kind": "resource",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_virtual_machine_class",
       "kind": "resource",
       "subcategory": "Workload Management",
-      "drawer": "containers"
+      "drawer": "containers",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_virtual_machine_snapshot",
       "kind": "resource",
       "subcategory": "Virtual Machine",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_vm_storage_policy",
       "kind": "resource",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_vmfs_datastore",
       "kind": "resource",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_vmfs_disks",
       "kind": "data-source",
       "subcategory": "Storage",
-      "drawer": "storage"
+      "drawer": "storage",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_vnic",
       "kind": "resource",
       "subcategory": "Host and Cluster Management",
-      "drawer": "compute"
+      "drawer": "compute",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_zone",
       "kind": "data-source",
       "subcategory": "Workload Management",
-      "drawer": "containers"
+      "drawer": "containers",
+      "source": "subcategory"
     },
     {
       "type": "vsphere_zone",
       "kind": "resource",
       "subcategory": "Workload Management",
-      "drawer": "containers"
+      "drawer": "containers",
+      "source": "subcategory"
     }
   ],
   "findings": [

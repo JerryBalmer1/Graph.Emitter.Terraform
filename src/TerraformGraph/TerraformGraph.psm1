@@ -2912,33 +2912,42 @@ function Get-TerraformRegistryCache {
             return $script:TerraformRegistryCacheMemo.Value
         }
 
-        $document = [TerraformGraph.Json]::Deserialize([System.IO.File]::ReadAllText($item.FullName), 1024, $false)
-        $providers = foreach ($entry in @($document.providers)) {
-            $versions = @($entry.versions)
-            [pscustomobject]@{
-                PSTypeName      = 'TerraformGraph.RegistryProvider'
-                ProviderAddress = [string]$entry.address
-                Source          = "$($entry.namespace)/$($entry.name)"
-                Namespace       = [string]$entry.namespace
-                Name            = [string]$entry.name
-                Tier            = [string]$entry.tier
-                Description     = [string]$entry.description
-                Latest          = $entry.latest
-                VersionCount    = $versions.Count
-                Versions        = $versions
-            }
-        }
-        $cache = [pscustomobject]@{
-            Path        = $item.FullName
-            HarvestedOn = [string]$document.harvestedOn
-            Scope       = [string]$document.scope
-            Source      = [string]$document.source
-            Providers   = @($providers)
-        }
+        $cache = Read-TerraformRegistryCacheFile -Path $item.FullName
         $script:TerraformRegistryCacheMemo = @{ Key = $key; Value = $cache }
         return $cache
     }
     $null
+}
+
+function Read-TerraformRegistryCacheFile {
+    # Not exported. One registry.json as the object Get-TerraformRegistryCache returns, not
+    # memoized: Path, HarvestedOn, Scope, Source, Providers (TerraformGraph.RegistryProvider).
+    param([string]$Path)
+
+    $item = Get-Item -LiteralPath $Path
+    $document = [TerraformGraph.Json]::Deserialize([System.IO.File]::ReadAllText($item.FullName), 1024, $false)
+    $providers = foreach ($entry in @($document.providers)) {
+        $versions = @($entry.versions)
+        [pscustomobject]@{
+            PSTypeName      = 'TerraformGraph.RegistryProvider'
+            ProviderAddress = [string]$entry.address
+            Source          = "$($entry.namespace)/$($entry.name)"
+            Namespace       = [string]$entry.namespace
+            Name            = [string]$entry.name
+            Tier            = [string]$entry.tier
+            Description     = [string]$entry.description
+            Latest          = $entry.latest
+            VersionCount    = $versions.Count
+            Versions        = $versions
+        }
+    }
+    [pscustomobject]@{
+        Path        = $item.FullName
+        HarvestedOn = [string]$document.harvestedOn
+        Scope       = [string]$document.scope
+        Source      = [string]$document.source
+        Providers   = @($providers)
+    }
 }
 
 function Select-TerraformRegistryProvider {
@@ -2993,10 +3002,15 @@ function Resolve-TerraformRegistryProvider {
 
 function Invoke-TerraformRegistryRequest {
     # Not exported. GET one registry URL and parse it with TerraformGraph.Json, which keeps
-    # date strings as strings (Invoke-RestMethod would turn them into DateTime). Retries
-    # twice on 429 and 5xx with a 1 s, then 2 s backoff. Also defined inside the
-    # ForEach-Object -Parallel runspaces of Update-TerraformRegistryCache, from this text,
-    # so keep it self-contained.
+    # date strings as strings (Invoke-RestMethod would turn them into DateTime). 429 and 5xx
+    # are retried up to five times: a 5xx after 2, 4, 8, 16 and 32 s; a 429 after its
+    # Retry-After, else after 30, 60, 120, 240 and 300 s (about 12 minutes in all). The
+    # registry sits behind an AWS WAF rate-based rule (429, x-amzn-waf-reason: rate-limit, no
+    # Retry-After) that blocks an address for minutes once a sustained run passes its limit:
+    # the first bundle harvest (2026-10-07) hit it right after aws's 2,700 pages, and the old
+    # two retries at 1 s and 2 s failed every provider after that within seconds. Also defined
+    # inside the ForEach-Object -Parallel runspaces of Update-TerraformRegistryCache and the
+    # docs harvest, from this text, so keep it self-contained.
     param([string]$Uri)
     for ($attempt = 0; ; $attempt++) {
         try {
@@ -3007,9 +3021,14 @@ function Invoke-TerraformRegistryRequest {
             return [TerraformGraph.Json]::Deserialize([string]$content, 1024, $false)
         }
         catch {
-            $status = [int]$_.Exception.Response.StatusCode
-            if ($attempt -ge 2 -or ($status -ne 429 -and $status -lt 500)) { throw }
-            Start-Sleep -Seconds ($attempt + 1)
+            $failed = $_.Exception.Response
+            $status = [int]$failed.StatusCode
+            if ($attempt -ge 5 -or ($status -ne 429 -and $status -lt 500)) { throw }
+            $delay = if ($status -eq 429) { @(30, 60, 120, 240, 300)[$attempt] } else { [math]::Pow(2, $attempt + 1) }
+            $retryAfter = if ($failed -is [System.Net.Http.HttpResponseMessage]) { $failed.Headers.RetryAfter } else { $null }
+            if ($retryAfter -and $retryAfter.Delta) { $delay = $retryAfter.Delta.TotalSeconds }
+            elseif ($retryAfter -and $retryAfter.Date) { $delay = ($retryAfter.Date - [System.DateTimeOffset]::UtcNow).TotalSeconds }
+            Start-Sleep -Milliseconds ([int](1000 * [math]::Min(300, [math]::Max(1, $delay))))
         }
     }
 }
@@ -3155,7 +3174,7 @@ function Update-TerraformRegistryCache {
         (registry.terraform.io, v2 API, 100 per page), then fetches every provider's
         versions with ForEach-Object -Parallel: the v1 versions endpoint for protocols and
         the v2 provider-versions include for publish dates, two calls per provider. Calls
-        that return 429 or 5xx are retried twice with a short backoff. If any provider still
+        that return 5xx are retried five times with a short backoff, and a 429 (the registry's rate limit) for up to about 12 minutes. If any provider still
         fails, nothing is written.
 
         The file is written atomically: a temporary file in the same folder, then Move-Item.
@@ -3537,12 +3556,14 @@ function Get-TerraformSchemaCacheEntry {
                     $address = $head -replace '(?s)^\s*\{\s*"address"\s*:\s*"([^"]+)".*$', '$1'
                     $docCount = [int]$Matches[1]
                     $unmatchedCount = if ($head -match '"unmatchedCount"\s*:\s*(\d+)') { [int]$Matches[1] } else { $null }
+                    $harvestedOn = if ($head -match '"harvestedOn"\s*:\s*"([^"]+)"') { $Matches[1] } else { $null }
                 }
                 else {
                     $document = Read-TerraformSchemaCache -Path $file.FullName
                     $address = $document['address']
                     $docCount = @($document['docs']).Count
                     $unmatchedCount = $document['unmatchedCount']
+                    $harvestedOn = $document['harvestedOn']
                 }
                 if (-not $address) { continue }
                 [pscustomobject]@{
@@ -3554,6 +3575,7 @@ function Get-TerraformSchemaCacheEntry {
                     CachedOn        = $file.LastWriteTimeUtc
                     DocCount        = $docCount
                     UnmatchedCount  = $unmatchedCount
+                    HarvestedOn     = $harvestedOn
                 }
                 continue
             }
@@ -4355,17 +4377,143 @@ function Get-TerraformDocExample {
     }
 }
 
+function Invoke-TerraformProviderDocUpdate {
+    # Not exported. The harvest of one provider for Update-TerraformProviderDocCache: returns
+    # its TerraformGraph.DocCache row, or throws an ErrorRecord carrying the command's error
+    # id (RegistryProviderNotResolved, ProviderDocNotOnRegistry, ProviderDocHarvestFailed),
+    # which the Provider set rethrows as terminating and the Bundle set turns into a warning
+    # and a Failed row. -RegistryProvider (a registry cache record) skips resolving -Name.
+    # -Version empty means the registry cache's latest, else the newest non-prerelease on the
+    # registry. -Resume returns a version that is already cached before any network call
+    # when the version is known locally; -Force harvests a cached version again. -Quiet makes
+    # the no-cached-schema warning verbose, for bundle runs where most providers have none.
+    param([string]$Name, $RegistryProvider, [string]$Version, [int]$ThrottleLimit, [switch]$Force, [switch]$Resume, [switch]$Quiet)
+
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $fail = {
+        param($Exception, [string]$ErrorId, [System.Management.Automation.ErrorCategory]$Category, $Target)
+        [System.Management.Automation.ErrorRecord]::new($Exception, $ErrorId, $Category, $Target)
+    }
+    $cachedRow = {
+        param([string]$Address, [string]$DocVersion, [string]$Path)
+        $entry = Get-TerraformSchemaCacheEntry -Kind Docs | Where-Object Path -eq ([System.IO.Path]::GetFullPath($Path)) | Select-Object -First 1
+        $stopwatch.Stop()
+        [pscustomobject]@{
+            PSTypeName      = 'TerraformGraph.DocCache'
+            ProviderAddress = $Address
+            Version         = $DocVersion
+            Path            = $Path
+            Status          = 'Cached'
+            DocCount        = $entry.DocCount
+            UnmatchedCount  = $entry.UnmatchedCount
+            SchemaVersion   = $null
+            Elapsed         = $stopwatch.Elapsed
+            Error           = $null
+        }
+    }
+
+    if ($RegistryProvider) {
+        $parsed = ConvertTo-TerraformProviderAddress -Provider $RegistryProvider.ProviderAddress
+        $registryProvider = $RegistryProvider
+        $Name = $RegistryProvider.ProviderAddress
+    }
+    else {
+        try {
+            if ([WildcardPattern]::ContainsWildcardCharacters($Name)) {
+                $registryProvider = Resolve-TerraformRegistryProvider -Name $Name
+                $parsed = ConvertTo-TerraformProviderAddress -Provider $registryProvider.ProviderAddress
+            }
+            else {
+                $parsed = ConvertTo-TerraformProviderAddress -Provider $Name
+                $registryCache = Get-TerraformRegistryCache
+                $registryProvider = if ($registryCache) {
+                    $registryCache.Providers | Where-Object ProviderAddress -eq $parsed.Address.ToLowerInvariant() | Select-Object -First 1
+                }
+            }
+        }
+        catch {
+            throw (& $fail ([System.ArgumentException]::new($_.Exception.Message)) 'RegistryProviderNotResolved' InvalidArgument $Name)
+        }
+    }
+    if ($parsed.Host -ne $script:TerraformRegistrySource) {
+        throw (& $fail ([System.ArgumentException]::new("$($parsed.Address) is not on $($script:TerraformRegistrySource); only registry providers have docs to harvest.")) 'ProviderDocNotOnRegistry' InvalidArgument $Name)
+    }
+    $address = $parsed.Address.ToLowerInvariant()
+    # The registry record keeps the namespace's own case (IBM-Cloud), which the API is given.
+    $namespace = if ($registryProvider) { $registryProvider.Namespace } else { $parsed.Namespace }
+    $providerName = if ($registryProvider) { $registryProvider.Name } else { $parsed.Name }
+    $wanted = if ($Version) { $Version } elseif ($registryProvider -and $registryProvider.Latest) { [string]$registryProvider.Latest } else { $null }
+
+    if ($Resume -and $wanted) {
+        $path = Get-TerraformSchemaCachePath -Provider $address -Version $wanted -Kind Docs
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            Write-Verbose "Docs for $address $wanted are already cached at $path; -Resume skips them."
+            return (& $cachedRow $address $wanted $path)
+        }
+    }
+
+    try {
+        $found = Find-TerraformProviderDocVersion -Namespace $namespace -Name $providerName -Version $wanted
+    }
+    catch {
+        throw (& $fail ([System.InvalidOperationException]::new($_.Exception.Message, $_.Exception)) 'ProviderDocHarvestFailed' ConnectionError $address)
+    }
+    $docVersion = $found.Version
+    $path = Get-TerraformSchemaCachePath -Provider $address -Version $docVersion -Kind Docs
+    $existed = Test-Path -LiteralPath $path -PathType Leaf
+
+    if ($existed -and -not $Force) {
+        Write-Verbose "Docs for $address $docVersion are already cached at $path. Use -Force to harvest them again."
+        return (& $cachedRow $address $docVersion $path)
+    }
+
+    Write-Verbose "Harvesting docs for $address $docVersion (registry version id $($found.VersionId))"
+    try {
+        $docs = @(Get-TerraformProviderDocHarvest -VersionId $found.VersionId -ThrottleLimit $ThrottleLimit)
+    }
+    catch {
+        throw (& $fail ([System.InvalidOperationException]::new($_.Exception.Message, $_.Exception)) 'ProviderDocHarvestFailed' ConnectionError $address)
+    }
+
+    $index = Get-TerraformProviderDocSchemaIndex -Address $address -Version $docVersion
+    if (-not $index) {
+        $message = "No cached schema for $address, so resource and data source doc Ids are built from the '$($parsed.Name)_' prefix without checking. Run Get-TerraformSchemaPack -Provider $($parsed.Source) (or Get-TerraformProviderSchema -Provider $($parsed.Source) -SaveToCache), then Update-TerraformProviderDocCache -Force, to match them to schema nodes."
+        if ($Quiet) { Write-Verbose $message } else { Write-Warning $message }
+    }
+    $prefix = if ($index) { $index.Prefix } else { $parsed.Name }
+    $document = ConvertTo-TerraformProviderDocDocument -Address $address -Version $docVersion -Docs $docs -Index $index -Prefix $prefix
+    foreach ($doc in $document.docs) {
+        if ($doc.id.StartsWith("$address/unmatched/", [System.StringComparison]::Ordinal)) { Write-Verbose "Unmatched: $($doc.category)/$($doc.slug)" }
+    }
+    $path = Write-TerraformSchemaCache -Provider $address -Version $docVersion -Document $document -Kind Docs
+    $stopwatch.Stop()
+    Write-Verbose "Wrote $($document.docCount) docs for $address $docVersion ($(if ($index) { "$($document.unmatchedCount) unmatched against schema $($index.SchemaVersion)" } else { 'not matched: no cached schema' })) to $path in $($stopwatch.Elapsed)"
+
+    [pscustomobject]@{
+        PSTypeName      = 'TerraformGraph.DocCache'
+        ProviderAddress = $address
+        Version         = $docVersion
+        Path            = $path
+        Status          = if ($existed) { 'Updated' } else { 'Harvested' }
+        DocCount        = $document.docCount
+        UnmatchedCount  = $document.unmatchedCount
+        SchemaVersion   = $document.schemaVersion
+        Elapsed         = $stopwatch.Elapsed
+        Error           = $null
+    }
+}
+
 function Update-TerraformProviderDocCache {
     <#
     .SYNOPSIS
-        Harvests a provider version's documentation from the public registry into the docs cache.
+        Harvests provider documentation from the public registry into the docs cache, for named providers or a whole bundle.
 
     .DESCRIPTION
         Update-TerraformProviderDocCache lists the docs of one provider version on
         registry.terraform.io, fetches every page's markdown with ForEach-Object -Parallel
-        (429 and 5xx are retried twice with a short backoff) and writes them atomically to
+        (5xx is retried five times with a short backoff; a 429, the registry's rate limit, is retried for up to about 12 minutes) and writes them atomically to
         $env:LOCALAPPDATA\TerraformGraph\docs\<address-slug>\<version>.json.gz. If any page
-        still fails, nothing is written.
+        still fails, nothing is written for that provider.
 
         Only the overview, guides, resources and data-sources categories are kept, in the
         hcl language. Each doc gets the Id of the schema node it documents, so docs join to
@@ -4384,9 +4532,19 @@ function Update-TerraformProviderDocCache {
         provider name without checking, UnmatchedCount is empty, and a warning names
         Get-TerraformSchemaPack.
 
-        A version that is already cached is skipped unless -Force is given. This command
-        and Get-TerraformDocPack are the only ones that fill the docs cache; completers and
-        Get-TerraformProviderDoc never touch the network.
+        -Provider: a version that is already cached is skipped unless -Force is given, and a
+        provider that fails is a terminating error.
+
+        -BundlePath: every provider of the bundle's set (its registry tiers plus extra
+        providers, less exclusions, resolved against the registry cache beside the bundle
+        file, else the usual registry cache) is harvested at its latest version in that
+        registry cache, one after another, and the result is one
+        TerraformGraph.DocHarvestSummary. A provider that fails is a warning and a Failed
+        row in the summary, never a stop. Without -Resume every provider is harvested
+        again; with it, providers already cached at that version are skipped.
+
+        This command and Get-TerraformDocPack are the only ones that fill the docs cache;
+        completers and Get-TerraformProviderDoc never touch the network.
 
     .PARAMETER Provider
         Providers to harvest: 'null', 'hashicorp/null' or
@@ -4397,14 +4555,24 @@ function Update-TerraformProviderDocCache {
         Version to harvest, such as 3.2.3. Default: the provider's latest version in the
         registry cache, else the newest version that is not a pre-release on the registry.
 
+    .PARAMETER BundlePath
+        A bundle manifest (src\TerraformGraph\data\bundle.json, or a copy written by
+        New-TerraformGraphBundle). Harvests every provider in its set and returns a summary.
+
     .PARAMETER ThrottleLimit
-        Concurrent page requests. Default 6.
+        Concurrent page requests per provider. Default 6.
+
+    .PARAMETER Resume
+        Skip a provider whose docs are already cached at the wanted version, without any
+        network call (the version must be known from -Version or the registry cache). Use it
+        to finish an interrupted bundle run.
 
     .PARAMETER Force
-        Harvest and replace a version that is already cached.
+        Harvest and replace a version that is already cached. -Provider only.
 
     .PARAMETER PassThru
-        Return one TerraformGraph.DocCache per provider.
+        Return one TerraformGraph.DocCache per provider. -Provider only; a bundle run always
+        returns its summary.
 
     .EXAMPLE
         Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -PassThru
@@ -4418,142 +4586,144 @@ function Update-TerraformProviderDocCache {
         Cache the schema first so every resource and data source page is matched to a
         schema node Id, then harvest the docs at the latest version.
 
+    .EXAMPLE
+        $summary = Update-TerraformProviderDocCache -BundlePath .\src\TerraformGraph\data\bundle.json -Resume
+        $summary.Failures | Format-Table ProviderAddress, Version, Error
+
+        Harvest every provider in the bundled set that is not cached yet, then list the
+        ones that failed and why.
+
     .OUTPUTS
-        None, or TerraformGraph.DocCache with -PassThru: ProviderAddress, Version, Path,
-        Status (Harvested, Cached or Updated), DocCount, UnmatchedCount, SchemaVersion,
-        Elapsed. Default view is ProviderAddress, Version, Status, DocCount, UnmatchedCount,
-        Elapsed.
+        -Provider: none, or TerraformGraph.DocCache with -PassThru: ProviderAddress, Version,
+        Path, Status (Harvested, Cached or Updated), DocCount, UnmatchedCount, SchemaVersion,
+        Elapsed, Error. Default view is ProviderAddress, Version, Status, DocCount,
+        UnmatchedCount, Elapsed.
+
+        -BundlePath: TerraformGraph.DocHarvestSummary: BundlePath, ProviderCount, PageCount,
+        UnmatchedCount, FailureCount, Elapsed, Providers (one DocCache row per provider,
+        Status Failed with Error for a failure), Failures. Default view is ProviderCount,
+        PageCount, UnmatchedCount, FailureCount, Elapsed.
 
     .LINK
         Get-TerraformProviderDoc
 
     .LINK
         Get-TerraformDocPack
+
+    .LINK
+        Get-TerraformGraphBundle
     #>
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'Provider')]
     param(
-        [Parameter(Mandatory, Position = 0)]
+        [Parameter(Mandatory, Position = 0, ParameterSetName = 'Provider')]
         [string[]]
         $Provider,
 
+        [Parameter(ParameterSetName = 'Provider')]
         [string]
         $Version,
+
+        [Parameter(Mandatory, ParameterSetName = 'Bundle')]
+        [string]
+        $BundlePath,
 
         [ValidateRange(1, 64)]
         [int]
         $ThrottleLimit = 6,
 
         [switch]
+        $Resume,
+
+        [Parameter(ParameterSetName = 'Provider')]
+        [switch]
         $Force,
 
+        [Parameter(ParameterSetName = 'Provider')]
         [switch]
         $PassThru
     )
 
-    foreach ($name in $Provider) {
+    if ($Resume -and $Force) {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.ArgumentException]::new('-Resume skips cached versions and -Force replaces them; pass one or the other.'),
+            'ResumeWithForce',
+            [System.Management.Automation.ErrorCategory]::InvalidArgument,
+            $null))
+    }
+
+    if ($PSCmdlet.ParameterSetName -eq 'Provider') {
+        foreach ($name in $Provider) {
+            try {
+                $row = Invoke-TerraformProviderDocUpdate -Name $name -Version $Version -ThrottleLimit $ThrottleLimit -Force:$Force -Resume:$Resume
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new($_.Exception, $_.FullyQualifiedErrorId, $_.CategoryInfo.Category, $_.TargetObject))
+            }
+            if ($PassThru) { $row }
+        }
+        return
+    }
+
+    $total = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $bundlePath = Resolve-TerraformGraphBundlePath -Path $BundlePath
+        $bundle = Read-TerraformGraphBundle -Path $bundlePath
+        $registry = Get-TerraformGraphBundleRegistry -BundlePath $bundlePath
+        $selected = @(Resolve-TerraformGraphBundleProvider -Tier $bundle['tiers'] -Provider $bundle['providers'] -Exclude $bundle['exclude'] -Cache $registry)
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.IO.InvalidDataException]::new($_.Exception.Message),
+            'BundleInvalid',
+            [System.Management.Automation.ErrorCategory]::InvalidData,
+            $BundlePath))
+    }
+    Write-Verbose "Bundle $bundlePath`: $($selected.Count) providers against the registry cache $($registry.Path) (harvested $($registry.HarvestedOn))"
+
+    $rows = [System.Collections.Generic.List[object]]::new()
+    for ($i = 0; $i -lt $selected.Count; $i++) {
+        $registryProvider = $selected[$i]
+        Write-Progress -Id 3 -Activity 'Harvesting bundle docs' -Status "$($registryProvider.Source) $($registryProvider.Latest) ($($i + 1) of $($selected.Count))" -PercentComplete (100 * $i / [math]::Max(1, $selected.Count))
         $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         try {
-            if ([WildcardPattern]::ContainsWildcardCharacters($name)) {
-                $registryProvider = Resolve-TerraformRegistryProvider -Name $name
-                $parsed = ConvertTo-TerraformProviderAddress -Provider $registryProvider.ProviderAddress
-            }
-            else {
-                $parsed = ConvertTo-TerraformProviderAddress -Provider $name
-                $registryCache = Get-TerraformRegistryCache
-                $registryProvider = if ($registryCache) {
-                    $registryCache.Providers | Where-Object ProviderAddress -eq $parsed.Address.ToLowerInvariant() | Select-Object -First 1
-                }
-            }
+            $row = Invoke-TerraformProviderDocUpdate -RegistryProvider $registryProvider -ThrottleLimit $ThrottleLimit -Force:(-not $Resume) -Resume:$Resume -Quiet
         }
         catch {
-            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
-                [System.ArgumentException]::new($_.Exception.Message),
-                'RegistryProviderNotResolved',
-                [System.Management.Automation.ErrorCategory]::InvalidArgument,
-                $name))
-        }
-        if ($parsed.Host -ne $script:TerraformRegistrySource) {
-            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
-                [System.ArgumentException]::new("$($parsed.Address) is not on $($script:TerraformRegistrySource); only registry providers have docs to harvest."),
-                'ProviderDocNotOnRegistry',
-                [System.Management.Automation.ErrorCategory]::InvalidArgument,
-                $name))
-        }
-        $address = $parsed.Address.ToLowerInvariant()
-        $wanted = if ($Version) { $Version } elseif ($registryProvider -and $registryProvider.Latest) { [string]$registryProvider.Latest } else { $null }
-
-        try {
-            $found = Find-TerraformProviderDocVersion -Namespace $parsed.Namespace -Name $parsed.Name -Version $wanted
-        }
-        catch {
-            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
-                [System.InvalidOperationException]::new($_.Exception.Message, $_.Exception),
-                'ProviderDocHarvestFailed',
-                [System.Management.Automation.ErrorCategory]::ConnectionError,
-                $address))
-        }
-        $docVersion = $found.Version
-        $path = Get-TerraformSchemaCachePath -Provider $address -Version $docVersion -Kind Docs
-        $existed = Test-Path -LiteralPath $path -PathType Leaf
-
-        if ($existed -and -not $Force) {
-            Write-Verbose "Docs for $address $docVersion are already cached at $path. Use -Force to harvest them again."
-            $entry = Get-TerraformSchemaCacheEntry -Kind Docs | Where-Object Path -eq ([System.IO.Path]::GetFullPath($path)) | Select-Object -First 1
             $stopwatch.Stop()
-            if ($PassThru) {
-                [pscustomobject]@{
-                    PSTypeName      = 'TerraformGraph.DocCache'
-                    ProviderAddress = $address
-                    Version         = $docVersion
-                    Path            = $path
-                    Status          = 'Cached'
-                    DocCount        = $entry.DocCount
-                    UnmatchedCount  = $entry.UnmatchedCount
-                    SchemaVersion   = $null
-                    Elapsed         = $stopwatch.Elapsed
-                }
-            }
-            continue
-        }
-
-        Write-Verbose "Harvesting docs for $address $docVersion (registry version id $($found.VersionId))"
-        try {
-            $docs = @(Get-TerraformProviderDocHarvest -VersionId $found.VersionId -ThrottleLimit $ThrottleLimit)
-        }
-        catch {
-            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
-                [System.InvalidOperationException]::new($_.Exception.Message, $_.Exception),
-                'ProviderDocHarvestFailed',
-                [System.Management.Automation.ErrorCategory]::ConnectionError,
-                $address))
-        }
-
-        $index = Get-TerraformProviderDocSchemaIndex -Address $address -Version $docVersion
-        if (-not $index) {
-            Write-Warning "No cached schema for $address, so resource and data source doc Ids are built from the '$($parsed.Name)_' prefix without checking. Run Get-TerraformSchemaPack -Provider $($parsed.Source) (or Get-TerraformProviderSchema -Provider $($parsed.Source) -SaveToCache), then Update-TerraformProviderDocCache -Force, to match them to schema nodes."
-        }
-        $prefix = if ($index) { $index.Prefix } else { $parsed.Name }
-        $document = ConvertTo-TerraformProviderDocDocument -Address $address -Version $docVersion -Docs $docs -Index $index -Prefix $prefix
-        foreach ($doc in $document.docs) {
-            if ($doc.id.StartsWith("$address/unmatched/", [System.StringComparison]::Ordinal)) { Write-Verbose "Unmatched: $($doc.category)/$($doc.slug)" }
-        }
-        $path = Write-TerraformSchemaCache -Provider $address -Version $docVersion -Document $document -Kind Docs
-        $stopwatch.Stop()
-        Write-Verbose "Wrote $($document.docCount) docs for $address $docVersion ($(if ($index) { "$($document.unmatchedCount) unmatched against schema $($index.SchemaVersion)" } else { 'not matched: no cached schema' })) to $path in $($stopwatch.Elapsed)"
-
-        if ($PassThru) {
-            [pscustomobject]@{
+            Write-Warning "Docs for $($registryProvider.ProviderAddress) $($registryProvider.Latest) failed: $($_.Exception.Message)"
+            $row = [pscustomobject]@{
                 PSTypeName      = 'TerraformGraph.DocCache'
-                ProviderAddress = $address
-                Version         = $docVersion
-                Path            = $path
-                Status          = if ($existed) { 'Updated' } else { 'Harvested' }
-                DocCount        = $document.docCount
-                UnmatchedCount  = $document.unmatchedCount
-                SchemaVersion   = $document.schemaVersion
+                ProviderAddress = $registryProvider.ProviderAddress
+                Version         = [string]$registryProvider.Latest
+                Path            = $null
+                Status          = 'Failed'
+                DocCount        = $null
+                UnmatchedCount  = $null
+                SchemaVersion   = $null
                 Elapsed         = $stopwatch.Elapsed
+                Error           = $_.Exception.Message
             }
         }
+        Write-Verbose "$($row.ProviderAddress) $($row.Version): $($row.Status), $($row.DocCount) pages in $($row.Elapsed)"
+        $rows.Add($row)
+    }
+    Write-Progress -Id 3 -Activity 'Harvesting bundle docs' -Completed
+    $total.Stop()
+
+    $failures = [object[]]@($rows | Where-Object Status -eq 'Failed')
+    $pages = 0
+    $unmatched = 0
+    foreach ($row in $rows) { $pages += [int]$row.DocCount; $unmatched += [int]$row.UnmatchedCount }
+    [pscustomobject]@{
+        PSTypeName     = 'TerraformGraph.DocHarvestSummary'
+        BundlePath     = $bundlePath
+        ProviderCount  = $rows.Count
+        PageCount      = $pages
+        UnmatchedCount = $unmatched
+        FailureCount   = $failures.Length
+        Elapsed        = $total.Elapsed
+        Providers      = $rows.ToArray()
+        Failures       = $failures
     }
 }
 
@@ -4903,8 +5073,9 @@ function Get-TerraformDocCache {
 
     .OUTPUTS
         TerraformGraph.CachedDoc: ProviderAddress, Version, Path, Bytes, CachedOn (UTC),
-        DocCount, UnmatchedCount (empty when the docs were not matched to a schema). Default
-        view is ProviderAddress, Version, DocCount, UnmatchedCount, Bytes.
+        DocCount, UnmatchedCount (empty when the docs were not matched to a schema),
+        HarvestedOn (as the file records it). Default view is ProviderAddress, Version,
+        DocCount, UnmatchedCount, Bytes.
 
     .LINK
         Get-TerraformProviderDoc
@@ -4974,7 +5145,10 @@ function Get-TerraformClassifierMapProblem {
     # is clean. Every row needs a provider ('*' or a full lowercase address), a subcategory, a
     # reason, a drawer from -Drawer other than unclassified (unclassified is the fallback, not
     # a target: leave the row out and record why in DECISIONS.md), addedOn as yyyy-MM-dd and
-    # addedBy agent or jerry. The same provider and subcategory may appear once.
+    # addedBy agent or jerry. source is optional: subcategory (the default) or prefix. A prefix
+    # row names one provider (not '*') and its subcategory field holds a type prefix after the
+    # provider token: lowercase words joined by single underscores, such as git or
+    # branch_policy. The same provider, source and subcategory may appear once.
     param($Map, [string[]]$Drawer)
 
     if ($Map -isnot [System.Collections.IDictionary] -or -not $Map.Contains('rows')) {
@@ -4987,9 +5161,19 @@ function Get-TerraformClassifierMapProblem {
         $row = $rows[$i]
         $provider = [string]$row['provider']
         $subcategory = [string]$row['subcategory']
-        $label = "row $($i + 1) ($provider / $subcategory)"
+        $source = if ($row.Contains('source')) { [string]$row['source'] } else { 'subcategory' }
+        $label = if ($source -ceq 'prefix') { "row $($i + 1) ($provider / prefix $subcategory)" } else { "row $($i + 1) ($provider / $subcategory)" }
         if ($provider -cne '*' -and ($provider -notmatch '^[^/\s]+/[^/\s]+/[^/\s]+$' -or $provider -cne $provider.ToLowerInvariant())) {
             "$label`: provider must be '*' or a full lowercase address such as registry.terraform.io/hashicorp/azurerm."
+        }
+        if ($source -cnotin 'subcategory', 'prefix') {
+            "$label`: source '$source' must be subcategory or prefix."
+        }
+        elseif ($source -ceq 'prefix') {
+            if ($provider -ceq '*') { "$label`: a prefix row needs a provider address; a type prefix means something only within one provider." }
+            if ($subcategory -and $subcategory -cnotmatch '^[a-z0-9]+(_[a-z0-9]+)*$') {
+                "$label`: prefix '$subcategory' must be lowercase words joined by single underscores, without the provider token (git, not azuredevops_git_)."
+            }
         }
         if ([string]::IsNullOrWhiteSpace($subcategory)) { "$label has no subcategory." }
         if ([string]::IsNullOrWhiteSpace([string]$row['reason'])) { "$label has no reason." }
@@ -5007,9 +5191,50 @@ function Get-TerraformClassifierMapProblem {
         if ([string]$row['addedBy'] -cnotin 'agent', 'jerry') {
             "$label`: addedBy '$($row['addedBy'])' must be agent or jerry."
         }
-        if (-not $seen.Add("$provider`n$subcategory")) {
+        if (-not $seen.Add("$provider`n$source`n$subcategory")) {
             "$label repeats an earlier row for the same provider and subcategory."
         }
+    }
+}
+
+function Get-TerraformClassifierPrefixRow {
+    # Not exported. The prefix row that places -Type of -Address, or $null: the type without
+    # its provider token (the text before the first underscore) must equal the row's prefix
+    # or start with the prefix and an underscore, so git matches azuredevops_git and
+    # azuredevops_git_repository but not azuredevops_github. The longest matching prefix
+    # wins; Read-TerraformClassifierMap keeps each provider's rows longest first.
+    param($Map, [string]$Address, [string]$Type)
+
+    $rows = $null
+    if (-not $Map.Prefix.TryGetValue($Address, [ref]$rows)) { return $null }
+    $cut = $Type.IndexOf('_')
+    if ($cut -lt 0) { return $null }
+    $rest = $Type.Substring($cut + 1)
+    foreach ($row in $rows) {
+        $prefix = [string]$row['subcategory']
+        if ($rest -ceq $prefix -or $rest.StartsWith("$($prefix)_", [System.StringComparison]::Ordinal)) { return $row }
+    }
+    $null
+}
+
+function Get-TerraformClassifierPrefixProblem {
+    # Not exported. Lint for -Address's prefix rows against its schema types: one message per
+    # row whose prefix matches no type, so a typo or a renamed type cannot sit in the map
+    # unnoticed.
+    param($Map, [string]$Address, [string[]]$Type)
+
+    $rows = $null
+    if (-not $Map.Prefix.TryGetValue($Address, [ref]$rows)) { return }
+    foreach ($row in $rows) {
+        $prefix = [string]$row['subcategory']
+        $hit = $false
+        foreach ($name in $Type) {
+            $cut = $name.IndexOf('_')
+            if ($cut -lt 0) { continue }
+            $rest = $name.Substring($cut + 1)
+            if ($rest -ceq $prefix -or $rest.StartsWith("$($prefix)_", [System.StringComparison]::Ordinal)) { $hit = $true; break }
+        }
+        if (-not $hit) { "prefix row '$prefix' for $Address matches no resource or data source type in its schema." }
     }
 }
 
@@ -5035,7 +5260,27 @@ function Read-TerraformClassifierMap {
     }
 
     $lookup = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($row in @($map['rows'])) { $lookup["$($row['provider'])`n$($row['subcategory'])"] = $row }
+    $prefix = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    foreach ($row in @($map['rows'])) {
+        if ($row.Contains('source') -and [string]$row['source'] -ceq 'prefix') {
+            $list = $null
+            if (-not $prefix.TryGetValue([string]$row['provider'], [ref]$list)) {
+                $list = [System.Collections.Generic.List[object]]::new()
+                $prefix[[string]$row['provider']] = $list
+            }
+            $list.Add($row)
+            continue
+        }
+        $lookup["$($row['provider'])`n$($row['subcategory'])"] = $row
+    }
+    foreach ($list in $prefix.Values) {
+        $list.Sort([System.Comparison[object]] {
+                param($a, $b)
+                $byLength = ([string]$b['subcategory']).Length.CompareTo(([string]$a['subcategory']).Length)
+                if ($byLength) { return $byLength }
+                [string]::CompareOrdinal([string]$a['subcategory'], [string]$b['subcategory'])
+            })
+    }
     $compact = [System.Text.Encoding]::UTF8.GetBytes([TerraformGraph.Json]::Serialize($map, 64, $true))
     $hash = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($compact)).ToLowerInvariant()
     [pscustomobject]@{
@@ -5043,6 +5288,7 @@ function Read-TerraformClassifierMap {
         MapVersion = $hash.Substring(0, 12)
         Drawers    = $drawers
         Lookup     = $lookup
+        Prefix     = $prefix
     }
 }
 
@@ -5072,15 +5318,26 @@ function ConvertTo-TerraformClassifierDocument {
             $null = $docById.TryGetValue("$Address/$($section.Segment)/$type", [ref]$doc)
             $subcategory = if ($doc -and -not [string]::IsNullOrEmpty([string]$doc.Subcategory)) { [string]$doc.Subcategory } else { $null }
             $row = $null
-            if ($subcategory -and -not $Map.Lookup.TryGetValue("$Address`n$subcategory", [ref]$row)) {
-                $null = $Map.Lookup.TryGetValue("*`n$subcategory", [ref]$row)
+            $source = $null
+            if ($subcategory) {
+                if (-not $Map.Lookup.TryGetValue("$Address`n$subcategory", [ref]$row)) {
+                    $null = $Map.Lookup.TryGetValue("*`n$subcategory", [ref]$row)
+                }
+                if ($row) { $source = 'subcategory' }
             }
-            $finding = if (-not $doc) { 'NoDocPage' } elseif (-not $subcategory) { 'NoSubcategory' } elseif (-not $row) { 'UnmappedSubcategory' } else { $null }
+            else {
+                # Prefix rows place only types with no label: no doc page, or an empty
+                # subcategory. A label the map does not place stays UnmappedSubcategory.
+                $row = Get-TerraformClassifierPrefixRow -Map $Map -Address $Address -Type ([string]$type)
+                if ($row) { $source = 'prefix' }
+            }
+            $finding = if ($row) { $null } elseif (-not $doc) { 'NoDocPage' } elseif (-not $subcategory) { 'NoSubcategory' } else { 'UnmappedSubcategory' }
             $types.Add([pscustomobject]@{
                 Type        = [string]$type
                 Kind        = $section.Kind
                 Subcategory = $subcategory
                 Drawer      = if ($row) { [string]$row['drawer'] } else { 'unclassified' }
+                Source      = $source
                 Finding     = $finding
             })
         }
@@ -5098,9 +5355,9 @@ function ConvertTo-TerraformClassifierDocument {
         docsVersion = $DocsVersion
         generatedOn = $GeneratedOn
         mapVersion  = $Map.MapVersion
-        source      = 'subcategory'
+        source      = if ($types | Where-Object Source -ceq 'prefix') { 'subcategory,prefix' } else { 'subcategory' }
         types       = [object[]]@(foreach ($item in $types) {
-                [ordered]@{ type = $item.Type; kind = $item.Kind; subcategory = $item.Subcategory; drawer = $item.Drawer }
+                [ordered]@{ type = $item.Type; kind = $item.Kind; subcategory = $item.Subcategory; drawer = $item.Drawer; source = $item.Source }
             })
         findings    = [object[]]@(foreach ($item in $types) {
                 if ($item.Finding) { [ordered]@{ type = $item.Type; kind = $item.Kind; subcategory = $item.Subcategory; finding = $item.Finding } }
@@ -5206,6 +5463,7 @@ function Read-TerraformClassifierFile {
                 Kind        = [string]$item['kind']
                 Subcategory = $item['subcategory']
                 Drawer      = [string]$item['drawer']
+                Source      = $item['source']
             }
         })
     $findings = [object[]]@(foreach ($item in @($document['findings'])) {
@@ -5328,7 +5586,11 @@ function New-TerraformClassifier {
         the docs cache, takes each resource and data source type from the schema, looks up
         its doc page's subcategory (the provider's own label, such as "Key Vault" or
         "Host and Cluster Management") and maps that label to a drawer through the map
-        file. A row for the provider wins over a '*' row. It never touches the network.
+        file. A row for the provider wins over a '*' row. A type with no label (no doc page
+        or an empty subcategory) can still be placed by a prefix row: a map row with
+        source "prefix" whose subcategory field is a type prefix after the provider token
+        (git places azuredevops_git and azuredevops_git_*; the longest prefix wins). It
+        never touches the network.
 
         A type the map cannot place is in the unclassified drawer and is listed in findings:
             NoDocPage            the schema has the type but the docs have no page for it
@@ -5337,8 +5599,9 @@ function New-TerraformClassifier {
         unclassified is a legitimate drawer, not an error.
 
         The file is <OutputPath>\<address-slug>.<version>.json:
-            { provider, version, docsVersion, generatedOn, mapVersion, source: "subcategory",
-              types: [ { type, kind, subcategory, drawer } ],
+            { provider, version, docsVersion, generatedOn, mapVersion,
+              source: "subcategory" (or "subcategory,prefix" when a prefix row placed a type),
+              types: [ { type, kind, subcategory, drawer, source: subcategory|prefix|null } ],
               findings: [ { type, kind, subcategory, finding } ] }
         version is the schema version. Docs are read at the same version, else the newest
         cached docs with a warning, and docsVersion says which. mapVersion is a hash of the
@@ -5347,8 +5610,10 @@ function New-TerraformClassifier {
         byte-identical.
 
         The map is checked first: a row with no reason, a drawer not in drawers.json, a
-        row targeting unclassified, or a repeated provider and subcategory stops the
-        command before anything is read. Judgements behind the map are in
+        row targeting unclassified, a source other than subcategory or prefix, a '*' prefix
+        row, or a repeated provider, source and subcategory stops the command before
+        anything is read; a prefix row that matches no type in the provider's cached schema
+        stops it once the schema is read. Judgements behind the map are in
         classifiers\DECISIONS.md.
 
     .PARAMETER Provider
@@ -5471,6 +5736,17 @@ function New-TerraformClassifier {
         $schemas = (Read-TerraformSchemaCache -Path $schemaEntry.Path)['provider_schemas']
         $key = @($schemas.Keys) | Where-Object { $_ -eq $address } | Select-Object -First 1
         $docs = (Read-TerraformProviderDocFile -Path $docEntry.Path).Docs
+        $schemaTypes = [string[]]@(
+            foreach ($section in 'resource_schemas', 'data_source_schemas') { if ($schemas[$key][$section]) { $schemas[$key][$section].Keys } }
+        )
+        $prefixProblems = @(Get-TerraformClassifierPrefixProblem -Map $map -Address $address -Type $schemaTypes)
+        if ($prefixProblems.Count) {
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.IO.InvalidDataException]::new("Classifier map '$($map.Path)' has $($prefixProblems.Count) problem(s) against the cached $address $($schemaEntry.Version) schema:`n  $($prefixProblems -join "`n  ")"),
+                'ClassifierMapInvalid',
+                [System.Management.Automation.ErrorCategory]::InvalidData,
+                $MapPath))
+        }
         $document = ConvertTo-TerraformClassifierDocument -Address $address -Version $schemaEntry.Version -DocsVersion $docEntry.Version `
             -SchemaEntry $schemas[$key] -Docs $docs -Map $map -GeneratedOn $null
 
@@ -5570,7 +5846,8 @@ function Get-TerraformClassifier {
     .OUTPUTS
         TerraformGraph.Classifier: ProviderAddress, Version, DocsVersion, GeneratedOn,
         MapVersion, Source, Types (TerraformGraph.ClassifiedType: Type, Kind, Subcategory,
-        Drawer), Findings (TerraformGraph.ClassifierFinding), TypeCount, FindingCount, Path.
+        Drawer, Source: subcategory or prefix, the kind of map row that placed the type),
+        Findings (TerraformGraph.ClassifierFinding), TypeCount, FindingCount, Path.
         Default view is ProviderAddress, Version, DocsVersion, TypeCount, FindingCount.
 
     .LINK
@@ -5681,6 +5958,1034 @@ function Get-TerraformClassifierFinding {
 }
 
 Register-ArgumentCompleter -CommandName New-TerraformClassifier -ParameterName Provider -ScriptBlock $script:TerraformRegistryProviderCompleter
+
+# Bundle manifest: data\bundle.json names the provider set the bundled data covers (registry
+# tiers, extra provider addresses, exclusions), the registry cache it was resolved against,
+# and one entry per provider recording what the local docs and schema caches and the bundled
+# classifiers held when it was written:
+#   { formatVersion, tiers, providers, exclude, registry: { harvestedOn, providerCount },
+#     entries: [ { provider, version, docsVersion, schemaVersion, classifierVersion, harvestedOn } ] }
+# New-TerraformGraphBundle writes one, Update-TerraformProviderDocCache -BundlePath and
+# Get-TerraformSubcategorySurvey -BundlePath read its provider set, and
+# Test-TerraformGraphBundle checks it against its sources. A bundle resolves against the
+# registry.json in its own folder (data\registry.json for the bundled file), else the registry
+# cache Get-TerraformRegistryCache returns. Tests repoint both paths with InModuleScope.
+$script:TerraformGraphBundleBundledPath = Join-Path $PSScriptRoot 'data' 'bundle.json'
+$script:TerraformGraphBundleUserPath = Join-Path ($env:LOCALAPPDATA ?? [Environment]::GetFolderPath('LocalApplicationData')) 'TerraformGraph' 'bundle.json'
+$script:TerraformGraphBundleFormatVersion = 1
+$script:TerraformGraphBundleTiers = @('official', 'partner', 'community')
+
+Update-TypeData -TypeName 'TerraformGraph.Bundle' -DefaultDisplayPropertySet Path, Tiers, Providers, Exclude, RegistryHarvestedOn, EntryCount -Force
+Update-TypeData -TypeName 'TerraformGraph.BundleEntry' -DefaultDisplayPropertySet ProviderAddress, Version, DocsVersion, SchemaVersion, ClassifierVersion, HarvestedOn -Force
+Update-TypeData -TypeName 'TerraformGraph.BundleCheck' -DefaultDisplayPropertySet Item, Status, Detail -Force
+Update-TypeData -TypeName 'TerraformGraph.DocHarvestSummary' -DefaultDisplayPropertySet ProviderCount, PageCount, UnmatchedCount, FailureCount, Elapsed -Force
+Update-TypeData -TypeName 'TerraformGraph.SubcategorySurveyRow' -DefaultDisplayPropertySet ProviderAddress, Subcategory, ResourceCount, DataSourceCount, Status -Force
+
+function Resolve-TerraformGraphBundlePath {
+    # Not exported. The bundle file to read: -Path (which must exist), else the user copy when
+    # there is one, else the bundled file. Throws when there is none.
+    param([string]$Path)
+
+    if ($Path) {
+        $full = [System.IO.Path]::GetFullPath($Path, (Get-Location -PSProvider FileSystem).ProviderPath)
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { throw "Bundle '$Path' does not exist." }
+        return $full
+    }
+    foreach ($candidate in @($script:TerraformGraphBundleUserPath, $script:TerraformGraphBundleBundledPath)) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { return $candidate }
+    }
+    throw 'No bundle manifest found. Pass -BundlePath, or write one with New-TerraformGraphBundle.'
+}
+
+function Get-TerraformGraphBundleProblem {
+    # Not exported. Lint for a parsed bundle: one message per problem, nothing when clean.
+    param($Bundle)
+
+    if ($Bundle -isnot [System.Collections.IDictionary]) {
+        'the bundle is not a JSON object.'
+        return
+    }
+    if ([string]$Bundle['formatVersion'] -ne [string]$script:TerraformGraphBundleFormatVersion) {
+        "formatVersion '$($Bundle['formatVersion'])' is not $($script:TerraformGraphBundleFormatVersion)."
+    }
+    foreach ($tier in @($Bundle['tiers'])) {
+        if ($null -ne $tier -and $script:TerraformGraphBundleTiers -cnotcontains [string]$tier) { "tier '$tier' is not official, partner or community." }
+    }
+    foreach ($key in 'providers', 'exclude') {
+        foreach ($value in @($Bundle[$key])) {
+            if ($null -ne $value -and [string]::IsNullOrWhiteSpace([string]$value)) { "$key has an empty value." }
+        }
+    }
+    foreach ($entry in @($Bundle['entries'])) {
+        if ($null -ne $entry -and ($entry -isnot [System.Collections.IDictionary] -or [string]::IsNullOrWhiteSpace([string]$entry['provider']))) { 'an entry has no provider.' }
+    }
+}
+
+function Read-TerraformGraphBundle {
+    # Not exported. A bundle file as an ordered dictionary with tiers, providers and exclude
+    # as string arrays and entries as an array; throws listing every problem.
+    param([string]$Path)
+
+    $document = Read-TerraformClassifierJson -Path $Path
+    $problems = @(Get-TerraformGraphBundleProblem -Bundle $document)
+    if ($problems.Count) {
+        throw "Bundle '$Path' has $($problems.Count) problem(s):`n  $($problems -join "`n  ")"
+    }
+    foreach ($key in 'tiers', 'providers', 'exclude') {
+        $document[$key] = [string[]]@($document[$key] | Where-Object { $null -ne $_ })
+    }
+    $document['entries'] = [object[]]@($document['entries'] | Where-Object { $null -ne $_ })
+    $document
+}
+
+function Get-TerraformGraphBundleRegistry {
+    # Not exported. The registry cache a bundle resolves against: registry.json in the same
+    # folder as -BundlePath (data\registry.json for the bundled bundle.json, the user registry
+    # cache for the user copy), else the one Get-TerraformRegistryCache returns.
+    param([string]$BundlePath)
+
+    $beside = Join-Path (Split-Path -Path $BundlePath -Parent) 'registry.json'
+    if (Test-Path -LiteralPath $beside -PathType Leaf) { return Read-TerraformRegistryCacheFile -Path $beside }
+    $cache = Get-TerraformRegistryCache
+    if (-not $cache) { throw 'There is no registry cache to resolve the bundle against. Run Update-TerraformRegistryCache.' }
+    $cache
+}
+
+function Resolve-TerraformGraphBundleProvider {
+    # Not exported. The registry providers a bundle covers, sorted by address: every provider
+    # in -Tier, plus every match of each -Provider pattern (matched by shape, as
+    # Get-TerraformRegistryProvider -Name; a pattern with no match throws), less any provider
+    # an -Exclude pattern matches.
+    param([string[]]$Tier, [string[]]$Provider, [string[]]$Exclude, $Cache)
+
+    $selected = [System.Collections.Generic.SortedDictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    if ($Tier) {
+        foreach ($item in @(Select-TerraformRegistryProvider -Cache $Cache -Tier $Tier)) { $selected[$item.ProviderAddress] = $item }
+    }
+    foreach ($pattern in $Provider) {
+        $found = @(Select-TerraformRegistryProvider -Cache $Cache -Name $pattern)
+        if (-not $found.Count) {
+            throw "'$pattern' matches no provider in the registry cache $($Cache.Path) (harvested $($Cache.HarvestedOn)). Run Update-TerraformRegistryCache, or fix the pattern."
+        }
+        foreach ($item in $found) { $selected[$item.ProviderAddress] = $item }
+    }
+    if ($Exclude) {
+        foreach ($item in @($selected.Values)) {
+            if (@(Select-TerraformRegistryProvider -Cache ([pscustomobject]@{ Providers = @($item) }) -Name $Exclude).Count) {
+                $null = $selected.Remove($item.ProviderAddress)
+            }
+        }
+    }
+    @($selected.Values)
+}
+
+function Get-TerraformGraphBundleClassifierEntry {
+    # Not exported. The classifier files bundled with the module (never the user folder: a
+    # bundle describes what ships).
+    Get-TerraformClassifierEntry -ClassifierPath $script:TerraformClassifierBundledRoot | Where-Object Rank -eq 0
+}
+
+function New-TerraformGraphBundleEntry {
+    # Not exported. One entry per -RegistryProvider record: version is the registry cache's
+    # latest; docsVersion the docs cached at that version, else the newest cached docs, and
+    # harvestedOn when they were harvested; schemaVersion the version when the schema cache
+    # holds exactly that version, else null; classifierVersion the newest bundled classifier.
+    param([object[]]$RegistryProvider)
+
+    $docs = @(Get-TerraformSchemaCacheEntry -Kind Docs)
+    $schemas = @(Get-TerraformSchemaCacheEntry)
+    $classifiers = @(Get-TerraformGraphBundleClassifierEntry)
+    foreach ($provider in $RegistryProvider) {
+        $address = $provider.ProviderAddress
+        $version = if ($provider.Latest) { [string]$provider.Latest } else { $null }
+        $mineDocs = @($docs | Where-Object ProviderAddress -eq $address)
+        $doc = $mineDocs | Where-Object Version -eq $version | Select-Object -First 1
+        if (-not $doc) { $doc = $mineDocs | Select-Object -First 1 }
+        $schema = $schemas | Where-Object { $_.ProviderAddress -eq $address -and $_.Version -eq $version } | Select-Object -First 1
+        $mineClassifiers = @($classifiers | Where-Object ProviderAddress -eq $address)
+        $classifier = if ($mineClassifiers.Count) { @(Sort-TerraformRegistryVersion -Versions $mineClassifiers)[0].Record } else { $null }
+        [ordered]@{
+            provider          = $address
+            version           = $version
+            docsVersion       = if ($doc) { $doc.Version } else { $null }
+            schemaVersion     = if ($schema) { $schema.Version } else { $null }
+            classifierVersion = if ($classifier) { $classifier.Version } else { $null }
+            harvestedOn       = if ($doc) { $doc.HarvestedOn } else { $null }
+        }
+    }
+}
+
+function ConvertTo-TerraformGraphBundleObject {
+    # Not exported. A parsed bundle as TerraformGraph.Bundle with TerraformGraph.BundleEntry
+    # Entries.
+    param([System.Collections.IDictionary]$Document, [string]$Path)
+
+    $registry = $Document['registry']
+    $entries = [object[]]@(foreach ($entry in @($Document['entries'])) {
+            [pscustomobject]@{
+                PSTypeName        = 'TerraformGraph.BundleEntry'
+                ProviderAddress   = [string]$entry['provider']
+                Version           = $entry['version']
+                DocsVersion       = $entry['docsVersion']
+                SchemaVersion     = $entry['schemaVersion']
+                ClassifierVersion = $entry['classifierVersion']
+                HarvestedOn       = $entry['harvestedOn']
+            }
+        })
+    [pscustomobject]@{
+        PSTypeName            = 'TerraformGraph.Bundle'
+        Path                  = $Path
+        FormatVersion         = $Document['formatVersion']
+        Tiers                 = [string[]]@($Document['tiers'])
+        Providers             = [string[]]@($Document['providers'])
+        Exclude               = [string[]]@($Document['exclude'])
+        RegistryHarvestedOn   = if ($registry -is [System.Collections.IDictionary]) { $registry['harvestedOn'] } else { $null }
+        RegistryProviderCount = if ($registry -is [System.Collections.IDictionary]) { $registry['providerCount'] } else { $null }
+        Entries               = $entries
+        EntryCount            = $entries.Length
+    }
+}
+
+function Write-TerraformGraphTextFile {
+    # Not exported. Writes -Text (UTF-8, no BOM) to -Path atomically: a temporary file in the
+    # same folder, then Move-Item.
+    param([string]$Path, [string]$Text)
+
+    $directory = Split-Path -Path $Path -Parent
+    $null = New-Item -ItemType Directory -Path $directory -Force -ErrorAction Stop
+    $temporary = Join-Path $directory ".$([guid]::NewGuid().ToString('n')).tmp"
+    try {
+        [System.IO.File]::WriteAllText($temporary, $Text, [System.Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $temporary -Destination $Path -Force -ErrorAction Stop
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+    }
+}
+
+function Get-TerraformGraphBundle {
+    <#
+    .SYNOPSIS
+        Gets the bundle manifest: the provider set the bundled data covers and what was harvested for each provider.
+
+    .DESCRIPTION
+        Get-TerraformGraphBundle reads a bundle manifest and returns one
+        TerraformGraph.BundleEntry per provider, shown as a table. It never touches the
+        network.
+
+        A bundle manifest is JSON:
+            { formatVersion, tiers, providers, exclude,
+              registry: { harvestedOn, providerCount },
+              entries: [ { provider, version, docsVersion, schemaVersion, classifierVersion,
+                           harvestedOn } ] }
+        tiers, providers (extra full addresses) and exclude define the provider set,
+        resolved against the registry cache recorded in registry. Each entry records the
+        provider's latest version in that registry cache, the docs and schema versions in
+        the local caches, the newest bundled classifier, and when the docs were harvested.
+        Test-TerraformGraphBundle checks the entries against those sources.
+
+        The bundled manifest (data\bundle.json in the module) covers the official tier plus
+        microsoft/azuredevops and vmware/vsphere. New-TerraformGraphBundle writes your own
+        copy, which this command reads first.
+
+    .PARAMETER Path
+        Bundle file. Default: $env:LOCALAPPDATA\TerraformGraph\bundle.json when it exists,
+        else the bundled data\bundle.json.
+
+    .PARAMETER Document
+        Return the whole manifest as one TerraformGraph.Bundle instead of its entries.
+
+    .EXAMPLE
+        Get-TerraformGraphBundle
+
+        The bundle entries as a table of ProviderAddress, Version, DocsVersion,
+        SchemaVersion, ClassifierVersion, HarvestedOn.
+
+    .EXAMPLE
+        Get-TerraformGraphBundle -Document | Select-Object Tiers, Providers, RegistryHarvestedOn, EntryCount
+
+        The provider set and the registry cache it was resolved against.
+
+    .OUTPUTS
+        TerraformGraph.BundleEntry: ProviderAddress, Version, DocsVersion, SchemaVersion,
+        ClassifierVersion, HarvestedOn. With -Document, TerraformGraph.Bundle: Path,
+        FormatVersion, Tiers, Providers, Exclude, RegistryHarvestedOn,
+        RegistryProviderCount, Entries, EntryCount.
+
+    .LINK
+        New-TerraformGraphBundle
+
+    .LINK
+        Test-TerraformGraphBundle
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [Alias('BundlePath')]
+        [string]
+        $Path,
+
+        [switch]
+        $Document
+    )
+
+    try {
+        $full = Resolve-TerraformGraphBundlePath -Path $Path
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.Management.Automation.ItemNotFoundException]::new($_.Exception.Message),
+            'BundleNotFound',
+            [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+            $Path))
+    }
+    try {
+        $bundle = Read-TerraformGraphBundle -Path $full
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.IO.InvalidDataException]::new($_.Exception.Message),
+            'BundleInvalid',
+            [System.Management.Automation.ErrorCategory]::InvalidData,
+            $full))
+    }
+    $view = ConvertTo-TerraformGraphBundleObject -Document $bundle -Path $full
+    if ($Document) { $view } else { $view.Entries }
+}
+
+function New-TerraformGraphBundle {
+    <#
+    .SYNOPSIS
+        Writes a bundle manifest for a provider set, resolved against the registry cache.
+
+    .DESCRIPTION
+        New-TerraformGraphBundle resolves a provider set against the registry cache: every
+        provider in -Tier, plus every provider each -Provider pattern matches, less any an
+        -Exclude pattern matches. Patterns match by shape and may use wildcards, as for
+        Get-TerraformRegistryProvider -Name. It writes the manifest with the patterns
+        expanded to full addresses and one entry per provider: its latest version in the
+        registry cache, the docs and schema versions in the local caches, the newest
+        bundled classifier and when the docs were harvested. It never touches the network.
+
+        Each of -Tier, -Provider and -Exclude that is not given is taken from the bundled
+        manifest, so New-TerraformGraphBundle alone refreshes your copy of the bundled set.
+        The registry cache used is registry.json in the output folder when there is one,
+        else the usual registry cache (your own, else the bundled one). The output is
+        sorted and has no timestamp of its own, so the same inputs give the same bytes.
+
+    .PARAMETER Tier
+        Registry tiers whose every provider is included: official, partner, community.
+        Pass @() for none.
+
+    .PARAMETER Provider
+        Extra providers: 'vsphere', 'vmware/vsphere', a full address, or a wildcard. A
+        pattern that matches nothing is a terminating error.
+
+    .PARAMETER Exclude
+        Providers to leave out, as patterns.
+
+    .PARAMETER OutputPath
+        File to write (a folder gets bundle.json). Default:
+        $env:LOCALAPPDATA\TerraformGraph\bundle.json, which Get-TerraformGraphBundle reads
+        before the bundled copy.
+
+    .PARAMETER PassThru
+        Return the written manifest as a TerraformGraph.Bundle.
+
+    .EXAMPLE
+        New-TerraformGraphBundle -PassThru
+
+        Refresh your copy of the bundled set (official tier, azuredevops, vsphere) against
+        the current registry cache and caches.
+
+    .EXAMPLE
+        New-TerraformGraphBundle -Tier @() -Provider hashicorp/azurerm, 'vmware/*' -Exclude vmware/wavefront -OutputPath .\bundle.json
+
+        A bundle of azurerm and every vmware provider except wavefront.
+
+    .OUTPUTS
+        None, or TerraformGraph.Bundle with -PassThru.
+
+    .LINK
+        Get-TerraformGraphBundle
+
+    .LINK
+        Update-TerraformProviderDocCache
+    #>
+    [CmdletBinding()]
+    param(
+        [ValidateSet('official', 'partner', 'community')]
+        [AllowEmptyCollection()]
+        [string[]]
+        $Tier,
+
+        [AllowEmptyCollection()]
+        [string[]]
+        $Provider,
+
+        [AllowEmptyCollection()]
+        [string[]]
+        $Exclude,
+
+        [string]
+        $OutputPath = $script:TerraformGraphBundleUserPath,
+
+        [switch]
+        $PassThru
+    )
+
+    $defaults = $null
+    $unbound = @('Tier', 'Provider', 'Exclude' | Where-Object { -not $PSBoundParameters.ContainsKey($_) })
+    if ($unbound.Count -and (Test-Path -LiteralPath $script:TerraformGraphBundleBundledPath -PathType Leaf)) {
+        $defaults = Read-TerraformGraphBundle -Path $script:TerraformGraphBundleBundledPath
+    }
+    $tiers = if ($PSBoundParameters.ContainsKey('Tier')) { [string[]]@($Tier) } elseif ($defaults) { $defaults['tiers'] } else { [string[]]@() }
+    $patterns = if ($PSBoundParameters.ContainsKey('Provider')) { [string[]]@($Provider) } elseif ($defaults) { $defaults['providers'] } else { [string[]]@() }
+    $excludes = if ($PSBoundParameters.ContainsKey('Exclude')) { [string[]]@($Exclude) } elseif ($defaults) { $defaults['exclude'] } else { [string[]]@() }
+
+    $fullPath = [System.IO.Path]::GetFullPath($OutputPath, (Get-Location -PSProvider FileSystem).ProviderPath)
+    if (Test-Path -LiteralPath $fullPath -PathType Container) { $fullPath = Join-Path $fullPath 'bundle.json' }
+
+    try {
+        $registry = Get-TerraformGraphBundleRegistry -BundlePath $fullPath
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.Management.Automation.ItemNotFoundException]::new($_.Exception.Message),
+            'RegistryCacheNotFound',
+            [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+            $fullPath))
+    }
+    try {
+        $selected = @(Resolve-TerraformGraphBundleProvider -Tier $tiers -Provider $patterns -Exclude $excludes -Cache $registry)
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.ArgumentException]::new($_.Exception.Message),
+            'RegistryProviderNotResolved',
+            [System.Management.Automation.ErrorCategory]::InvalidArgument,
+            $Provider))
+    }
+
+    $expanded = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($pattern in $patterns) {
+        foreach ($item in @(Select-TerraformRegistryProvider -Cache $registry -Name $pattern)) { $null = $expanded.Add($item.ProviderAddress) }
+    }
+    $document = [ordered]@{
+        formatVersion = $script:TerraformGraphBundleFormatVersion
+        tiers         = [object[]]@($script:TerraformGraphBundleTiers | Where-Object { $tiers -contains $_ })
+        providers     = [object[]]@($expanded)
+        exclude       = [object[]]@($excludes)
+        registry      = [ordered]@{ harvestedOn = $registry.HarvestedOn; providerCount = @($registry.Providers).Count }
+        entries       = [object[]]@(New-TerraformGraphBundleEntry -RegistryProvider $selected)
+    }
+    Write-TerraformGraphTextFile -Path $fullPath -Text (Format-TerraformClassifierJson -Document $document)
+    Write-Verbose "Wrote $($selected.Count) entries to $fullPath (registry cache $($registry.Path), harvested $($registry.HarvestedOn))"
+
+    if ($PassThru) { ConvertTo-TerraformGraphBundleObject -Document (Read-TerraformGraphBundle -Path $fullPath) -Path $fullPath }
+}
+
+function Test-TerraformGraphBundle {
+    <#
+    .SYNOPSIS
+        Checks the bundle manifest and the bundled data against their sources: Fresh, Stale or Missing per item.
+
+    .DESCRIPTION
+        Test-TerraformGraphBundle returns one TerraformGraph.BundleCheck (Item, Status,
+        Detail) per thing it checks. Status is Fresh, Stale (the source moved on) or Missing
+        (something the bundle records is not there). Offline unless -Online:
+            registry               bundle registry.harvestedOn and providerCount against the
+                                   registry cache it resolves against (registry.json beside
+                                   the bundle, else the usual cache)
+            entry <address>        the entry is in the bundle's provider set, and its version
+                                   is the registry cache's latest; every provider in the set
+                                   has an entry
+            docs <address>         docsVersion is in the docs cache, equals the entry
+                                   version, and harvestedOn matches the cached file
+            schema <address>       when the entry has a schemaVersion: it is in the schema
+                                   cache and equals the entry version
+            classifier <address>   when the entry has a classifierVersion: that bundled
+                                   classifier exists and equals the entry version
+            mapVersion <address> <version>
+                                   each bundled classifier's mapVersion against map.json
+            pack <kind> <address> <version>
+                                   when -DistPath holds manifest.json: each pack file's
+                                   sha256, and its version against the entry's schemaVersion
+                                   or docsVersion; an entry with a schemaVersion and no
+                                   schema pack is Missing
+        -Online adds the live registry's provider count and each entry's latest version on
+        registry.terraform.io (one request per entry).
+
+        -Strict writes every row, then throws a terminating error (BundleNotFresh) when any
+        row is Stale or Missing. Invoke-Build CheckBundle runs it with -Strict before a
+        release.
+
+    .PARAMETER BundlePath
+        Bundle file. Default: as for Get-TerraformGraphBundle.
+
+    .PARAMETER DistPath
+        Folder of built packs to check when it holds manifest.json. Default:
+        dist\schema-packs under the current folder.
+
+    .PARAMETER Online
+        Also compare against the live registry.
+
+    .PARAMETER Strict
+        Throw when any row is Stale or Missing.
+
+    .EXAMPLE
+        Test-TerraformGraphBundle | Where-Object Status -ne Fresh
+
+        What is out of date, offline.
+
+    .EXAMPLE
+        Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json -Online -Strict
+
+        The release gate, including the live registry.
+
+    .OUTPUTS
+        TerraformGraph.BundleCheck: Item, Status (Fresh, Stale, Missing), Detail.
+
+    .LINK
+        Get-TerraformGraphBundle
+
+    .LINK
+        New-TerraformGraphBundle
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [string]
+        $BundlePath,
+
+        [string]
+        $DistPath = (Join-Path (Get-Location -PSProvider FileSystem).ProviderPath 'dist' 'schema-packs'),
+
+        [switch]
+        $Online,
+
+        [switch]
+        $Strict
+    )
+
+    try {
+        $full = Resolve-TerraformGraphBundlePath -Path $BundlePath
+        $bundle = Read-TerraformGraphBundle -Path $full
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.IO.InvalidDataException]::new($_.Exception.Message),
+            'BundleInvalid',
+            [System.Management.Automation.ErrorCategory]::InvalidData,
+            $BundlePath))
+    }
+
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $add = {
+        param([string]$Item, [string]$Status, [string]$Detail)
+        $rows.Add([pscustomobject]@{ PSTypeName = 'TerraformGraph.BundleCheck'; Item = $Item; Status = $Status; Detail = $Detail })
+    }
+    $refresh = "Rerun New-TerraformGraphBundle -OutputPath $full (Invoke-Build HarvestBundleDocs refreshes the bundled one)."
+
+    # Registry cache.
+    $registry = $null
+    try {
+        $registry = Get-TerraformGraphBundleRegistry -BundlePath $full
+    }
+    catch {
+        & $add 'registry' 'Missing' $_.Exception.Message
+    }
+    if ($registry) {
+        $recorded = $bundle['registry']
+        $count = @($registry.Providers).Count
+        if ($recorded -isnot [System.Collections.IDictionary]) {
+            & $add 'registry' 'Missing' "The bundle has no registry block. $refresh"
+        }
+        elseif ([string]$recorded['harvestedOn'] -ne $registry.HarvestedOn -or [int]$recorded['providerCount'] -ne $count) {
+            & $add 'registry' 'Stale' "The bundle was resolved against a registry cache harvested $($recorded['harvestedOn']) ($($recorded['providerCount']) providers); $($registry.Path) was harvested $($registry.HarvestedOn) ($count providers). $refresh"
+        }
+        else {
+            & $add 'registry' 'Fresh' "Harvested $($registry.HarvestedOn), $count providers ($($registry.Path))."
+        }
+        if ($Online) {
+            $filter = if ($registry.Scope -eq 'all') { '' } else { "&filter[tier]=$($registry.Scope)" }
+            try {
+                $live = Invoke-TerraformRegistryRequest -Uri "https://$($script:TerraformRegistrySource)/v2/providers?page[size]=1&page[number]=1$filter"
+                $liveCount = [int]$live.meta.pagination.'total-count'
+                if ($liveCount -ne $count) {
+                    & $add 'registry (online)' 'Stale' "$($script:TerraformRegistrySource) lists $liveCount $($registry.Scope) providers; the registry cache has $count. Run Invoke-Build BuildRegistry (or Update-TerraformRegistryCache)."
+                }
+                else {
+                    & $add 'registry (online)' 'Fresh' "$($script:TerraformRegistrySource) lists $liveCount $($registry.Scope) providers, as cached."
+                }
+            }
+            catch {
+                & $add 'registry (online)' 'Missing' "Could not reach $($script:TerraformRegistrySource): $($_.Exception.Message)"
+            }
+        }
+    }
+
+    # Entries against the provider set and the caches.
+    $selected = @{}
+    if ($registry) {
+        try {
+            foreach ($item in @(Resolve-TerraformGraphBundleProvider -Tier $bundle['tiers'] -Provider $bundle['providers'] -Exclude $bundle['exclude'] -Cache $registry)) {
+                $selected[$item.ProviderAddress] = $item
+            }
+        }
+        catch {
+            & $add 'provider set' 'Stale' $_.Exception.Message
+        }
+    }
+    $entries = [ordered]@{}
+    foreach ($entry in $bundle['entries']) { $entries[[string]$entry['provider']] = $entry }
+    foreach ($address in @($selected.Keys | Sort-Object -Culture '')) {
+        if (-not $entries.Contains($address)) { & $add "entry $address" 'Missing' "In the bundle's provider set but has no entry. $refresh" }
+    }
+
+    $docs = @(Get-TerraformSchemaCacheEntry -Kind Docs)
+    $schemas = @(Get-TerraformSchemaCacheEntry)
+    $classifiers = @(Get-TerraformGraphBundleClassifierEntry)
+    $harvest = "Update-TerraformProviderDocCache -BundlePath $full -Resume"
+    foreach ($address in $entries.Keys) {
+        $entry = $entries[$address]
+        $version = [string]$entry['version']
+        $registryProvider = $selected[$address]
+        if ($registry -and -not $registryProvider) {
+            & $add "entry $address" 'Stale' "Not in the bundle's provider set (tiers, providers, exclude). $refresh"
+        }
+        elseif ($registryProvider -and $version -ne [string]$registryProvider.Latest) {
+            & $add "entry $address" 'Stale' "Version $version; the registry cache's latest is $($registryProvider.Latest). $refresh"
+        }
+        else {
+            & $add "entry $address" 'Fresh' "Version $version."
+        }
+
+        $docsVersion = [string]$entry['docsVersion']
+        $cachedDoc = $docs | Where-Object { $_.ProviderAddress -eq $address -and $_.Version -eq $docsVersion } | Select-Object -First 1
+        if (-not $docsVersion) {
+            & $add "docs $address" 'Missing' "No docs were harvested. Run $harvest, then refresh the bundle."
+        }
+        elseif (-not $cachedDoc) {
+            & $add "docs $address" 'Missing' "Docs $docsVersion are not in the docs cache. Run $harvest, or Get-TerraformDocPack."
+        }
+        elseif ($docsVersion -ne $version) {
+            & $add "docs $address" 'Stale' "Docs $docsVersion; the entry version is $version. Run $harvest, then refresh the bundle."
+        }
+        elseif ([string]$cachedDoc.HarvestedOn -ne [string]$entry['harvestedOn']) {
+            & $add "docs $address" 'Stale' "The docs cache was harvested $($cachedDoc.HarvestedOn); the entry records $($entry['harvestedOn']). $refresh"
+        }
+        else {
+            & $add "docs $address" 'Fresh' "Docs $docsVersion, $($cachedDoc.DocCount) pages, harvested $($cachedDoc.HarvestedOn)."
+        }
+
+        $schemaVersion = [string]$entry['schemaVersion']
+        if ($schemaVersion) {
+            if (-not ($schemas | Where-Object { $_.ProviderAddress -eq $address -and $_.Version -eq $schemaVersion })) {
+                & $add "schema $address" 'Missing' "Schema $schemaVersion is not in the schema cache. Run Get-TerraformSchemaPack -Provider $address -Version $schemaVersion, or Invoke-Build BuildSchemaPack."
+            }
+            elseif ($schemaVersion -ne $version) {
+                & $add "schema $address" 'Stale' "Schema $schemaVersion; the entry version is $version. Run Invoke-Build BuildSchemaPack."
+            }
+            else {
+                & $add "schema $address" 'Fresh' "Schema $schemaVersion is cached."
+            }
+        }
+
+        $classifierVersion = [string]$entry['classifierVersion']
+        if ($classifierVersion) {
+            if (-not ($classifiers | Where-Object { $_.ProviderAddress -eq $address -and $_.Version -eq $classifierVersion })) {
+                & $add "classifier $address" 'Missing' "No bundled classifier for $classifierVersion. Run Invoke-Build BuildClassifier."
+            }
+            elseif ($classifierVersion -ne $version) {
+                & $add "classifier $address" 'Stale' "The bundled classifier is $classifierVersion; the entry version is $version. Run Invoke-Build BuildSchemaPack and BuildClassifier."
+            }
+            else {
+                & $add "classifier $address" 'Fresh' "Bundled classifier $classifierVersion."
+            }
+        }
+
+        if ($Online) {
+            $parsed = ConvertTo-TerraformProviderAddress -Provider $address
+            $namespace = if ($registryProvider) { $registryProvider.Namespace } else { $parsed.Namespace }
+            $name = if ($registryProvider) { $registryProvider.Name } else { $parsed.Name }
+            try {
+                $liveVersion = (Find-TerraformProviderDocVersion -Namespace $namespace -Name $name -Version '').Version
+                if ($liveVersion -ne $version) {
+                    & $add "online $address" 'Stale' "$($script:TerraformRegistrySource) has $liveVersion; the entry version is $version. Run Invoke-Build BuildRegistry, then HarvestBundleDocs."
+                }
+                else {
+                    & $add "online $address" 'Fresh' "$version is the latest on $($script:TerraformRegistrySource)."
+                }
+            }
+            catch {
+                & $add "online $address" 'Missing' "Could not read $address from $($script:TerraformRegistrySource): $($_.Exception.Message)"
+            }
+        }
+    }
+
+    # Bundled classifiers against map.json.
+    $mapVersion = $null
+    try {
+        $mapVersion = (Read-TerraformClassifierMap -Path $script:TerraformClassifierMapPath).MapVersion
+    }
+    catch {
+        & $add 'map.json' 'Stale' $_.Exception.Message
+    }
+    if ($mapVersion) {
+        foreach ($classifier in $classifiers) {
+            $recordedMap = [string](Read-TerraformClassifierJson -Path $classifier.Path)['mapVersion']
+            if ($recordedMap -ne $mapVersion) {
+                & $add "mapVersion $($classifier.ProviderAddress) $($classifier.Version)" 'Stale' "mapVersion $recordedMap; map.json is $mapVersion. Run Invoke-Build BuildClassifier."
+            }
+            else {
+                & $add "mapVersion $($classifier.ProviderAddress) $($classifier.Version)" 'Fresh' "mapVersion $mapVersion."
+            }
+        }
+    }
+
+    # Built packs, when there are any.
+    $manifestPath = if ($DistPath) { Join-Path $DistPath 'manifest.json' } else { $null }
+    if ($manifestPath -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        $manifest = Read-TerraformClassifierJson -Path $manifestPath
+        $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        foreach ($pack in @($manifest['packs'])) {
+            $kind = if ($pack['kind']) { [string]$pack['kind'] } else { 'schema' }
+            $address = [string]$pack['address']
+            $packVersion = [string]$pack['version']
+            $item = "pack $kind $address $packVersion"
+            $null = $seen.Add("$kind|$address")
+            $file = Join-Path $DistPath ([string]$pack['file'])
+            $entry = $entries[$address]
+            $expected = if (-not $entry) { $null } elseif ($kind -eq 'docs') { [string]$entry['docsVersion'] } else { [string]$entry['schemaVersion'] }
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+                & $add $item 'Missing' "$file is listed in manifest.json but does not exist. Run Invoke-Build BuildSchemaPack."
+            }
+            elseif ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne [string]$pack['sha256']) {
+                & $add $item 'Stale' "$file does not match the sha256 in manifest.json. Run Invoke-Build BuildSchemaPack."
+            }
+            elseif (-not $entry) {
+                & $add $item 'Stale' "The bundle has no entry for $address. $refresh"
+            }
+            elseif ($expected -ne $packVersion) {
+                & $add $item 'Stale' "The bundle entry records $kind $expected. Run Invoke-Build BuildSchemaPack, then refresh the bundle."
+            }
+            else {
+                & $add $item 'Fresh' "$([string]$pack['file']) matches the bundle entry."
+            }
+        }
+        foreach ($address in $entries.Keys) {
+            $schemaVersion = [string]$entries[$address]['schemaVersion']
+            if ($schemaVersion -and -not $seen.Contains("schema|$address")) {
+                & $add "pack schema $address $schemaVersion" 'Missing' "The bundle records schema $schemaVersion but $DistPath has no schema pack for it. Run Invoke-Build BuildSchemaPack."
+            }
+        }
+    }
+
+    foreach ($row in $rows) { $row }
+    $bad = @($rows | Where-Object Status -ne 'Fresh')
+    if ($Strict -and $bad.Count) {
+        $lines = @($bad | Select-Object -First 25 | ForEach-Object { "$($_.Item) [$($_.Status)]: $($_.Detail)" })
+        $more = if ($bad.Count -gt 25) { "`n  ... and $($bad.Count - 25) more" } else { '' }
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.InvalidOperationException]::new("$($bad.Count) of $($rows.Count) bundle checks are not fresh ($full):`n  $($lines -join "`n  ")$more"),
+            'BundleNotFresh',
+            [System.Management.Automation.ErrorCategory]::InvalidData,
+            $full))
+    }
+}
+
+function Get-TerraformSubcategorySurvey {
+    <#
+    .SYNOPSIS
+        Counts the doc subcategory labels each provider publishes: one row per provider and label.
+
+    .DESCRIPTION
+        Get-TerraformSubcategorySurvey reads the docs cache, never the network, and counts
+        resource and data source pages by the subcategory label the registry publishes for
+        them (the provider's own grouping, such as "Key Vault" or "Host and Cluster
+        Management"). It returns one TerraformGraph.SubcategorySurveyRow per provider and
+        label, sorted by provider address then label, and one NoSubcategory row per
+        provider whose pages have an empty label. It is the evidence for the drawer list in
+        classifiers\drawers.json: a label many providers share is a candidate drawer.
+
+        -BundlePath surveys the bundle's provider set at each provider's latest version in
+        its registry cache (else the newest cached docs); providers with no cached docs
+        are left out with one warning and listed under missing in the output file.
+        -Provider surveys cached providers by pattern instead.
+
+        -OutputPath writes the survey as JSON with its provenance: the bundle's provider
+        set and registry cache, each provider's docs version, harvest time and schema
+        version, every label with the number of providers using it, and the rows. The file
+        has no timestamp of its own and is sorted, so the same caches give the same bytes.
+
+    .PARAMETER BundlePath
+        Bundle file. Default: as for Get-TerraformGraphBundle.
+
+    .PARAMETER Provider
+        Cached providers to survey instead of a bundle; patterns as for
+        Get-TerraformDocCache.
+
+    .PARAMETER Version
+        Docs version with -Provider. Default: the newest cached.
+
+    .PARAMETER OutputPath
+        JSON file to write (a folder gets subcategories.json). Rows are then returned only
+        with -PassThru.
+
+    .PARAMETER PassThru
+        With -OutputPath, also return the rows.
+
+    .EXAMPLE
+        Get-TerraformSubcategorySurvey -Provider vsphere
+
+        vsphere's labels with their resource and data source page counts.
+
+    .EXAMPLE
+        Get-TerraformSubcategorySurvey -OutputPath .\dist\survey\subcategories.json
+
+        Survey the bundle's providers and write the file Invoke-Build HarvestBundleDocs
+        writes.
+
+    .EXAMPLE
+        Get-TerraformSubcategorySurvey | Group-Object Subcategory | Sort-Object Count -Descending | Select-Object -First 20 Name, Count
+
+        The labels the most bundle providers share.
+
+    .OUTPUTS
+        TerraformGraph.SubcategorySurveyRow: ProviderAddress, Version, Subcategory (empty on
+        the NoSubcategory row), ResourceCount, DataSourceCount, Status (Labeled or
+        NoSubcategory). Default view is ProviderAddress, Subcategory, ResourceCount,
+        DataSourceCount, Status.
+
+    .LINK
+        Update-TerraformProviderDocCache
+
+    .LINK
+        New-TerraformClassifier
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'Bundle')]
+    param(
+        [Parameter(Position = 0, ParameterSetName = 'Bundle')]
+        [string]
+        $BundlePath,
+
+        [Parameter(Mandatory, ParameterSetName = 'Provider')]
+        [string[]]
+        $Provider,
+
+        [Parameter(ParameterSetName = 'Provider')]
+        [string]
+        $Version,
+
+        [string]
+        $OutputPath,
+
+        [switch]
+        $PassThru
+    )
+
+    $targets = [System.Collections.Generic.List[object]]::new()
+    $missing = [System.Collections.Generic.List[object]]::new()
+    $bundleInfo = $null
+    if ($PSCmdlet.ParameterSetName -eq 'Bundle') {
+        try {
+            $full = Resolve-TerraformGraphBundlePath -Path $BundlePath
+            $bundle = Read-TerraformGraphBundle -Path $full
+            $registry = Get-TerraformGraphBundleRegistry -BundlePath $full
+            $selected = @(Resolve-TerraformGraphBundleProvider -Tier $bundle['tiers'] -Provider $bundle['providers'] -Exclude $bundle['exclude'] -Cache $registry)
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.IO.InvalidDataException]::new($_.Exception.Message),
+                'BundleInvalid',
+                [System.Management.Automation.ErrorCategory]::InvalidData,
+                $BundlePath))
+        }
+        $cached = @(Get-TerraformSchemaCacheEntry -Kind Docs)
+        foreach ($item in $selected) {
+            $mine = @($cached | Where-Object ProviderAddress -eq $item.ProviderAddress)
+            $entry = $mine | Where-Object Version -eq ([string]$item.Latest) | Select-Object -First 1
+            if (-not $entry -and $mine.Count) {
+                $entry = $mine[0]
+                Write-Verbose "No cached docs for $($item.ProviderAddress) $($item.Latest); surveying the cached $($entry.Version)"
+            }
+            if ($entry) { $targets.Add($entry) }
+            else { $missing.Add([ordered]@{ provider = $item.ProviderAddress; version = [string]$item.Latest; reason = 'no cached docs' }) }
+        }
+        if ($missing.Count) {
+            Write-Warning "No cached docs for $($missing.Count) of $($selected.Count) providers in the bundle, so the survey leaves them out: $(@($missing | ForEach-Object { $_.provider }) -join ', '). Run Update-TerraformProviderDocCache -BundlePath $full -Resume."
+        }
+        $bundleInfo = [ordered]@{
+            formatVersion = $bundle['formatVersion']
+            tiers         = [object[]]$bundle['tiers']
+            providers     = [object[]]$bundle['providers']
+            exclude       = [object[]]$bundle['exclude']
+            registry      = [ordered]@{ harvestedOn = $registry.HarvestedOn; providerCount = @($registry.Providers).Count }
+        }
+    }
+    else {
+        try {
+            foreach ($entry in @(Resolve-TerraformSchemaCacheProvider -Name $Provider -Version $Version -Kind Docs)) { $targets.Add($entry) }
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.Management.Automation.ItemNotFoundException]::new($_.Exception.Message),
+                'ProviderDocNotCached',
+                [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                $Provider))
+        }
+    }
+
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $providers = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in @($targets | Sort-Object { $_.ProviderAddress } -Culture '')) {
+        Write-Verbose "Surveying $($entry.ProviderAddress) $($entry.Version) from $($entry.Path)"
+        $document = Read-TerraformSchemaCache -Path $entry.Path
+        $counts = [System.Collections.Generic.Dictionary[string, int[]]]::new([System.StringComparer]::Ordinal)
+        $none = [int[]]@(0, 0)
+        foreach ($doc in @($document['docs'])) {
+            $slot = switch ([string]$doc['category']) { 'resources' { 0 } 'data-sources' { 1 } default { -1 } }
+            if ($slot -lt 0) { continue }
+            $label = [string]$doc['subcategory']
+            if ([string]::IsNullOrWhiteSpace($label)) { $none[$slot]++; continue }
+            if (-not $counts.ContainsKey($label)) { $counts[$label] = [int[]]@(0, 0) }
+            $counts[$label][$slot]++
+        }
+        $labels = [System.Collections.Generic.List[string]]::new()
+        foreach ($label in $counts.Keys) { $labels.Add($label) }
+        $labels.Sort([System.Comparison[string]] {
+                param($a, $b)
+                $byText = [string]::Compare($a, $b, [System.StringComparison]::OrdinalIgnoreCase)
+                if ($byText) { return $byText }
+                [string]::CompareOrdinal($a, $b)
+            })
+        $resourceTotal = $none[0]
+        $dataTotal = $none[1]
+        foreach ($label in $labels) {
+            $resourceTotal += $counts[$label][0]
+            $dataTotal += $counts[$label][1]
+            $rows.Add([pscustomobject]@{
+                PSTypeName      = 'TerraformGraph.SubcategorySurveyRow'
+                ProviderAddress = $entry.ProviderAddress
+                Version         = $entry.Version
+                Subcategory     = $label
+                ResourceCount   = $counts[$label][0]
+                DataSourceCount = $counts[$label][1]
+                Status          = 'Labeled'
+            })
+        }
+        if ($none[0] + $none[1]) {
+            $rows.Add([pscustomobject]@{
+                PSTypeName      = 'TerraformGraph.SubcategorySurveyRow'
+                ProviderAddress = $entry.ProviderAddress
+                Version         = $entry.Version
+                Subcategory     = $null
+                ResourceCount   = $none[0]
+                DataSourceCount = $none[1]
+                Status          = 'NoSubcategory'
+            })
+        }
+        $providers.Add([ordered]@{
+            provider        = $entry.ProviderAddress
+            version         = $entry.Version
+            harvestedOn     = $document['harvestedOn']
+            schemaVersion   = $document['schemaVersion']
+            pageCount       = $document['docCount']
+            resourceCount   = $resourceTotal
+            dataSourceCount = $dataTotal
+            labelCount      = $labels.Count
+        })
+    }
+
+    if ($OutputPath) {
+        # Labels across providers, matched ignoring case as map rows are; each is shown in the
+        # spelling most providers use (ties: ordinal order).
+        $byLabel = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        $noLabel = @{ Providers = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal); Resource = 0; Data = 0 }
+        foreach ($row in $rows) {
+            if ($row.Status -eq 'NoSubcategory') {
+                $null = $noLabel.Providers.Add($row.ProviderAddress)
+                $noLabel.Resource += $row.ResourceCount
+                $noLabel.Data += $row.DataSourceCount
+                continue
+            }
+            $group = $null
+            if (-not $byLabel.TryGetValue($row.Subcategory, [ref]$group)) {
+                $group = @{
+                    Spellings = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
+                    Providers = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
+                    Resource  = 0
+                    Data      = 0
+                }
+                $byLabel[$row.Subcategory] = $group
+            }
+            $group.Spellings[$row.Subcategory] = 1 + $(if ($group.Spellings.ContainsKey($row.Subcategory)) { $group.Spellings[$row.Subcategory] } else { 0 })
+            $null = $group.Providers.Add($row.ProviderAddress)
+            $group.Resource += $row.ResourceCount
+            $group.Data += $row.DataSourceCount
+        }
+        $labelList = [System.Collections.Generic.List[object]]::new()
+        foreach ($group in $byLabel.Values) {
+            $spelling = @($group.Spellings.Keys | Sort-Object -Property @{ Expression = { $group.Spellings[$_] }; Descending = $true }, @{ Expression = { $_ }; Descending = $false } -Culture '')[0]
+            $labelList.Add([pscustomobject]@{ Label = $spelling; Group = $group })
+        }
+        $labelList.Sort([System.Comparison[object]] {
+                param($a, $b)
+                $byProviders = $b.Group.Providers.Count.CompareTo($a.Group.Providers.Count)
+                if ($byProviders) { return $byProviders }
+                $byText = [string]::Compare($a.Label, $b.Label, [System.StringComparison]::OrdinalIgnoreCase)
+                if ($byText) { return $byText }
+                [string]::CompareOrdinal($a.Label, $b.Label)
+            })
+
+        $document = [ordered]@{
+            formatVersion = 1
+            source        = 'docs cache: resources and data-sources pages counted by the subcategory label the registry publishes'
+            bundle        = $bundleInfo
+            summary       = [ordered]@{
+                providerCount              = $providers.Count
+                missingCount               = $missing.Count
+                labelCount                 = $labelList.Count
+                rowCount                   = $rows.Count
+                noSubcategoryProviderCount = $noLabel.Providers.Count
+            }
+            providers     = [object[]]$providers.ToArray()
+            missing       = [object[]]$missing.ToArray()
+            labels        = [object[]]@(foreach ($item in $labelList) {
+                    [ordered]@{
+                        subcategory     = $item.Label
+                        providerCount   = $item.Group.Providers.Count
+                        resourceCount   = $item.Group.Resource
+                        dataSourceCount = $item.Group.Data
+                        providers       = [object[]]@($item.Group.Providers)
+                    }
+                })
+            noSubcategory = [ordered]@{
+                providerCount   = $noLabel.Providers.Count
+                resourceCount   = $noLabel.Resource
+                dataSourceCount = $noLabel.Data
+                providers       = [object[]]@($noLabel.Providers)
+            }
+            rows          = [object[]]@(foreach ($row in $rows) {
+                    [ordered]@{
+                        provider        = $row.ProviderAddress
+                        version         = $row.Version
+                        subcategory     = $row.Subcategory
+                        resourceCount   = $row.ResourceCount
+                        dataSourceCount = $row.DataSourceCount
+                        status          = $row.Status
+                    }
+                })
+        }
+        $fullPath = [System.IO.Path]::GetFullPath($OutputPath, (Get-Location -PSProvider FileSystem).ProviderPath)
+        if ((Test-Path -LiteralPath $fullPath -PathType Container) -or -not [System.IO.Path]::GetExtension($fullPath)) { $fullPath = Join-Path $fullPath 'subcategories.json' }
+        Write-TerraformGraphTextFile -Path $fullPath -Text (Format-TerraformClassifierJson -Document $document)
+        Write-Verbose "Wrote $($rows.Count) rows, $($labelList.Count) labels across $($providers.Count) providers to $fullPath"
+        if (-not $PassThru) { return }
+    }
+    foreach ($row in $rows) { $row }
+}
 
 # Agent tools that read project skills: the project-relative folder skills are copied
 # into, and the path whose presence means the tool is used in a repo. These paths are

@@ -1,3 +1,5 @@
+> **Built as an ontology layer for AI agents.** If that is why you are here, read [ONTOLOGY.md](ONTOLOGY.md).
+
 <p align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&height=220&section=header&color=0:1B1030,45:5C4EE5,100:844FBA&text=TerraformGraph&fontSize=52&fontColor=FFFFFF&fontAlignY=38&desc=Parse%20Terraform%20into%20an%20HCL%20AST%20and%20a%20module%20and%20provider%20graph&descSize=16&descAlignY=62&animation=fadeIn" alt="TerraformGraph" />
 </p>
@@ -15,11 +17,19 @@
 
 Parse Terraform configurations into an HCL AST and build graphs of module calls and provider schemas.
 
+**In CI**, one line fails the build when any module call is nested deeper than 3:
+
+```powershell
+pwsh -NoProfile -Command "Import-Module TerraformGraph; if ((Get-TerraformModuleGraph -Path . -Recurse).Nodes | Where-Object Depth -gt 3) { exit 1 }"
+```
+
+Exit code 0: every module call is at depth 3 or less (the root module is depth 0). Exit code 1: at least one is deeper. A parse error or an unreadable path is a terminating error, which also exits 1. `Get-TerraformModuleGraph` never runs `terraform init`.
+
 > **Requires PowerShell 7.4+.** Agents, skills, and tool runners should use 7.4 (or later) so `$ErrorActionPreference = 'Stop'` is a first-class default you can rely on. On older hosts a failed parse is often a *non-terminating* error: the pipeline keeps going, the agent reads “success,” and it never gets a chance to correct the path or the HCL. 7.4 is the line this module draws so an agent actually *sees* the failure and can fix it.
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.12.0**. Not yet published to the PowerShell Gallery.
+Source version **0.13.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -336,7 +346,7 @@ Matches are listed official first, then partner, then community. A `-Provider` w
 
 Tab completion reads the cache only and never touches the network: `Get-TerraformProviderSchema -Provider` and `Get-TerraformRegistryProvider -Name` complete `namespace/name` sources (official first), and `-Version` completes the versions of the provider already typed, newest first. With no cache they complete nothing.
 
-`Update-TerraformRegistryCache` lists providers from the v2 API (100 per page), then makes two calls per provider in parallel (`-ThrottleLimit`, default 6): v1 `/versions` for protocols and v2 `include=provider-versions` for publish dates. 429 and 5xx responses are retried twice. If any provider still fails, nothing is written; otherwise the file is replaced atomically.
+`Update-TerraformRegistryCache` lists providers from the v2 API (100 per page), then makes two calls per provider in parallel (`-ThrottleLimit`, default 6): v1 `/versions` for protocols and v2 `include=provider-versions` for publish dates. 5xx responses are retried five times with a short backoff. A 429 is the registry's rate limit, which blocks an address for several minutes once a sustained run passes it, so a 429 is retried after 30, 60, 120, 240 and 300 seconds. If any provider still fails, nothing is written; otherwise the file is replaced atomically.
 
 The bundled file is refreshed when cutting a release, not in the default build:
 
@@ -447,7 +457,7 @@ Each file is `{ address, version, harvestedOn, schemaVersion, docCount, unmatche
 | Providers | Whatever the manifest lists | Any registry provider and version |
 | Integrity | sha256 from `manifest.json` | What the registry returns |
 
-`Update-TerraformProviderDocCache` lists the pages, fetches them in parallel (`-ThrottleLimit`, default 6, with 429/5xx retries) and writes the file atomically. If the provider has no cached schema, it still writes the docs, but builds Ids from the provider name without checking, leaves `UnmatchedCount` empty, and warns. Fill the schema cache first.
+`Update-TerraformProviderDocCache` lists the pages, fetches them in parallel (`-ThrottleLimit`, default 6, with 429/5xx retries) and writes the file atomically. For a whole set of providers, see [Bulk docs harvest](#bulk-docs-harvest). If the provider has no cached schema, it still writes the docs, but builds Ids from the provider name without checking, leaves `UnmatchedCount` empty, and warns. Fill the schema cache first.
 
 The default packs, as of 2026-10-06: azurerm 5.8.0 has 1,518 pages (1.18 MB gzipped, harvested in 44 s), 1 of them unmatched: a `container_app_environment_dapr_component` data source page with no such type in the schema. azuredevops 1.16.0 has 183 pages (92 KB), 1 unmatched: `environment_kubernetes_resource`. vsphere 2.17.1 has 87 pages (104 KB), none unmatched; 7 of its slugs already carry the `vsphere_` prefix. `BuildSchemaPack` with docs takes about 80 s for the three.
 
@@ -485,9 +495,89 @@ A ResourceNode is looked up by its `SchemaId`, and a SchemaNode by its `Id`. A n
 
 Nothing here downloads except `Get-TerraformDocPack` and `Update-TerraformProviderDocCache`, and only when called. `Get-TerraformProviderDoc`, `Get-TerraformDocCache`, `-AutoSchema` and the argument completers read local files only.
 
+## Bundle: which providers ship, and is it current
+
+`data/bundle.json` in the module names the providers the shipped data covers and records what was harvested for each. As shipped it is the registry's **official** tier (34 providers) plus `microsoft/azuredevops` and `vmware/vsphere`: 36 providers, resolved against the bundled registry cache.
+
+```json
+{ "formatVersion": 1, "tiers": ["official"],
+  "providers": ["registry.terraform.io/microsoft/azuredevops", "registry.terraform.io/vmware/vsphere"],
+  "exclude": [],
+  "registry": { "harvestedOn": "...", "providerCount": 428 },
+  "entries": [ { "provider": "registry.terraform.io/hashicorp/azurerm", "version": "5.8.0", "docsVersion": "5.8.0",
+                 "schemaVersion": "5.8.0", "classifierVersion": "5.8.0", "harvestedOn": "..." } ] }
+```
+
+Each entry's `version` is the provider's latest in that registry cache. `docsVersion` and `harvestedOn` come from the docs cache, and `schemaVersion` only when the schema cache holds exactly that version. `classifierVersion` is the newest classifier bundled with the module.
+
+```powershell
+Get-TerraformGraphBundle                     # one row per provider: ProviderAddress, Version, DocsVersion, SchemaVersion, ClassifierVersion, HarvestedOn
+Get-TerraformGraphBundle -Document           # the whole manifest: Tiers, Providers, Exclude, RegistryHarvestedOn, Entries
+
+# Your own set, written to $env:LOCALAPPDATA\TerraformGraph\bundle.json (read before the bundled copy).
+New-TerraformGraphBundle -Tier official -Provider 'vmware/*' -Exclude hashicorp/hcs -PassThru
+New-TerraformGraphBundle -Tier @() -Provider hashicorp/azurerm, hashicorp/azuread -OutputPath .\bundle.json
+```
+
+Each of `-Tier`, `-Provider` and `-Exclude` you leave out comes from the bundled manifest. Patterns match by shape and take wildcards, as for `Get-TerraformRegistryProvider`, and are stored expanded to full addresses. The registry cache used is `registry.json` in the output folder when there is one, else the usual one. The file is sorted and has no timestamp of its own, so rewriting it from the same caches gives the same bytes.
+
+### Bulk docs harvest
+
+```powershell
+$summary = Update-TerraformProviderDocCache -BundlePath .\bundle.json -Resume
+$summary                                       # ProviderCount, PageCount, UnmatchedCount, FailureCount, Elapsed
+$summary.Failures | Format-Table ProviderAddress, Version, Error
+```
+
+`-BundlePath` harvests every provider in the bundle's set at its latest version, one provider after another. Pages are fetched in parallel (`-ThrottleLimit`, default 6). A provider that fails is a warning and a `Failed` row with its `Error`, never a stop, and nothing is written for it. Without `-Resume` every provider is harvested again; with it, a provider already cached at that version is skipped without any network call, which is how an interrupted run is finished. `-Resume` also works with `-Provider`.
+
+The registry rate-limits sustained runs. Past its limit it answers 429 for several minutes, so a 429 is retried after 30, 60, 120, 240 and 300 seconds.
+
+The bundled set, harvested on 2026-10-07 with `Invoke-Build HarvestBundleDocs`: 36 providers, 14,686 pages, 3 unmatched. The largest were awscc 1.104.0 (4,521 pages), aws 6.67.0 (2,414), google and google-beta 8.6.0 (1,685 each), azurerm 5.8.0 (1,518) and ibm 2.6.2 (1,445). The first run (12 min 28 s) got 3,374 pages from 19 providers. The registry started answering 429 just after aws, and 17 providers failed, because the backoff then was two retries at 1 and 2 seconds. The second run, `-Resume` with the backoff above, harvested the 17 in 12 min 17 s with no failures.
+
+```powershell
+Invoke-Build HarvestBundleDocs            # harvest, refresh data/bundle.json, write dist/survey/subcategories.json
+Invoke-Build HarvestBundleDocs -Resume    # finish an interrupted run
+```
+
+### Subcategory survey
+
+The registry docs carry each provider's own grouping of its types (`subcategory`: "Key Vault", "S3 (Simple Storage)", "Host and Cluster Management"). The survey counts resource and data source pages per provider and label, from the docs cache only:
+
+```powershell
+Get-TerraformSubcategorySurvey -Provider vsphere                          # ProviderAddress, Subcategory, ResourceCount, DataSourceCount, Status
+Get-TerraformSubcategorySurvey -OutputPath .\dist\survey\subcategories.json   # the bundle's providers, written with provenance
+```
+
+There is one row per provider and label, plus a `NoSubcategory` row for a provider whose pages have no label. The JSON file adds provenance: the bundle's provider set and registry cache, each provider's docs version, harvest time and schema version, the providers with no cached docs (`missing`), and every label with the number of providers that use it. It is the evidence behind the drawer list (see Classifiers).
+
+On the bundled set (2026-10-07): 661 distinct labels in 893 rows. Only 11 of the 36 providers label their pages: aws 260, google and google-beta 181 each (the same list), azurerm 112, ibm 56, kubernetes 24, azuread 17, hcp 12, vsphere 9, azurestack 8 and turbonomic 5. The other 25 publish no labels, awscc's 4,521 pages included. Nine labels appear in three providers, none in more: Agent Registry, API Gateway, Base, Cloud IAM, Cloud Platform, Container Registry, License Manager, Service Networking and Storage.
+
+### Freshness gate
+
+`Test-TerraformGraphBundle` checks the bundled data against its sources and returns one row per check: `Item`, `Status` (`Fresh`, `Stale`, `Missing`) and `Detail`, which names the command that fixes it. It is offline unless you pass `-Online`.
+
+| Item | Checks |
+|---|---|
+| `registry` | The bundle's `registry.harvestedOn` and provider count against the registry cache it resolves against. |
+| `entry <address>` | The entry is in the bundle's provider set, and its version is that cache's latest. Every provider in the set has an entry. |
+| `docs <address>` | `docsVersion` is cached, equals the entry version, and `harvestedOn` matches the cached file. |
+| `schema <address>`, `classifier <address>` | When the entry records them: cached or bundled, and at the entry version. |
+| `mapVersion <address> <version>` | Each bundled classifier's `mapVersion` against `classifiers/map.json`. |
+| `pack <kind> <address> <version>` | When `-DistPath` (default `.\dist\schema-packs`) has a `manifest.json`: each file's sha256 and its version against the entry. |
+| `registry (online)`, `online <address>` | With `-Online`: the live registry's provider count and each entry's live latest version. |
+
+```powershell
+Test-TerraformGraphBundle | Where-Object Status -ne Fresh
+pwsh -NoProfile -Command "Import-Module TerraformGraph; Test-TerraformGraphBundle -Strict | Out-Null"   # exit 1 when anything is Stale or Missing
+```
+
+`-Strict` writes every row, then throws `BundleNotFresh`. The release build runs it as `Invoke-Build CheckBundle` before a release is created.
+
+On the shipped data after the 0.13.0 harvest and `BuildClassifier`, with `dist\schema-packs` from `BuildSchemaPack` present, all 88 checks are Fresh.
 ## Classifiers: what ships / how to cut your own
 
-A provider schema is flat: azurerm alone has 1,502 resource and data source types. Classifier drawers are an optional overlay that groups types into drawers (network, compute, storage, database, identity, security, ...) so a view can collapse to twenty rows. Classifiers are opinions layered on facts. They never change a node's Id, the node count or the edges, and they ship as data with provenance.
+A provider schema is flat: azurerm alone has 1,502 resource and data source types. Classifier drawers are an optional overlay that groups types into drawers (network, compute, storage, database, identity, security, ...) so a view can collapse to twenty-one rows. They never change a node's Id, the node count or the edges, and every placement can be traced to a map row with a reason.
 
 ### What ships
 
@@ -495,12 +585,16 @@ The module's `classifiers/` folder (committed, unlike `dist/`):
 
 | File | What it is |
 |---|---|
-| `drawers.json` | The fixed drawer list: network, compute, storage, database, identity, security, messaging, observability, management, devops, containers, serverless, dns, cdn, analytics, ai, iot, media, migration, unclassified. Each has `name`, `label` and `description`. |
-| `map.json` | Rows `{ provider, subcategory, drawer, reason, addedOn, addedBy }`. `provider` is an address or `*`, and a provider row beats a `*` row. Every row has a one-sentence `reason`. |
+| `drawers.json` | The fixed drawer list: network, compute, storage, database, identity, security, messaging, integration, observability, management, devops, containers, serverless, dns, cdn, analytics, ai, iot, media, migration, unclassified. Each has `name`, `label` and `description`. `integration` was added in 0.13.0 after the subcategory survey (DECISIONS 41). |
+| `map.json` | Rows `{ provider, source, subcategory, drawer, reason, addedOn, addedBy }`. `source` is optional: `subcategory` (the default) maps a doc label, and `prefix` maps a type-name prefix (see below). `provider` is an address or `*` (subcategory rows only), and a provider row beats a `*` row. Every row has a one-sentence `reason`. |
 | `DECISIONS.md` | Append-only, numbered record of every judgement behind the drawers and the map, including every subcategory left unmapped and why. |
 | `<address-slug>.<version>.json` | One classifier per provider version: azurerm 5.8.0, azuredevops 1.16.0 and vsphere 2.17.1. |
 
-The default classifier is not hand-sorted. Each type's subcategory is the label the provider itself puts on the type's registry doc page ("Key Vault", "Host and Cluster Management"), and `map.json` maps that label to a drawer. A type the map cannot place goes in `unclassified` and is listed as a finding:
+The default classifier is not hand-sorted. Each type's subcategory is the label the provider itself puts on the type's registry doc page ("Key Vault", "Host and Cluster Management"), and `map.json` maps that label to a drawer.
+
+Some providers publish no labels at all; azuredevops is one. For those, **prefix rows** place types by name. A prefix row names one provider, and its `subcategory` field holds the type prefix after the provider token: `{ "provider": "registry.terraform.io/microsoft/azuredevops", "source": "prefix", "subcategory": "git", "drawer": "devops", ... }` places `azuredevops_git_repository` and every other `azuredevops_git` and `azuredevops_git_*` type, but not a hypothetical `azuredevops_github_*`. Prefixes match at underscore boundaries, the longest match wins, and a prefix row applies only to a type with no label (no doc page, or an empty subcategory). A label the map does not place stays a finding, whatever its prefix. Each classified type records the `source` of the row that placed it. `New-TerraformClassifier` refuses a prefix row that matches no type in the provider's cached schema.
+
+A type no row places goes in `unclassified` and is listed as a finding:
 
 | Finding | Meaning |
 |---|---|
@@ -508,7 +602,13 @@ The default classifier is not hand-sorted. Each type's subcategory is the label 
 | `NoSubcategory` | The page's subcategory is empty. |
 | `UnmappedSubcategory` | The map has no row for the label: deliberately, see DECISIONS.md. |
 
-`unclassified` is a legitimate drawer, not an error. As shipped: azurerm has 101 of 1,502 types unclassified (12 labels left unmapped, 64 types of them API Management). vsphere has 1 of 87 (a type with no doc page). azuredevops has all 177, because it publishes no subcategories at all.
+`unclassified` is a legitimate drawer, not an error. As shipped in 0.13.0 (`Invoke-Build BuildClassifier`, 2026-10-07):
+
+| Provider | Types | Unclassified | Notes |
+|---|---|---|---|
+| azurerm 5.8.0 | 1,502 | 34 | 10 labels left unmapped, Healthcare (11 types) the largest. API Management (64), Connections (3) and Logic App (19) are in `integration`. |
+| azuredevops 1.16.0 | 177 | 0 | No labels; 41 prefix rows place everything: devops 149, identity 27, management 1. In 0.12.0 all 177 were unclassified. |
+| vsphere 2.17.1 | 87 | 1 | A type with no doc page. |
 
 ```powershell
 Get-TerraformClassifier                                     # ProviderAddress, Version, DocsVersion, TypeCount, FindingCount
@@ -531,6 +631,7 @@ Classifiers are looked up in this order: `-ClassifierPath` (a file or a folder),
 
 ```powershell
 # Any provider whose schema and docs are cached (packs, -SaveToCache, Update-TerraformProviderDocCache).
+# Before adding a row or a drawer, see how many providers share the label: Get-TerraformSubcategorySurvey.
 New-TerraformClassifier -Provider hashicorp/null, hashicorp/local -PassThru    # into the user folder
 
 # Your own opinions: copy map.json, add rows (each with a reason), classify into a folder, point the graphs at it.
@@ -539,7 +640,7 @@ New-TerraformClassifier -Provider azurerm -MapPath .\my-map.json -OutputPath .\m
 ConvertTo-TerraformSchemaGraph -Provider azurerm -ClassifierPath .\my-classifiers | Select-Object -ExpandProperty Drawers
 ```
 
-`New-TerraformClassifier` checks the map first. A row with an empty reason, a drawer not in `drawers.json` (taken from beside the map, else the bundled one), a row targeting `unclassified`, or a repeated provider and subcategory stops it before anything is read. Output is sorted by type, then kind. When a rerun produces the same content, the file and its `generatedOn` are left alone, so reruns are byte-identical. `mapVersion` is a hash of the map's rows. `-ClassifierPath` implies `-Classify`.
+`New-TerraformClassifier` checks the map first. A row with an empty reason, a drawer not in `drawers.json` (taken from beside the map, else the bundled one), a row targeting `unclassified`, a `source` other than `subcategory` or `prefix`, a `*` prefix row, or a repeated provider, source and subcategory stops it before anything is read. A prefix row that matches none of the provider's schema types stops it once the schema is read. Output is sorted by type, then kind. When a rerun produces the same content, the file and its `generatedOn` are left alone, so reruns are byte-identical. `mapVersion` is a hash of the map's rows. `-ClassifierPath` implies `-Classify`.
 
 To change the shipped classifiers: read `DECISIONS.md`, append an entry for each judgement, edit `map.json` (never without a reason), then run `Invoke-Build BuildClassifier` (default azurerm, azuredevops, vsphere at their latest version in the registry cache, from your local caches, no network). It prints the findings per provider. Stage `src/TerraformGraph/classifiers/`. Pester fails if a bundled classifier's `mapVersion` no longer matches `map.json`.
 

@@ -2434,4 +2434,445 @@ Describe "Classifiers" {
         { New-TerraformClassifier -Provider hashicorp/local -MapPath $FixtureMap -ErrorAction Stop } |
             Should -Throw 'No cached docs for registry.terraform.io/hashicorp/local. Download a docs pack with Get-TerraformDocPack -Provider hashicorp/local, or harvest them with Update-TerraformProviderDocCache -Provider hashicorp/local -Version 2.5.2.'
     }
+
+    Context "prefix rows" {
+
+        BeforeAll {
+            Set-Variable -Name PrefixMap -Scope Script -Value (Join-Path $FixtureDir 'prefix-map.json')
+        }
+
+        It "places only unlabelled types by prefix, longest prefix first, and records the row kind per type" {
+            & $Seed
+            $null = New-TerraformClassifier -Provider hashicorp/null, hashicorp/local -MapPath $PrefixMap -ErrorAction Stop
+
+            $local = Get-TerraformClassifier -Provider local -ErrorAction Stop
+            @($local.Types | ForEach-Object { "$($_.Type)|$($_.Kind)|$($_.Subcategory)|$($_.Drawer)|$($_.Source)" }) | Should -Be @(
+                'local_file|data-source|Files|storage|subcategory'
+                'local_file|resource|Files|storage|subcategory'
+                'local_sensitive_file|data-source||storage|prefix'
+                'local_sensitive_file|resource||storage|prefix'
+            )
+            $local.FindingCount | Should -Be 0
+            $local.Source | Should -Be 'subcategory,prefix'
+
+            $null3 = Get-TerraformClassifier -Provider null -ErrorAction Stop
+            $null3.Source | Should -Be 'subcategory'
+            $dataSource = $null3.Types | Where-Object Type -eq 'null_data_source'
+            $dataSource.Drawer | Should -Be 'unclassified'
+            $dataSource.Source | Should -BeNullOrEmpty
+            @($null3.Findings | ForEach-Object { "$($_.Type)|$($_.Finding)" }) | Should -Be @('null_data_source|UnmappedSubcategory')
+
+            $text = Get-Content -LiteralPath $local.Path -Raw | ConvertFrom-TerraformJson -AsHashtable
+            @($text['types'][0].Keys) | Should -Be @('type', 'kind', 'subcategory', 'drawer', 'source')
+        }
+
+        It "lints the source field and prefix rows" {
+            $map = [ordered]@{
+                rows = [object[]]@(
+                    [ordered]@{ provider = 'registry.terraform.io/hashicorp/local'; source = 'tag'; subcategory = 'file'; drawer = 'storage'; reason = 'r'; addedOn = '2026-10-07'; addedBy = 'agent' }
+                    [ordered]@{ provider = '*'; source = 'prefix'; subcategory = 'file'; drawer = 'storage'; reason = 'r'; addedOn = '2026-10-07'; addedBy = 'agent' }
+                    [ordered]@{ provider = 'registry.terraform.io/hashicorp/local'; source = 'prefix'; subcategory = 'local_File_'; drawer = 'storage'; reason = 'r'; addedOn = '2026-10-07'; addedBy = 'agent' }
+                    [ordered]@{ provider = 'registry.terraform.io/hashicorp/local'; subcategory = 'file'; drawer = 'storage'; reason = 'r'; addedOn = '2026-10-07'; addedBy = 'agent' }
+                    [ordered]@{ provider = 'registry.terraform.io/hashicorp/local'; source = 'prefix'; subcategory = 'file'; drawer = 'storage'; reason = 'r'; addedOn = '2026-10-07'; addedBy = 'agent' }
+                    [ordered]@{ provider = 'registry.terraform.io/hashicorp/local'; source = 'prefix'; subcategory = 'file'; drawer = 'compute'; reason = 'r'; addedOn = '2026-10-07'; addedBy = 'agent' }
+                )
+            }
+            $problems = InModuleScope TerraformGraph -Parameters @{ M = $map } {
+                param($M)
+                @(Get-TerraformClassifierMapProblem -Map $M -Drawer (Get-TerraformClassifierDrawerName))
+            }
+            $problems | Should -Be @(
+                "row 1 (registry.terraform.io/hashicorp/local / file): source 'tag' must be subcategory or prefix."
+                'row 2 (* / prefix file): a prefix row needs a provider address; a type prefix means something only within one provider.'
+                "row 3 (registry.terraform.io/hashicorp/local / prefix local_File_): prefix 'local_File_' must be lowercase words joined by single underscores, without the provider token (git, not azuredevops_git_)."
+                'row 6 (registry.terraform.io/hashicorp/local / prefix file) repeats an earlier row for the same provider and subcategory.'
+            )
+        }
+
+        It "refuses a prefix row that matches no type in the provider's cached schema" {
+            & $Seed
+            $map = Get-Content -LiteralPath $PrefixMap -Raw | ConvertFrom-TerraformJson -AsHashtable
+            $map['rows'] = [object[]]@($map['rows']) + [ordered]@{ provider = 'registry.terraform.io/hashicorp/local'; source = 'prefix'; subcategory = 'nothing'; drawer = 'storage'; reason = 'Typo.'; addedOn = '2026-10-07'; addedBy = 'agent' }
+            $mapDir = Join-Path $Root 'map'
+            New-Item -ItemType Directory -Path $mapDir | Out-Null
+            $map | ConvertTo-TerraformJson | Set-Content -LiteralPath (Join-Path $mapDir 'map.json')
+            { New-TerraformClassifier -Provider hashicorp/local -MapPath (Join-Path $mapDir 'map.json') -ErrorAction Stop } |
+                Should -Throw "*prefix row 'nothing' for registry.terraform.io/hashicorp/local matches no resource or data source type in its schema.*"
+            Test-Path -LiteralPath $UserRoot | Should -BeFalse
+            # Another provider's classifier is not held up by local's rows.
+            (New-TerraformClassifier -Provider hashicorp/null -MapPath (Join-Path $mapDir 'map.json') -PassThru -ErrorAction Stop).Status | Should -Be 'Written'
+        }
+
+        It "keeps every bundled prefix row matching a type of its provider's bundled classifier" {
+            $map = Get-Content -LiteralPath (Join-Path $BundledClassifiers 'map.json') -Raw | ConvertFrom-TerraformJson -AsHashtable
+            $prefixRows = @($map['rows'] | Where-Object { $_['source'] -eq 'prefix' })
+            $prefixRows.Count | Should -BeGreaterThan 0
+            & $UseRoots $Root $BundledClassifiers
+            foreach ($group in @($prefixRows | Group-Object { $_['provider'] })) {
+                $types = [string[]]@((Get-TerraformClassifier -Provider $group.Name -ErrorAction Stop).Types.Type)
+                $problems = InModuleScope TerraformGraph -Parameters @{ P = (Join-Path $BundledClassifiers 'map.json'); A = $group.Name; T = $types } {
+                    param($P, $A, $T)
+                    @(Get-TerraformClassifierPrefixProblem -Map (Read-TerraformClassifierMap -Path $P) -Address $A -Type $T)
+                }
+                $problems | Should -BeNullOrEmpty -Because "$($group.Name) prefix rows must match its types"
+            }
+            $devops = Get-TerraformClassifier -Provider microsoft/azuredevops -ErrorAction Stop
+            ($devops.Types | Where-Object { $_.Type -eq 'azuredevops_git_repository' -and $_.Kind -eq 'resource' }).Source | Should -Be 'prefix'
+            ($devops.Types | Where-Object { $_.Type -eq 'azuredevops_git_repository' -and $_.Kind -eq 'resource' }).Drawer | Should -Be 'devops'
+            ($devops.Types | Where-Object { $_.Type -eq 'azuredevops_group' -and $_.Kind -eq 'resource' }).Drawer | Should -Be 'identity'
+        }
+    }
+}
+
+Describe "Bundle" {
+
+    BeforeAll {
+        Set-Variable -Name RegistryFixture -Scope Script -Value (Join-Path $PSScriptRoot 'fixtures' 'registry.sample.json')
+        Set-Variable -Name NullDocs -Scope Script -Value ([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'fixtures' 'docs' 'null-3.2.3.json')))
+        Set-Variable -Name SavedPaths -Scope Script -Value (InModuleScope TerraformGraph {
+                @{
+                    RegistryBundled = $script:TerraformRegistryBundledPath
+                    RegistryUser    = $script:TerraformRegistryUserCachePath
+                    BundleBundled   = $script:TerraformGraphBundleBundledPath
+                    BundleUser      = $script:TerraformGraphBundleUserPath
+                    Schema          = $script:TerraformSchemaCacheRoot
+                    Docs            = $script:TerraformDocCacheRoot
+                    ClassifierUser  = $script:TerraformClassifierUserRoot
+                    ClassifierRoot  = $script:TerraformClassifierBundledRoot
+                }
+            })
+
+        # Every path under $Root: the registry fixture as the bundled registry cache, no user
+        # registry, bundle, caches or classifiers until a test writes them.
+        $useRoot = {
+            param([string]$Root, [string]$Registry)
+            InModuleScope TerraformGraph -Parameters @{ Root = $Root; Registry = $Registry } {
+                param($Root, $Registry)
+                $script:TerraformRegistryBundledPath = $Registry
+                $script:TerraformRegistryUserCachePath = Join-Path $Root 'user' 'registry.json'
+                $script:TerraformRegistryCacheMemo = $null
+                $script:TerraformGraphBundleBundledPath = Join-Path $Root 'module' 'bundle.json'
+                $script:TerraformGraphBundleUserPath = Join-Path $Root 'user' 'bundle.json'
+                $script:TerraformSchemaCacheRoot = Join-Path $Root 'schemas'
+                $script:TerraformDocCacheRoot = Join-Path $Root 'docs'
+                $script:TerraformClassifierUserRoot = Join-Path $Root 'classifiers-user'
+                $script:TerraformClassifierBundledRoot = Join-Path $Root 'classifiers'
+            }
+        }
+        Set-Variable -Name UseRoot -Scope Script -Value $useRoot
+
+        $seedNull = {
+            InModuleScope TerraformGraph -Parameters @{ D = $NullDocs } {
+                param($D)
+                Write-TerraformSchemaCache -Provider hashicorp/null -Version 3.2.3 -Document $D -Kind Docs
+            }
+        }
+        Set-Variable -Name SeedNull -Scope Script -Value $seedNull
+    }
+
+    AfterAll {
+        InModuleScope TerraformGraph -Parameters @{ S = $SavedPaths } {
+            param($S)
+            $script:TerraformRegistryBundledPath = $S.RegistryBundled
+            $script:TerraformRegistryUserCachePath = $S.RegistryUser
+            $script:TerraformRegistryCacheMemo = $null
+            $script:TerraformGraphBundleBundledPath = $S.BundleBundled
+            $script:TerraformGraphBundleUserPath = $S.BundleUser
+            $script:TerraformSchemaCacheRoot = $S.Schema
+            $script:TerraformDocCacheRoot = $S.Docs
+            $script:TerraformClassifierUserRoot = $S.ClassifierUser
+            $script:TerraformClassifierBundledRoot = $S.ClassifierRoot
+        }
+    }
+
+    BeforeEach {
+        $root = Join-Path $TestDrive "bundle-$([guid]::NewGuid().ToString('n'))"
+        & $UseRoot $root $RegistryFixture
+        Set-Variable -Name Root -Scope Script -Value $root
+    }
+
+    It "exports the bundle commands and ships a bundled manifest with the official tier and two extras" {
+        foreach ($name in 'Get-TerraformGraphBundle', 'New-TerraformGraphBundle', 'Test-TerraformGraphBundle', 'Get-TerraformSubcategorySurvey') {
+            (Get-Command $name -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        }
+        (Get-TypeData TerraformGraph.BundleEntry).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('ProviderAddress', 'Version', 'DocsVersion', 'SchemaVersion', 'ClassifierVersion', 'HarvestedOn')
+        (Get-TypeData TerraformGraph.BundleCheck).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('Item', 'Status', 'Detail')
+        $shipped = Get-TerraformGraphBundle -Path (Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'data' 'bundle.json') -Document -ErrorAction Stop
+        $shipped.FormatVersion | Should -Be 1
+        $shipped.Tiers | Should -Be @('official')
+        $shipped.Providers | Should -Be @('registry.terraform.io/microsoft/azuredevops', 'registry.terraform.io/vmware/vsphere')
+        $shipped.EntryCount | Should -BeGreaterThan 2
+        $shipped.Entries.ProviderAddress | Should -Contain 'registry.terraform.io/hashicorp/azurerm'
+    }
+
+    It "resolves tiers, extra providers and exclusions against the registry cache in New-TerraformGraphBundle" {
+        & $SeedNull | Out-Null
+        $path = Join-Path $Root 'out' 'bundle.json'
+        $bundle = New-TerraformGraphBundle -Tier official -Provider 'acme/w*' -Exclude awscc -OutputPath $path -PassThru -ErrorAction Stop
+        $bundle.PSObject.TypeNames[0] | Should -Be 'TerraformGraph.Bundle'
+        $bundle.Tiers | Should -Be @('official')
+        $bundle.Providers | Should -Be @('registry.terraform.io/acme/widget')
+        $bundle.Exclude | Should -Be @('awscc')
+        $bundle.RegistryHarvestedOn | Should -Be '2026-10-01T12:00:00Z'
+        $bundle.RegistryProviderCount | Should -Be 6
+        $bundle.Entries.ProviderAddress | Should -Be @('registry.terraform.io/acme/widget', 'registry.terraform.io/hashicorp/aws', 'registry.terraform.io/hashicorp/null')
+
+        $null3 = $bundle.Entries | Where-Object ProviderAddress -eq 'registry.terraform.io/hashicorp/null'
+        $null3.Version | Should -Be '3.2.3'
+        $null3.DocsVersion | Should -Be '3.2.3'
+        $null3.HarvestedOn | Should -Be '2026-10-07T03:49:24Z'
+        $null3.SchemaVersion | Should -BeNullOrEmpty
+        $null3.ClassifierVersion | Should -BeNullOrEmpty
+        ($bundle.Entries | Where-Object ProviderAddress -eq 'registry.terraform.io/hashicorp/aws').DocsVersion | Should -BeNullOrEmpty
+
+        $bytes = [System.IO.File]::ReadAllBytes($path)
+        $null = New-TerraformGraphBundle -Tier official -Provider 'acme/w*' -Exclude awscc -OutputPath $path -ErrorAction Stop
+        [System.IO.File]::ReadAllBytes($path) | Should -Be $bytes
+        @(([System.IO.File]::ReadAllText($path) | ConvertFrom-TerraformJson -AsHashtable).Keys) | Should -Be @('formatVersion', 'tiers', 'providers', 'exclude', 'registry', 'entries')
+
+        { New-TerraformGraphBundle -Tier @() -Provider 'nobody/*' -OutputPath $path -ErrorAction Stop } | Should -Throw "*'nobody/*' matches no provider in the registry cache*"
+    }
+
+    It "takes unbound -Tier, -Provider and -Exclude from the bundled manifest, and reads the user copy first" {
+        $bundled = InModuleScope TerraformGraph { $script:TerraformGraphBundleBundledPath }
+        $null = New-TerraformGraphBundle -Tier official -Provider acme/widget -Exclude awscc -OutputPath $bundled -ErrorAction Stop
+        (Get-TerraformGraphBundle -ErrorAction Stop).ProviderAddress | Should -Be @('registry.terraform.io/acme/widget', 'registry.terraform.io/hashicorp/aws', 'registry.terraform.io/hashicorp/null')
+
+        $null = New-TerraformGraphBundle -Exclude @() -ErrorAction Stop
+        $user = Get-TerraformGraphBundle -Document -ErrorAction Stop
+        $user.Path | Should -Be (Join-Path $Root 'user' 'bundle.json')
+        $user.Providers | Should -Be @('registry.terraform.io/acme/widget')
+        $user.Exclude.Count | Should -Be 0
+        $user.Entries.ProviderAddress | Should -Contain 'registry.terraform.io/hashicorp/awscc'
+        (Get-TerraformGraphBundle -Path $bundled -Document).EntryCount | Should -Be 3
+
+        Set-Content -LiteralPath $bundled -Value '{ "formatVersion": 9, "tiers": ["gold"] }'
+        { Get-TerraformGraphBundle -Path $bundled -ErrorAction Stop } | Should -Throw "*has 2 problem(s)*formatVersion '9' is not 1.*tier 'gold' is not official, partner or community.*"
+        { Get-TerraformGraphBundle -Path (Join-Path $Root 'missing.json') -ErrorAction Stop } | Should -Throw "*Bundle '*missing.json' does not exist.*"
+    }
+
+    It "reports Fresh, Stale and Missing rows in Test-TerraformGraphBundle and throws with -Strict" {
+        $docPath = & $SeedNull
+        $path = Join-Path $Root 'out' 'bundle.json'
+        $null = New-TerraformGraphBundle -Tier @() -Provider hashicorp/null -Exclude @() -OutputPath $path -ErrorAction Stop
+        $dist = Join-Path $Root 'dist'
+
+        $rows = @(Test-TerraformGraphBundle -BundlePath $path -DistPath $dist -ErrorAction Stop)
+        @($rows | ForEach-Object { "$($_.Item)|$($_.Status)" }) | Should -Be @(
+            'registry|Fresh'
+            'entry registry.terraform.io/hashicorp/null|Fresh'
+            'docs registry.terraform.io/hashicorp/null|Fresh'
+        )
+        $rows[0].PSObject.TypeNames[0] | Should -Be 'TerraformGraph.BundleCheck'
+        { Test-TerraformGraphBundle -BundlePath $path -DistPath $dist -Strict -ErrorAction Stop } | Should -Not -Throw
+
+        # A built docs pack that matches, then one whose bytes do not.
+        New-Item -ItemType Directory -Path $dist | Out-Null
+        Copy-Item -LiteralPath $docPath -Destination (Join-Path $dist 'docs.null.json.gz')
+        $pack = [ordered]@{ kind = 'docs'; address = 'registry.terraform.io/hashicorp/null'; version = '3.2.3'; file = 'docs.null.json.gz'; sha256 = (Get-FileHash -LiteralPath $docPath -Algorithm SHA256).Hash.ToLowerInvariant() }
+        [ordered]@{ builtOn = '2026-10-07T00:00:00Z'; packs = [object[]]@($pack) } | ConvertTo-TerraformJson | Set-Content -LiteralPath (Join-Path $dist 'manifest.json')
+        (Test-TerraformGraphBundle -BundlePath $path -DistPath $dist | Where-Object Item -like 'pack *').Status | Should -Be 'Fresh'
+        Set-Content -LiteralPath (Join-Path $dist 'docs.null.json.gz') -Value 'changed'
+        (Test-TerraformGraphBundle -BundlePath $path -DistPath $dist | Where-Object Item -like 'pack *').Status | Should -Be 'Stale'
+        Remove-Item -LiteralPath $dist -Recurse
+
+        # The registry moves on (a user cache with a newer null) and the docs disappear.
+        $registry = Get-Content -LiteralPath $RegistryFixture -Raw | ConvertFrom-TerraformJson
+        $registry.harvestedOn = '2026-10-08T00:00:00Z'
+        ($registry.providers | Where-Object name -eq 'null' | Where-Object namespace -eq 'hashicorp').latest = '3.3.0'
+        $userRegistry = InModuleScope TerraformGraph { $script:TerraformRegistryUserCachePath }
+        New-Item -ItemType Directory -Path (Split-Path $userRegistry -Parent) -Force | Out-Null
+        $registry | ConvertTo-TerraformJson | Set-Content -LiteralPath $userRegistry
+        Remove-Item -LiteralPath $docPath
+
+        $rows = @(Test-TerraformGraphBundle -BundlePath $path -DistPath $dist -ErrorAction Stop)
+        @($rows | ForEach-Object { "$($_.Item)|$($_.Status)" }) | Should -Be @(
+            'registry|Stale'
+            'entry registry.terraform.io/hashicorp/null|Stale'
+            'docs registry.terraform.io/hashicorp/null|Missing'
+        )
+        $rows[1].Detail | Should -BeLike "Version 3.2.3; the registry cache's latest is 3.3.0.*"
+        $failure = $null
+        try { Test-TerraformGraphBundle -BundlePath $path -DistPath $dist -Strict -ErrorAction Stop | Out-Null } catch { $failure = $_ }
+        $failure.FullyQualifiedErrorId | Should -Be 'BundleNotFresh,Test-TerraformGraphBundle'
+        "$failure" | Should -BeLike '3 of 3 bundle checks are not fresh*registry `[Stale`]*docs registry.terraform.io/hashicorp/null `[Missing`]*'
+    }
+
+    It "checks each bundled classifier's mapVersion against map.json" {
+        $path = Join-Path $Root 'out' 'bundle.json'
+        $null = New-TerraformGraphBundle -Tier @() -Provider hashicorp/null -Exclude @() -OutputPath $path -ErrorAction Stop
+        $classifiers = InModuleScope TerraformGraph { $script:TerraformClassifierBundledRoot }
+        New-Item -ItemType Directory -Path $classifiers | Out-Null
+        '{ "provider": "registry.terraform.io/hashicorp/null", "version": "3.2.3", "mapVersion": "000000000000", "types": [], "findings": [] }' |
+            Set-Content -LiteralPath (Join-Path $classifiers 'registry.terraform.io-hashicorp-null.3.2.3.json')
+        $row = Test-TerraformGraphBundle -BundlePath $path -DistPath (Join-Path $Root 'dist') | Where-Object Item -like 'mapVersion *'
+        $row.Item | Should -Be 'mapVersion registry.terraform.io/hashicorp/null 3.2.3'
+        $row.Status | Should -Be 'Stale'
+        $row.Detail | Should -BeLike 'mapVersion 000000000000; map.json is *. Run Invoke-Build BuildClassifier.'
+    }
+
+    It "harvests a bundle provider by provider: a failure is a warning and a Failed row, and -Resume skips cached versions offline" {
+        $path = Join-Path $Root 'out' 'bundle.json'
+        $null = New-TerraformGraphBundle -Tier @() -Provider hashicorp/null, hashicorp/aws -Exclude @() -OutputPath $path -ErrorAction Stop
+        Mock -ModuleName TerraformGraph Find-TerraformProviderDocVersion {
+            if ($Name -eq 'aws') { throw 'registry said no' }
+            [pscustomobject]@{ Version = $Version; VersionId = '42' }
+        }
+        Mock -ModuleName TerraformGraph Get-TerraformProviderDocHarvest {
+            [pscustomobject]@{ Category = 'overview'; Title = 'null'; Subcategory = $null; Slug = 'index'; Content = 'o' }
+            [pscustomobject]@{ Category = 'resources'; Title = 'resource'; Subcategory = 'Utility'; Slug = 'resource'; Content = 'r' }
+        }
+
+        $summary = Update-TerraformProviderDocCache -BundlePath $path -WarningVariable warnings -WarningAction SilentlyContinue -ErrorAction Stop
+        $summary.PSObject.TypeNames[0] | Should -Be 'TerraformGraph.DocHarvestSummary'
+        $summary.ProviderCount | Should -Be 2
+        $summary.PageCount | Should -Be 2
+        $summary.FailureCount | Should -Be 1
+        @($summary.Providers | ForEach-Object { "$($_.ProviderAddress)|$($_.Version)|$($_.Status)" }) | Should -Be @(
+            'registry.terraform.io/hashicorp/aws|5.60.0|Failed'
+            'registry.terraform.io/hashicorp/null|3.2.3|Harvested'
+        )
+        $summary.Failures[0].Error | Should -Be 'registry said no'
+        @($warnings | ForEach-Object { "$_" }) | Should -Be @('Docs for registry.terraform.io/hashicorp/aws 5.60.0 failed: registry said no')
+
+        $resumed = Update-TerraformProviderDocCache -BundlePath $path -Resume -WarningAction SilentlyContinue -ErrorAction Stop
+        ($resumed.Providers | Where-Object ProviderAddress -like '*/null').Status | Should -Be 'Cached'
+        Should -Invoke -ModuleName TerraformGraph Find-TerraformProviderDocVersion -Times 1 -Exactly -ParameterFilter { $Name -eq 'null' }
+        Should -Invoke -ModuleName TerraformGraph Get-TerraformProviderDocHarvest -Times 1 -Exactly
+
+        { Update-TerraformProviderDocCache -Provider hashicorp/aws -ErrorAction Stop } | Should -Throw 'registry said no'
+        { Update-TerraformProviderDocCache -Provider hashicorp/null -Resume -Force -ErrorAction Stop } | Should -Throw '*pass one or the other*'
+    }
+}
+
+Describe "Survey" {
+
+    BeforeAll {
+        Set-Variable -Name SavedPaths -Scope Script -Value (InModuleScope TerraformGraph {
+                @{
+                    RegistryBundled = $script:TerraformRegistryBundledPath
+                    RegistryUser    = $script:TerraformRegistryUserCachePath
+                    Docs            = $script:TerraformDocCacheRoot
+                }
+            })
+        # The null and local docs with the Classifiers fixture's subcategories applied, so the
+        # survey sees labelled pages, unlabelled pages and one missing page.
+        $edits = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'fixtures' 'classifiers' 'subcategories.json') -Raw | ConvertFrom-TerraformJson -AsHashtable
+        $docs = foreach ($name in 'null-3.2.3', 'local-2.5.2') {
+            $document = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'fixtures' 'docs' "$name.json") -Raw | ConvertFrom-TerraformJson -AsHashtable
+            $document['docs'] = [object[]]@($document['docs'] | Where-Object { $edits['remove'] -notcontains $_['id'] } | ForEach-Object {
+                    if ($edits['subcategories'].Contains($_['id'])) { $_['subcategory'] = $edits['subcategories'][$_['id']] }
+                    $_
+                })
+            $document
+        }
+        Set-Variable -Name SurveyDocs -Scope Script -Value @($docs)
+    }
+
+    AfterAll {
+        InModuleScope TerraformGraph -Parameters @{ S = $SavedPaths } {
+            param($S)
+            $script:TerraformRegistryBundledPath = $S.RegistryBundled
+            $script:TerraformRegistryUserCachePath = $S.RegistryUser
+            $script:TerraformRegistryCacheMemo = $null
+            $script:TerraformDocCacheRoot = $S.Docs
+        }
+    }
+
+    BeforeEach {
+        $root = Join-Path $TestDrive "survey-$([guid]::NewGuid().ToString('n'))"
+        InModuleScope TerraformGraph -Parameters @{ Root = $root; Registry = (Join-Path $PSScriptRoot 'fixtures' 'registry.sample.json'); Docs = $SurveyDocs } {
+            param($Root, $Registry, $Docs)
+            $script:TerraformRegistryBundledPath = $Registry
+            $script:TerraformRegistryUserCachePath = Join-Path $Root 'user' 'registry.json'
+            $script:TerraformRegistryCacheMemo = $null
+            $script:TerraformDocCacheRoot = Join-Path $Root 'docs'
+            foreach ($document in $Docs) { $null = Write-TerraformSchemaCache -Provider $document['address'] -Version $document['version'] -Document $document -Kind Docs }
+        }
+        Set-Variable -Name Root -Scope Script -Value $root
+    }
+
+    It "returns one row per provider and label, with a NoSubcategory row for unlabelled pages" {
+        $rows = @(Get-TerraformSubcategorySurvey -Provider null, local -ErrorAction Stop)
+        $rows[0].PSObject.TypeNames[0] | Should -Be 'TerraformGraph.SubcategorySurveyRow'
+        @($rows | ForEach-Object { "$($_.ProviderAddress)|$($_.Version)|$($_.Subcategory)|$($_.ResourceCount)|$($_.DataSourceCount)|$($_.Status)" }) | Should -Be @(
+            'registry.terraform.io/hashicorp/local|2.5.2|Files|1|1|Labeled'
+            'registry.terraform.io/hashicorp/local|2.5.2||1|0|NoSubcategory'
+            'registry.terraform.io/hashicorp/null|3.2.3|Deprecated|0|1|Labeled'
+            'registry.terraform.io/hashicorp/null|3.2.3|Utility|1|0|Labeled'
+        )
+        { Get-TerraformSubcategorySurvey -Provider azurerm -ErrorAction Stop } | Should -Throw "*No cached provider docs match 'azurerm'*"
+    }
+
+    It "surveys a bundle's providers, warns once about the uncached ones and writes the same bytes on every run" {
+        $bundle = Join-Path $Root 'bundle.json'
+        $null = New-TerraformGraphBundle -Tier @() -Provider hashicorp/null, hashicorp/aws -Exclude @() -OutputPath $bundle -ErrorAction Stop
+        $out = Join-Path $Root 'survey'
+        $rows = @(Get-TerraformSubcategorySurvey -BundlePath $bundle -OutputPath $out -PassThru -WarningVariable warnings -WarningAction SilentlyContinue -ErrorAction Stop)
+        $rows.Count | Should -Be 2
+        $warnings | Should -HaveCount 1
+        "$($warnings[0])" | Should -BeLike 'No cached docs for 1 of 2 providers in the bundle*registry.terraform.io/hashicorp/aws*-Resume.'
+
+        $file = Join-Path $out 'subcategories.json'
+        $bytes = [System.IO.File]::ReadAllBytes($file)
+        Get-TerraformSubcategorySurvey -BundlePath $bundle -OutputPath $out -WarningAction SilentlyContinue | Should -BeNullOrEmpty
+        [System.IO.File]::ReadAllBytes($file) | Should -Be $bytes
+
+        $survey = [System.IO.File]::ReadAllText($file) | ConvertFrom-TerraformJson -AsHashtable
+        @($survey.Keys) | Should -Be @('formatVersion', 'source', 'bundle', 'summary', 'providers', 'missing', 'labels', 'noSubcategory', 'rows')
+        $survey['bundle']['providers'] | Should -Be @('registry.terraform.io/hashicorp/aws', 'registry.terraform.io/hashicorp/null')
+        $survey['bundle']['registry']['harvestedOn'] | Should -Be '2026-10-01T12:00:00Z'
+        $survey['providers'][0]['harvestedOn'] | Should -Be '2026-10-07T03:49:24Z'
+        $survey['missing'][0]['provider'] | Should -Be 'registry.terraform.io/hashicorp/aws'
+        @($survey['labels'] | ForEach-Object { "$($_['subcategory'])|$($_['providerCount'])" }) | Should -Be @('Deprecated|1', 'Utility|1')
+        $survey['summary']['labelCount'] | Should -Be 2
+    }
+}
+
+Describe "Ontology" {
+
+    It "resolves every term in ONTOLOGY.md's terminology table to an exported command, a typed object property or a data file" {
+        $repoRoot = Split-Path $PSScriptRoot -Parent
+        $moduleRoot = Join-Path $repoRoot 'src' 'TerraformGraph'
+        $text = Get-Content -LiteralPath (Join-Path $repoRoot 'ONTOLOGY.md') -Raw
+        $section = [regex]::Match($text, '(?ms)^## Terminology\s*$(.*?)(?=^## )').Groups[1].Value
+        $rows = @([regex]::Matches($section, '(?m)^\|(?!\s*-)(?!\s*Term\s*\|)\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|') | ForEach-Object { [pscustomobject]@{ Term = $_.Groups[1].Value; Names = $_.Groups[2].Value } })
+        @($rows.Term) | Should -Be @('Id', 'node', 'edge', 'finding', 'pack', 'bundle', 'drawer', 'classifier', 'map row', 'source', 'era')
+
+        # PSTypeName -> property names, from the hashtable literals that build each typed object.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $moduleRoot 'TerraformGraph.psm1'), [ref]$null, [ref]$null)
+        $typed = @{}
+        foreach ($hashtable in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.HashtableAst] }, $true)) {
+            $keys = @($hashtable.KeyValuePairs | ForEach-Object { $_.Item1.Extent.Text.Trim('''', '"') })
+            $pair = $hashtable.KeyValuePairs | Where-Object { $_.Item1.Extent.Text -eq 'PSTypeName' } | Select-Object -First 1
+            if (-not $pair) { continue }
+            $typeName = $pair.Item2.Extent.Text.Trim('''', '"')
+            if (-not $typed.ContainsKey($typeName)) { $typed[$typeName] = [System.Collections.Generic.HashSet[string]]::new() }
+            foreach ($key in $keys) { $null = $typed[$typeName].Add($key) }
+        }
+        $exported = @((Get-Module TerraformGraph).ExportedFunctions.Keys)
+
+        foreach ($row in $rows) {
+            $names = @([regex]::Matches($row.Names, '`([^`]+)`') | ForEach-Object { $_.Groups[1].Value })
+            $names.Count | Should -BeGreaterThan 0 -Because "the '$($row.Term)' row must name something in the module"
+            foreach ($name in $names) {
+                $resolved = if ($name -match '^[A-Z][a-z]+-Terraform\w+$') { $exported -contains $name }
+                elseif ($name -match '^(TerraformGraph\.\w+)\.(\w+)$') { $typed.ContainsKey($Matches[1]) -and $typed[$Matches[1]].Contains($Matches[2]) }
+                elseif ($name -match '^TerraformGraph\.\w+$') { $typed.ContainsKey($name) }
+                elseif ($name -match '[/\\]|\.(json|md)$') { (Test-Path -LiteralPath (Join-Path $moduleRoot $name)) -or (Test-Path -LiteralPath (Join-Path $repoRoot $name)) }
+                else { $false }
+                $resolved | Should -BeTrue -Because "'$name' in the '$($row.Term)' row must be an exported command, TerraformGraph.<Type>[.<Property>] or a data file"
+            }
+        }
+    }
+
+    It "keeps the two doors: README's first line points to ONTOLOGY.md and ONTOLOGY.md links back first" {
+        $repoRoot = Split-Path $PSScriptRoot -Parent
+        $readme = @(Get-Content -LiteralPath (Join-Path $repoRoot 'README.md'))
+        $readme[0] | Should -BeLike '> *ONTOLOGY.md*'
+        @($readme | Select-Object -Skip 1 | Where-Object { $_ -match 'ontolog' }) | Should -BeNullOrEmpty
+        $ontology = @(Get-Content -LiteralPath (Join-Path $repoRoot 'ONTOLOGY.md') | Where-Object { $_.Trim() })
+        $ontology[0] | Should -BeLike '> *'
+        $ontology[1] | Should -BeLike '*README.md*'
+    }
 }

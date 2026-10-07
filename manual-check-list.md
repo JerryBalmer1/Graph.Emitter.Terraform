@@ -1,7 +1,7 @@
 # TerraformGraph manual check list
 
-Module version: 0.12.0
-Last updated: 2026-10-06
+Module version: 0.13.0
+Last updated: 2026-10-07
 
 ## 0 Setup
 
@@ -17,9 +17,9 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.12.0`, then twenty-two names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformClassifier, Get-TerraformClassifierFinding, Get-TerraformDocCache, Get-TerraformDocPack, Get-TerraformModuleGraph, Get-TerraformProviderDoc, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformVariableTrace, Install-TerraformGraphSkill, New-TerraformClassifier, Test-TerraformGraphSkill, Update-TerraformProviderDocCache, Update-TerraformRegistryCache.
+Expect: `0.13.0`, then twenty-six names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformClassifier, Get-TerraformClassifierFinding, Get-TerraformDocCache, Get-TerraformDocPack, Get-TerraformGraphBundle, Get-TerraformModuleGraph, Get-TerraformProviderDoc, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformSubcategorySurvey, Get-TerraformVariableTrace, Install-TerraformGraphSkill, New-TerraformClassifier, New-TerraformGraphBundle, Test-TerraformGraphBundle, Test-TerraformGraphSkill, Update-TerraformProviderDocCache, Update-TerraformRegistryCache.
 
-Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph", "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from TerraformGraph", "exports the four docs commands from TerraformGraph", "exports the three classifier commands from TerraformGraph"
+Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph", "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from TerraformGraph", "exports the four docs commands from TerraformGraph", "exports the three classifier commands from TerraformGraph", "exports the bundle commands and ships a bundled manifest with the official tier and two extras"
 
 ## 1 Get-TerraformAST
 
@@ -1634,7 +1634,7 @@ Get-TerraformClassifierFinding -Provider azurerm | Group-Object Subcategory | So
 Get-TerraformClassifierFinding -Provider azurerm | Select-Object -First 3
 ```
 
-Expect: A list with ProviderAddress `registry.terraform.io/hashicorp/azurerm`, Version `5.8.0`, DocsVersion `5.8.0`, TypeCount `1502`, FindingCount `101`. Then the twelve unmapped subcategories: API Management 64, Healthcare 11, App Configuration 6, Connections 3, Search 3, Workloads 3, then 2 each for Confidential Ledger, Databox Edge, Extended Location, Graph Services and Maps, and Fluid Relay 1. Then a table with columns Type, Kind, Subcategory, Finding: azurerm_api_connection (data-source, then resource) and azurerm_api_management (data-source), all `UnmappedSubcategory`.
+Expect: A list with ProviderAddress `registry.terraform.io/hashicorp/azurerm`, Version `5.8.0`, DocsVersion `5.8.0`, TypeCount `1502`, FindingCount `34`. Then the ten unmapped subcategories: Healthcare 11, App Configuration 6, Search 3, Workloads 3, then 2 each for Confidential Ledger, Databox Edge, Extended Location, Graph Services and Maps, and Fluid Relay 1. (In 0.12.0 it was 101 findings: API Management 64 and Connections 3 are now in the integration drawer, DECISIONS 41 and 42.) Then a table with columns Type, Kind, Subcategory, Finding: azurerm_app_configuration (data-source, then resource) and azurerm_app_configuration_feature (resource), all `UnmappedSubcategory`.
 
 Pester: "puts NoDocPage, NoSubcategory and UnmappedSubcategory types in the unclassified drawer; a provider row beats a * row", "keeps the bundled classifiers in step with map.json"
 
@@ -1692,10 +1692,143 @@ Regenerates the bundled classifiers from the local caches with no network, then 
 Set-Location 'C:\__Code\TerraformGraph'
 Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
 Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$before = (Get-FileHash .\src\TerraformGraph\classifiers\*.json).Hash
 Invoke-Build BuildClassifier
-git diff --stat -- src\TerraformGraph\classifiers
+"unchanged: $(-not (Compare-Object $before (Get-FileHash .\src\TerraformGraph\classifiers\*.json).Hash))"
 ```
 
-Expect: `registry.terraform.io/hashicorp/azurerm 5.8.0 (docs 5.8.0): Unchanged, 1502 types, 101 findings`, a drawers line (network 178, compute 175, ... unclassified 101) and a table of twelve `UnmappedSubcategory` rows. Then `registry.terraform.io/microsoft/azuredevops 1.16.0 (docs 1.16.0): Unchanged, 177 types, 177 findings` with `NoDocPage 1` and `NoSubcategory 176`. Then `registry.terraform.io/vmware/vsphere 2.17.1 (docs 2.17.1): Unchanged, 87 types, 1 findings` with `NoDocPage 1`. About 6 s in all. Status is `Updated` only after map.json or the caches change. git diff prints nothing, because no file was rewritten.
+Expect: `registry.terraform.io/hashicorp/azurerm 5.8.0 (docs 5.8.0): Unchanged, 1502 types, 34 findings`, a drawers line (network 178, compute 175, storage 121, database 122, identity 20, security 95, messaging 81, integration 86, ... unclassified 34; no serverless entry, since Logic App moved to integration) and a table of ten `UnmappedSubcategory` rows. Then `registry.terraform.io/microsoft/azuredevops 1.16.0 (docs 1.16.0): Unchanged, 177 types, 0 findings` with `drawers: identity 27, management 1, devops 149` and no table. Then `registry.terraform.io/vmware/vsphere 2.17.1 (docs 2.17.1): Unchanged, 87 types, 1 findings` with `NoDocPage 1`. About 6 s in all. Status is `Updated` only after map.json or the caches change. Then `unchanged: True`, because no file was rewritten.
 
 Pester: "keeps the bundled classifiers in step with map.json"
+
+## 15 Bundle and survey: Get-TerraformGraphBundle, New-TerraformGraphBundle, Test-TerraformGraphBundle, Get-TerraformSubcategorySurvey, Update-TerraformProviderDocCache -BundlePath
+
+Data for 15.1, 15.5 and 15.6 comes from the HarvestBundleDocs run of 2026-10-07; counts and dates move when the bundle is harvested again.
+
+### 15.1 Get-TerraformGraphBundle
+
+Reads the bundled manifest. The default view is a table of entries.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformGraphBundle -Path .\src\TerraformGraph\data\bundle.json
+Get-TerraformGraphBundle -Path .\src\TerraformGraph\data\bundle.json -Document | Format-List Tiers, Providers, Exclude, RegistryHarvestedOn, RegistryProviderCount, EntryCount
+```
+
+Expect: a table of 36 rows, ProviderAddress, Version, DocsVersion, SchemaVersion, ClassifierVersion, HarvestedOn, sorted by address from `registry.terraform.io/ansible/aap` to `registry.terraform.io/vmware/vsphere`. Every DocsVersion equals Version. Only azurerm 5.8.0, azuredevops 1.16.0 and vsphere 2.17.1 have SchemaVersion and ClassifierVersion. Then the list: Tiers `{official}`, Providers `{registry.terraform.io/microsoft/azuredevops, registry.terraform.io/vmware/vsphere}`, Exclude `{}`, RegistryHarvestedOn `2026-10-07T02:55:12Z`, RegistryProviderCount `428`, EntryCount `36`. Versions and dates follow the last HarvestBundleDocs run.
+
+Pester: "exports the bundle commands and ships a bundled manifest with the official tier and two extras", "takes unbound -Tier, -Provider and -Exclude from the bundled manifest, and reads the user copy first"
+
+### 15.2 New-TerraformGraphBundle to a temp path
+
+Resolves a wildcard and an exclusion against the bundled registry cache, rewrites byte-identically, and rejects a pattern that matches nothing. Never touches the network.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$out = Join-Path $env:TEMP 'tg-bundle-15-2.json'
+New-TerraformGraphBundle -Tier @() -Provider 'hashicorp/azure*', vmware/vsphere -Exclude hashicorp/azurestack -OutputPath $out -PassThru | Format-List Tiers, Providers, Exclude, EntryCount
+Get-TerraformGraphBundle -Path $out | Format-Table ProviderAddress, Version, DocsVersion, SchemaVersion, ClassifierVersion
+$hash = (Get-FileHash $out).Hash
+New-TerraformGraphBundle -Tier @() -Provider 'hashicorp/azure*', vmware/vsphere -Exclude hashicorp/azurestack -OutputPath $out
+(Get-FileHash $out).Hash -eq $hash
+New-TerraformGraphBundle -Tier @() -Provider 'nosuchnamespace/x*' -OutputPath $out
+Remove-Item $out
+```
+
+Expect: Tiers `{}`, Providers listing the four addresses the wildcard and vsphere matched (azuread, azurerm, azurestack, vsphere: `providers` keeps the expansion, the exclusion applies when resolving), Exclude `{hashicorp/azurestack}`, EntryCount `3`. Then three rows: azuread 3.10.0 with DocsVersion 3.10.0 and no schema or classifier, azurerm 5.8.0 and vsphere 2.17.1 with all four versions. Then `True` (the rewrite is byte-identical). Then the error `'nosuchnamespace/x*' matches no provider in the registry cache C:\__Code\TerraformGraph\src\TerraformGraph\data\registry.json (harvested 2026-10-07T02:55:12Z). Run Update-TerraformRegistryCache, or fix the pattern.`
+
+Pester: "resolves tiers, extra providers and exclusions against the registry cache in New-TerraformGraphBundle"
+
+### 15.3 Update-TerraformProviderDocCache -BundlePath -Resume on the two extras
+
+A bundle of just azuredevops and vsphere, both already cached, so -Resume makes no network call.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$out = Join-Path $env:TEMP 'tg-bundle-15-3.json'
+New-TerraformGraphBundle -Tier @() -Provider microsoft/azuredevops, vmware/vsphere -Exclude @() -OutputPath $out
+$summary = Update-TerraformProviderDocCache -BundlePath $out -Resume
+$summary | Format-List ProviderCount, PageCount, UnmatchedCount, FailureCount, Elapsed
+$summary.Providers | Format-Table ProviderAddress, Version, Status, DocCount, UnmatchedCount
+Remove-Item $out
+```
+
+Expect: ProviderCount `2`, PageCount `270`, UnmatchedCount `1`, FailureCount `0`, Elapsed well under a second. Then `registry.terraform.io/microsoft/azuredevops 1.16.0 Cached 183 1` and `registry.terraform.io/vmware/vsphere 2.17.1 Cached 87 0`. Without -Resume the same call harvests both again over the network (7 s for the two in the 2026-10-07 run).
+
+Pester: "harvests a bundle provider by provider: a failure is a warning and a Failed row, and -Resume skips cached versions offline"
+
+### 15.4 Get-TerraformSubcategorySurvey for vsphere
+
+One row per label from the docs cache only.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformSubcategorySurvey -Provider vsphere
+```
+
+Expect: a table of nine rows, ProviderAddress, Subcategory, ResourceCount, DataSourceCount, Status, all `Labeled`: Administration 1 1, Host and Cluster Management 14 8, Inventory 6 7, Lifecycle 1 1, Networking 5 2, Security 4 3, Storage 7 5, Virtual Machine 8 6, Workload Management 5 2. No NoSubcategory row: every vsphere page is labelled.
+
+Pester: "returns one row per provider and label, with a NoSubcategory row for unlabelled pages"
+
+### 15.5 azuredevops drawers after the prefix map
+
+Reads the bundled classifier directly, so a classifier in your user folder cannot shadow it.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$devops = Get-TerraformClassifier -Provider microsoft/azuredevops -ClassifierPath .\src\TerraformGraph\classifiers
+$devops | Format-List Version, Source, TypeCount, FindingCount
+$devops.Types | Group-Object Drawer | Sort-Object Count -Descending | Format-Table Count, Name
+$devops.Types | Where-Object Type -like 'azuredevops_git*' | Format-Table Type, Kind, Drawer, Source
+```
+
+Expect: Version `1.16.0`, Source `subcategory,prefix`, TypeCount `177`, FindingCount `0`. Then devops 149, identity 27, management 1 (in 0.12.0 all 177 were unclassified: 176 NoSubcategory, 1 NoDocPage). Then seven git rows, from azuredevops_git_permissions to azuredevops_git_repository_file, all `devops` with Source `prefix`.
+
+Pester: "keeps every bundled prefix row matching a type of its provider's bundled classifier", "places only unlabelled types by prefix, longest prefix first, and records the row kind per type"
+
+### 15.6 Test-TerraformGraphBundle -Strict
+
+The release gate on the shipped data, then on a copy with one deliberate change. Run from the repo root so dist\schema-packs is checked too.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json -Strict | Group-Object Status | Format-Table Count, Name
+Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json | Where-Object Item -like '*azuredevops*' | Format-Table -AutoSize -Wrap
+$stale = Join-Path $env:TEMP 'tg-bundle-15-6.json'
+(Get-Content .\src\TerraformGraph\data\bundle.json -Raw).Replace('"providerCount": 428', '"providerCount": 427') | Set-Content $stale
+Test-TerraformGraphBundle -BundlePath $stale -Strict | Out-Null
+pwsh -NoProfile -Command "Import-Module .\src\TerraformGraph\TerraformGraph.psd1; Test-TerraformGraphBundle -BundlePath $stale -Strict | Out-Null"; "exit $LASTEXITCODE"
+Remove-Item $stale
+```
+
+Expect: `88 Fresh` (no Stale or Missing, no error). Then seven azuredevops rows, all Fresh: entry, docs (183 pages), schema, classifier, mapVersion, pack schema and pack docs. Then the -Strict error `1 of 88 bundle checks are not fresh (...tg-bundle-15-6.json): registry [Stale]: The bundle was resolved against a registry cache harvested 2026-10-07T02:55:12Z (427 providers); ...data\registry.json was harvested 2026-10-07T02:55:12Z (428 providers). Rerun New-TerraformGraphBundle ...`, the same error from the child process, and `exit 1`. Without dist\schema-packs there are 82 rows (no pack rows).
+
+Pester: "reports Fresh, Stale and Missing rows in Test-TerraformGraphBundle and throws with -Strict", "checks each bundled classifier's mapVersion against map.json"
+
+### 15.7 Invoke-Build HarvestBundleDocs elapsed
+
+With -Resume and every provider cached this takes seconds and shows the task's full output. Without -Resume it harvests all 36 providers again (network). It ends by refreshing data\bundle.json and writing dist\survey\subcategories.json, both byte-identical when nothing changed.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Invoke-Build HarvestBundleDocs -Resume
+git status --short -- src\TerraformGraph\data
+```
+
+Expect: 36 rows, all `Cached`, the largest awscc 1.104.0 4521, aws 6.67.0 2414, google and google-beta 8.6.0 1685, azurerm 5.8.0 1518 and ibm 2.6.2 1445. Then `Providers 36, pages 14,686, unmatched 3, failures 0, elapsed 00:00:02`, `Refreshed ...data\bundle.json`, `Survey: 36 providers (0 missing), 661 distinct labels, 893 rows, 28 providers with unlabelled pages`, and the top 20 labels, led by nine labels with providerCount 3 (Agent Registry, API Gateway, Base, Cloud IAM, Cloud Platform, Container Registry, License Manager, Service Networking, Storage). About 15 s. git status shows no change to data\ beyond what is already staged. Measured full runs on 2026-10-07: without -Resume, 12 min 28 s, 3,374 pages, 17 providers failed with 429 (backoff before 0.13.0); then -Resume with the 0.13.0 backoff, 12 min 17 s, the 17 harvested, 0 failures.
+
+Pester: none

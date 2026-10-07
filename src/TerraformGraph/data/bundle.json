@@ -1,0 +1,305 @@
+{
+  "formatVersion": 1,
+  "tiers": [
+    "official"
+  ],
+  "providers": [
+    "registry.terraform.io/microsoft/azuredevops",
+    "registry.terraform.io/vmware/vsphere"
+  ],
+  "exclude": [],
+  "registry": {
+    "harvestedOn": "2026-10-07T02:55:12Z",
+    "providerCount": 428
+  },
+  "entries": [
+    {
+      "provider": "registry.terraform.io/ansible/aap",
+      "version": "1.5.0",
+      "docsVersion": "1.5.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T04:54:51Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/ad",
+      "version": "0.5.0",
+      "docsVersion": "0.5.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T04:54:52Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/archive",
+      "version": "2.8.1",
+      "docsVersion": "2.8.1",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T04:54:53Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/aws",
+      "version": "6.67.0",
+      "docsVersion": "6.67.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T04:55:56Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/awscc",
+      "version": "1.104.0",
+      "docsVersion": "1.104.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:14:08Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/azuread",
+      "version": "3.10.0",
+      "docsVersion": "3.10.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:01:47Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/azurerm",
+      "version": "5.8.0",
+      "docsVersion": "5.8.0",
+      "schemaVersion": "5.8.0",
+      "classifierVersion": "5.8.0",
+      "harvestedOn": "2026-10-07T03:55:31Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/azurestack",
+      "version": "1.0.0",
+      "docsVersion": "1.0.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:14:13Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/boundary",
+      "version": "1.6.1",
+      "docsVersion": "1.6.1",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:14:14Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/cloudinit",
+      "version": "2.4.1",
+      "docsVersion": "2.4.1",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:14:15Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/consul",
+      "version": "2.23.0",
+      "docsVersion": "2.23.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:14:17Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/dns",
+      "version": "3.6.2",
+      "docsVersion": "3.6.2",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:14:18Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/external",
+      "version": "2.4.2",
+      "docsVersion": "2.4.2",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:14:18Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/google",
+      "version": "8.6.0",
+      "docsVersion": "8.6.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:15:01Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/google-beta",
+      "version": "8.6.0",
+      "docsVersion": "8.6.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:19:17Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/hcp",
+      "version": "0.114.0",
+      "docsVersion": "0.114.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:19:23Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/hcs",
+      "version": "0.5.1",
+      "docsVersion": "0.5.1",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:19:24Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/helm",
+      "version": "3.3.0",
+      "docsVersion": "3.3.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:19:25Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/http",
+      "version": "3.6.2",
+      "docsVersion": "3.6.2",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:19:25Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/kubernetes",
+      "version": "3.3.0",
+      "docsVersion": "3.3.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:19:28Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/local",
+      "version": "2.9.1",
+      "docsVersion": "2.9.1",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:19:29Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/nomad",
+      "version": "2.6.1",
+      "docsVersion": "2.6.1",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:04:26Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/null",
+      "version": "3.3.2",
+      "docsVersion": "3.3.2",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:04:27Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/random",
+      "version": "3.9.1",
+      "docsVersion": "3.9.1",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:04:27Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/template",
+      "version": "2.2.0",
+      "docsVersion": "2.2.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:04:28Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/tfe",
+      "version": "0.81.0",
+      "docsVersion": "0.81.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:04:31Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/tfmigrate",
+      "version": "1.2.0",
+      "docsVersion": "1.2.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:04:32Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/time",
+      "version": "0.14.2",
+      "docsVersion": "0.14.2",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:04:33Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/tls",
+      "version": "4.4.1",
+      "docsVersion": "4.4.1",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:04:33Z"
+    },
+    {
+      "provider": "registry.terraform.io/hashicorp/vault",
+      "version": "5.12.0",
+      "docsVersion": "5.12.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:04:41Z"
+    },
+    {
+      "provider": "registry.terraform.io/ibm-cloud/ibm",
+      "version": "2.6.2",
+      "docsVersion": "2.6.2",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:19:53Z"
+    },
+    {
+      "provider": "registry.terraform.io/ibm/ode",
+      "version": "1.0.1",
+      "docsVersion": "1.0.1",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:06:56Z"
+    },
+    {
+      "provider": "registry.terraform.io/ibm/turbonomic",
+      "version": "2.0.0",
+      "docsVersion": "2.0.0",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:06:58Z"
+    },
+    {
+      "provider": "registry.terraform.io/instana/instana",
+      "version": "7.8.2",
+      "docsVersion": "7.8.2",
+      "schemaVersion": null,
+      "classifierVersion": null,
+      "harvestedOn": "2026-10-07T05:07:00Z"
+    },
+    {
+      "provider": "registry.terraform.io/microsoft/azuredevops",
+      "version": "1.16.0",
+      "docsVersion": "1.16.0",
+      "schemaVersion": "1.16.0",
+      "classifierVersion": "1.16.0",
+      "harvestedOn": "2026-10-07T05:07:05Z"
+    },
+    {
+      "provider": "registry.terraform.io/vmware/vsphere",
+      "version": "2.17.1",
+      "docsVersion": "2.17.1",
+      "schemaVersion": "2.17.1",
+      "classifierVersion": "2.17.1",
+      "harvestedOn": "2026-10-07T05:07:08Z"
+    }
+  ]
+}
