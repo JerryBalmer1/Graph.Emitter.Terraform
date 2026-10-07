@@ -675,6 +675,10 @@ Describe "TerraformGraph" {
             ($attributes | Where-Object Name -eq 'id').Computed | Should -BeTrue
         }
 
+        It "adds no /config/ nodes for the built-in provider's empty config block" {
+            @($SchemaGraph.Nodes | Where-Object Id -like 'terraform.io/builtin/terraform/config/*').Count | Should -Be 0
+        }
+
         It "puts terraform_remote_state under /data/ as a DataSource" {
             $data = $SchemaGraph.Nodes | Where-Object Path -eq 'terraform_remote_state'
             $data.Kind | Should -Be 'DataSource'
@@ -779,6 +783,50 @@ Describe "TerraformGraph" {
                 $resource | Should -Not -BeNullOrEmpty
                 $triggers = $graph.Nodes | Where-Object { $_.Kind -eq 'Attribute' -and $_.ParentId -eq $resource.Id -and $_.Name -eq 'triggers' }
                 $triggers.Type | Should -Be 'map(string)'
+            }
+        }
+
+        Context "-Provider tls (registry)" -Skip:(-not (Test-Connection registry.terraform.io -Count 1 -Quiet)) {
+
+            BeforeAll {
+                # random 3.6.3 and local 2.5.2 have empty provider config blocks; tls has a proxy block.
+                $graph = Get-TerraformProviderSchema -Provider tls -Version '= 4.0.6' -Cleanup -ErrorAction Stop |
+                    ConvertTo-TerraformSchemaGraph -ErrorAction Stop
+                Set-Variable -Name TlsGraph -Value $graph -Scope Script
+            }
+
+            It "adds the proxy config Block under the Provider node" {
+                $proxy = $TlsGraph.Nodes | Where-Object Id -eq 'registry.terraform.io/hashicorp/tls/config/proxy'
+                $proxy.Kind | Should -Be 'Block'
+                $proxy.Path | Should -Be 'tls.proxy'
+                $proxy.ParentId | Should -Be 'registry.terraform.io/hashicorp/tls'
+                $proxy.Depth | Should -Be 1
+                $proxy.NestingMode | Should -Be 'list'
+            }
+
+            It "adds the proxy config Attributes one level deeper" {
+                $parentId = 'registry.terraform.io/hashicorp/tls/config/proxy'
+                $attributes = @($TlsGraph.Nodes | Where-Object { $_.Kind -eq 'Attribute' -and $_.ParentId -eq $parentId })
+                $attributes.Name | Should -Be @('from_env', 'password', 'url', 'username')
+                $url = $attributes | Where-Object Name -eq 'url'
+                $url.Id | Should -Be 'registry.terraform.io/hashicorp/tls/config/proxy/url'
+                $url.Path | Should -Be 'tls.proxy.url'
+                $url.Depth | Should -Be 2
+                $url.Type | Should -Be 'string'
+                ($attributes | Where-Object Name -eq 'password').Sensitive | Should -BeTrue
+            }
+
+            It "emits the config subtree right after the Provider node, before resources" {
+                $ids = @($TlsGraph.Nodes.Id)
+                $ids[0] | Should -Be 'registry.terraform.io/hashicorp/tls'
+                $ids[1..5] | Should -Be @(
+                    'registry.terraform.io/hashicorp/tls/config/proxy'
+                    'registry.terraform.io/hashicorp/tls/config/proxy/from_env'
+                    'registry.terraform.io/hashicorp/tls/config/proxy/password'
+                    'registry.terraform.io/hashicorp/tls/config/proxy/url'
+                    'registry.terraform.io/hashicorp/tls/config/proxy/username'
+                )
+                $ids[6] | Should -BeLike 'registry.terraform.io/hashicorp/tls/resource/*'
             }
         }
     }

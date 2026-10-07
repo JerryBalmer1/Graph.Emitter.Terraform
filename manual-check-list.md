@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.5.0
+Module version: 0.5.1
 Last updated: 2026-10-06
 
 ## 0 Setup
@@ -17,7 +17,7 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.5.0`, then six names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformSchemaGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema.
+Expect: `0.5.1`, then six names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformSchemaGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema.
 
 Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph"
 
@@ -862,3 +862,19 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 Expect: `Schema has no top-level provider_schemas. Pass the output of Get-TerraformProviderSchema, its -OutputFormat Json text, or that text through ConvertFrom-TerraformJson.`
 
 Pester: "throws when the input has no provider_schemas"
+
+### 6.6 Provider config nodes
+
+Converts the hashicorp/tls schema and lists the nodes built from the provider's own configuration block. Needs registry access.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$graph = Get-TerraformProviderSchema -Provider tls -Version '= 4.0.6' -Cleanup | ConvertTo-TerraformSchemaGraph
+$graph.Nodes | Where-Object Id -like 'registry.terraform.io/hashicorp/tls/config/*' | Format-Table Id, Kind, Path, Type, Depth
+```
+
+Expect: Five rows: `registry.terraform.io/hashicorp/tls/config/proxy` Block `tls.proxy` Depth 1, then Attributes from_env `bool`, password `string`, url `string`, username `string` at Depth 2 with Ids under `.../config/proxy/` and Paths `tls.proxy.<name>`.
+
+Pester: "adds the proxy config Block under the Provider node", "adds the proxy config Attributes one level deeper", "emits the config subtree right after the Provider node, before resources"

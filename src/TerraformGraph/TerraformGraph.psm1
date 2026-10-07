@@ -183,7 +183,7 @@ function Get-TerraformAST {
         Get-TerraformAST walks one file or a directory of Terraform configuration and
         returns the HCL blocks produced by HashiCorp HCL v2 (the language library
         Terraform uses). It is the AST layer of TerraformGraph; the module and provider
-        relationship graph is built on top of these blocks (graph layer in progress).
+        relationship graph is built on top of these blocks.
 
         Use -FilePath for a single .tf file. Use -Path for a directory. Add -Recurse
         to include .tf files in subdirectories.
@@ -1207,16 +1207,16 @@ function ConvertTo-TerraformNestedTypeJson {
 function New-TerraformSchemaNode {
     # Not exported. Builds one TerraformGraph.SchemaNode under $Parent, derives Id, Path and
     # Depth from it, and records the Contains edge. Every kind-specific property is set on
-    # every node; the ones that do not apply stay $null.
+    # every node; the ones that do not apply stay $null. -Segment inserts an Id segment
+    # between the parent and the name (config, for provider configuration children).
+    # Deliberately not an advanced function: no [Parameter()] attributes, since binding
+    # cost per call dominated large schemas such as aws.
     param(
-        [Parameter(Mandatory)]
         $Graph,
 
-        [Parameter(Mandatory)]
         [string]
         $Kind,
 
-        [Parameter(Mandatory)]
         [string]
         $Name,
 
@@ -1228,18 +1228,26 @@ function New-TerraformSchemaNode {
         $NestingMode,
         $MinItems,
         $MaxItems,
-        $TypeJson
+        $TypeJson,
+        [string]$Segment
     )
 
     switch ($Kind) {
         'Resource'   { $id = "$($Parent.Id)/resource/$Name"; $path = $Name }
         'DataSource' { $id = "$($Parent.Id)/data/$Name";     $path = $Name }
         'Function'   { $id = "$($Parent.Id)/function/$Name"; $path = $Name }
-        default      { $id = "$($Parent.Id)/$Name";          $path = "$($Parent.Path).$Name" }
+        default      { $id = if ($Segment) { "$($Parent.Id)/$Segment/$Name" } else { "$($Parent.Id)/$Name" }; $path = "$($Parent.Path).$Name" }
     }
 
     $isAttribute = $Kind -eq 'Attribute'
-    $flag = { param($key) if ($isAttribute) { [bool](Get-TerraformSchemaMember -InputObject $Raw -Name $key) } else { $null } }
+    # Flags are read inline for the dictionary case; a call per key dominated large schemas.
+    $flags = @{}
+    if ($isAttribute) {
+        $isDictionary = $Raw -is [System.Collections.IDictionary]
+        foreach ($key in 'required', 'optional', 'computed', 'sensitive', 'write_only') {
+            $flags[$key] = [bool]($isDictionary ? $Raw[$key] : (Get-TerraformSchemaMember -InputObject $Raw -Name $key))
+        }
+    }
 
     $node = [pscustomobject]@{
         PSTypeName    = 'TerraformGraph.SchemaNode'
@@ -1258,11 +1266,11 @@ function New-TerraformSchemaNode {
         MaxItems      = $MaxItems
         Type          = if ($isAttribute) { ConvertTo-TerraformTypeString -Type $TypeJson } else { $null }
         TypeJson      = if ($isAttribute -and $null -ne $TypeJson) { [TerraformGraph.Json]::Serialize($TypeJson, 1024, $true) } else { $null }
-        Required      = & $flag 'required'
-        Optional      = & $flag 'optional'
-        Computed      = & $flag 'computed'
-        Sensitive     = & $flag 'sensitive'
-        WriteOnly     = & $flag 'write_only'
+        Required      = $flags['required']
+        Optional      = $flags['optional']
+        Computed      = $flags['computed']
+        Sensitive     = $flags['sensitive']
+        WriteOnly     = $flags['write_only']
         Raw           = $Raw
     }
 
@@ -1279,51 +1287,91 @@ function New-TerraformSchemaNode {
 function Add-TerraformSchemaChildNodes {
     # Not exported. Walks a schema block, or an attribute's nested_type, depth-first:
     # attributes sorted by name, then blocks sorted by name, each followed by its subtree.
+    # -Segment applies to the direct children only (see New-TerraformSchemaNode). Not an
+    # advanced function, for the same reason as New-TerraformSchemaNode.
     param(
-        [Parameter(Mandatory)]
         $Graph,
 
-        [AllowNull()]
         $Container,
 
-        [Parameter(Mandatory)]
-        $Parent
+        $Parent,
+
+        [string]
+        $Segment
     )
 
     if ($null -eq $Container) { return }
 
-    $attributes = Get-TerraformSchemaMember -InputObject $Container -Name 'attributes'
-    foreach ($name in Get-TerraformSchemaKeys -InputObject $attributes -Sort) {
-        $attribute = Get-TerraformSchemaMember -InputObject $attributes -Name $name
-        $nested = Get-TerraformSchemaMember -InputObject $attribute -Name 'nested_type'
-        $typeJson = if ($null -ne $nested) {
-            ConvertTo-TerraformNestedTypeJson -NestedType $nested
+    # Dictionary input (the default) is read inline; Get-TerraformSchemaMember per key
+    # dominated large schemas such as aws. PSCustomObject input still goes through it.
+    $attributes = $Container -is [System.Collections.IDictionary] ? $Container['attributes'] : (Get-TerraformSchemaMember -InputObject $Container -Name 'attributes')
+    $attributesAreDictionary = $attributes -is [System.Collections.IDictionary]
+    if ($attributesAreDictionary) {
+        [string[]]$names = @($attributes.Keys)
+        [Array]::Sort($names, [System.StringComparer]::Ordinal)
+    }
+    else {
+        $names = Get-TerraformSchemaKeys -InputObject $attributes -Sort
+    }
+    foreach ($name in $names) {
+        $attribute = $attributesAreDictionary ? $attributes[$name] : (Get-TerraformSchemaMember -InputObject $attributes -Name $name)
+        if ($attribute -is [System.Collections.IDictionary]) {
+            $nested = $attribute['nested_type']
+            $type = $attribute['type']
+            $description = $attribute['description']
+            $deprecated = [bool]$attribute['deprecated']
         }
         else {
-            Get-TerraformSchemaMember -InputObject $attribute -Name 'type'
+            $nested = Get-TerraformSchemaMember -InputObject $attribute -Name 'nested_type'
+            $type = Get-TerraformSchemaMember -InputObject $attribute -Name 'type'
+            $description = Get-TerraformSchemaMember -InputObject $attribute -Name 'description'
+            $deprecated = [bool](Get-TerraformSchemaMember -InputObject $attribute -Name 'deprecated')
         }
+        $typeJson = ($null -ne $nested) ? (ConvertTo-TerraformNestedTypeJson -NestedType $nested) : $type
 
         $node = New-TerraformSchemaNode -Graph $Graph -Kind Attribute -Name $name -Parent $Parent -Raw $attribute `
-            -Description (Get-TerraformSchemaMember -InputObject $attribute -Name 'description') `
-            -Deprecated ([bool](Get-TerraformSchemaMember -InputObject $attribute -Name 'deprecated')) `
-            -TypeJson $typeJson
+            -Description $description -Deprecated $deprecated -TypeJson $typeJson -Segment $Segment
 
         if ($null -ne $nested) {
             Add-TerraformSchemaChildNodes -Graph $Graph -Container $nested -Parent $node
         }
     }
 
-    $blockTypes = Get-TerraformSchemaMember -InputObject $Container -Name 'block_types'
-    foreach ($name in Get-TerraformSchemaKeys -InputObject $blockTypes -Sort) {
-        $blockType = Get-TerraformSchemaMember -InputObject $blockTypes -Name $name
-        $inner = Get-TerraformSchemaMember -InputObject $blockType -Name 'block'
+    $blockTypes = $Container -is [System.Collections.IDictionary] ? $Container['block_types'] : (Get-TerraformSchemaMember -InputObject $Container -Name 'block_types')
+    $blockTypesAreDictionary = $blockTypes -is [System.Collections.IDictionary]
+    if ($blockTypesAreDictionary) {
+        [string[]]$names = @($blockTypes.Keys)
+        [Array]::Sort($names, [System.StringComparer]::Ordinal)
+    }
+    else {
+        $names = Get-TerraformSchemaKeys -InputObject $blockTypes -Sort
+    }
+    foreach ($name in $names) {
+        $blockType = $blockTypesAreDictionary ? $blockTypes[$name] : (Get-TerraformSchemaMember -InputObject $blockTypes -Name $name)
+        if ($blockType -is [System.Collections.IDictionary]) {
+            $inner = $blockType['block']
+            $nestingMode = $blockType['nesting_mode']
+            $minItems = $blockType['min_items']
+            $maxItems = $blockType['max_items']
+        }
+        else {
+            $inner = Get-TerraformSchemaMember -InputObject $blockType -Name 'block'
+            $nestingMode = Get-TerraformSchemaMember -InputObject $blockType -Name 'nesting_mode'
+            $minItems = Get-TerraformSchemaMember -InputObject $blockType -Name 'min_items'
+            $maxItems = Get-TerraformSchemaMember -InputObject $blockType -Name 'max_items'
+        }
+        if ($inner -is [System.Collections.IDictionary]) {
+            $description = $inner['description']
+            $deprecated = [bool]$inner['deprecated']
+        }
+        else {
+            $description = Get-TerraformSchemaMember -InputObject $inner -Name 'description'
+            $deprecated = [bool](Get-TerraformSchemaMember -InputObject $inner -Name 'deprecated')
+        }
 
         $node = New-TerraformSchemaNode -Graph $Graph -Kind Block -Name $name -Parent $Parent -Raw $blockType `
-            -Description (Get-TerraformSchemaMember -InputObject $inner -Name 'description') `
-            -Deprecated ([bool](Get-TerraformSchemaMember -InputObject $inner -Name 'deprecated')) `
-            -NestingMode (Get-TerraformSchemaMember -InputObject $blockType -Name 'nesting_mode') `
-            -MinItems (Get-TerraformSchemaMember -InputObject $blockType -Name 'min_items') `
-            -MaxItems (Get-TerraformSchemaMember -InputObject $blockType -Name 'max_items')
+            -Description $description -Deprecated $deprecated `
+            -NestingMode $nestingMode -MinItems $minItems -MaxItems $maxItems -Segment $Segment
 
         Add-TerraformSchemaChildNodes -Graph $Graph -Container $inner -Parent $node
     }
@@ -1338,7 +1386,10 @@ function ConvertTo-TerraformSchemaGraph {
         ConvertTo-TerraformSchemaGraph walks the output of Get-TerraformProviderSchema and
         returns one TerraformGraph.SchemaGraph per input document. Every provider, resource,
         data source, block and attribute becomes a TerraformGraph.SchemaNode, and every
-        node other than a provider gets one Contains edge from its parent.
+        node other than a provider gets one Contains edge from its parent. The provider's
+        own configuration block (provider_schemas[address].provider.block) becomes
+        Attribute and Block nodes directly under the Provider node, with /config/ in
+        their Id and Paths such as aws.region.
 
         Each node has two names. Id is canonical and unique within the document: it starts
         with the full provider address and adds one segment per level, such as
@@ -1352,7 +1403,8 @@ function ConvertTo-TerraformSchemaGraph {
         has the same shape whether a provider used blocks or nested attributes.
 
         Nodes are ordered depth-first and the same input always gives the same order:
-        each provider, then its resources sorted by type, each followed by its
+        each provider, then its configuration attributes (sorted) and blocks (sorted)
+        and their subtrees, then its resources sorted by type, each followed by its
         attributes (sorted) and blocks (sorted) and their subtrees, then data sources,
         then functions.
 
@@ -1400,6 +1452,7 @@ function ConvertTo-TerraformSchemaGraph {
     .NOTES
         Id scheme, where <address> is the provider_schemas key:
             Provider    <address>
+            Config      <address>/config/<name>  (Attribute or Block; Path <provider>.<name>)
             Resource    <address>/resource/<type>
             DataSource  <address>/data/<type>
             Function    <address>/function/<name>
@@ -1494,6 +1547,7 @@ function ConvertTo-TerraformSchemaGraph {
                     Raw           = $entry
                 }
                 $graph.Nodes.Add($providerNode)
+                Add-TerraformSchemaChildNodes -Graph $graph -Container $config -Parent $providerNode -Segment config
 
                 foreach ($section in @(
                         @{ Key = 'resource_schemas';    Kind = 'Resource' }

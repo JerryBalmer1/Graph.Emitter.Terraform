@@ -19,7 +19,7 @@ Parse Terraform configurations into an HCL AST and build graphs of module calls 
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.5.0**. Not yet published to the PowerShell Gallery.
+Source version **0.5.1**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -222,6 +222,7 @@ $graph.Nodes | Where-Object Kind -eq 'Resource' | Select-Object Path, Id
 | Kind | Id |
 |---|---|
 | Provider | `<address>`, e.g. `registry.terraform.io/hashicorp/aws` |
+| Config | `<address>/config/<name>`: the provider's own configuration attributes and blocks (Kind Attribute or Block), Path `<provider>.<name>`, e.g. `aws.region` |
 | Resource | `<address>/resource/<type>` |
 | DataSource | `<address>/data/<type>` |
 | Function | `<address>/function/<name>` |
