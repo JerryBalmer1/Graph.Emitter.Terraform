@@ -14,6 +14,7 @@ src/TerraformGraph/       PowerShell module root
   TerraformGraph.Json.cs  System.Text.Json serializer/deserializer (TerraformGraph.Json)
   lib/                  TerraformGraph.dll (build artifact, gitignored) + TerraformGraph.h
   skills/terraformgraph/SKILL.md  Canonical agent skill (shipped with the module)
+  data/registry.json    Bundled provider registry cache (Invoke-Build BuildRegistry; shipped)
 .claude/skills/terraformgraph/  Generated copy of the skill (Install-TerraformGraphSkill)
 AGENTS.md               Generated pointer section (Install-TerraformGraphSkill)
 infra/                  Fixture modules used by tests and README examples
@@ -36,6 +37,8 @@ Exported functions:
 - `ConvertTo-TerraformResourceGraph` — ModuleGraph (plus optional `-SchemaGraph` array) to an inventory of resource/data blocks (Nodes, Edges, Skipped, Providers, MatchedCount, UnmatchedCount, Findings); `InstanceOf` edge to the schema node when matched; top-level-only `UnknownAttributes`, `UnknownBlocks`, `MissingRequired`; Reason `NoSchemaGraph|ProviderNotInSchemaGraph|TypeNotInProvider`; never reparses.
 - `Install-TerraformGraphSkill` — copy `skills/*` into `<Path>/<tool skills folder>/` (`-Tool Claude|Codex|Cursor|Gemini|Copilot|All`, default Claude; `-Force`, `-PassThru` → SkillInstall); creates or appends once to `AGENTS.md` behind `<!-- terraformgraph-skill -->`; no network.
 - `Test-TerraformGraphSkill` — per tool SkillStatus (Detected, Installed, Stale, SkillPath); read only. Private `Show-TerraformGraphSkillHint` runs it at import and prints one host line for detected-but-not-installed tools; `TERRAFORMGRAPH_SKILL_HINT=0` silences it. Tool paths live only in the private `$script:TerraformGraphSkillTools` table.
+- `Update-TerraformRegistryCache` — harvest registry.terraform.io (v2 list, 100/page; per provider v1 `/versions` for protocols + v2 `include=provider-versions` for dates, `ForEach-Object -Parallel`, 2 retries on 429/5xx) into `-Path` (default user cache), atomic write; `-Scope OfficialPartner|All`, `-ThrottleLimit`, `-PassThru` → RegistryCache.
+- `Get-TerraformRegistryProvider` — RegistryProvider objects from the cache, never the network; `-Name` patterns (no slash = bare name in any namespace, one = namespace/name, two = address), `-Tier`, `-NoBundledData`. No cache: one warning, no output. `Get-TerraformProviderSchema -Provider` with a wildcard resolves through private `Resolve-TerraformRegistryProvider` (exactly one match, else a terminating error listing matches); without a wildcard it needs no cache.
 
 Planned: none.
 
@@ -54,6 +57,10 @@ Node types never have a property named `Address`, `Count`, `Length`, or any othe
 ## Skills
 
 `src/TerraformGraph/skills/` is canonical and ships with the module. `.claude/skills/terraformgraph/` is a generated copy: after editing the canonical `SKILL.md`, re-run `Install-TerraformGraphSkill -Path . -Tool Claude -Force` and stage both. Never edit the copy by hand. `.claude/skills/manual-check-list` is a repo-development skill and is not shipped.
+
+## Registry cache
+
+Private `Get-TerraformRegistryCache` reads `$script:TerraformRegistryUserCachePath` (`$env:LOCALAPPDATA\TerraformGraph\registry.json`), else `$script:TerraformRegistryBundledPath` (`data/registry.json`), memoized per file version; tests repoint both with `InModuleScope` and never touch the real paths. `Invoke-Build BuildRegistry` regenerates the bundled file; it is not in the default build and is run when cutting a release (stage the result). Argument completers (`-Provider`, `-Version`, `Get-TerraformRegistryProvider -Name`) never touch the network: they read the cache only and swallow every error.
 
 ## AST
 

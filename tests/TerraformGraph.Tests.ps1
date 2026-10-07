@@ -1412,3 +1412,181 @@ Describe "Skills" {
         (& $ImportOutput $Repo).Trim() | Should -BeNullOrEmpty
     }
 }
+
+# The cache loader reads two module-scoped paths. Every test points them at the fixture or
+# at TestDrive, so the real LOCALAPPDATA cache and the bundled file are never read or written.
+Describe "Registry" {
+
+    BeforeAll {
+        $fixture = Join-Path $PSScriptRoot 'fixtures' 'registry.sample.json'
+        Set-Variable -Name Fixture -Scope Script -Value $fixture
+
+        # Point the loader at a bundled and a user path, and forget the parsed cache.
+        $usePaths = {
+            param([string]$Bundled, [string]$User)
+            InModuleScope TerraformGraph -Parameters @{ Bundled = $Bundled; User = $User } {
+                param($Bundled, $User)
+                $script:TerraformRegistryBundledPath = $Bundled
+                $script:TerraformRegistryUserCachePath = $User
+                $script:TerraformRegistryCacheMemo = $null
+            }
+        }
+        Set-Variable -Name UsePaths -Scope Script -Value $usePaths
+
+        $saved = InModuleScope TerraformGraph { @{ Bundled = $script:TerraformRegistryBundledPath; User = $script:TerraformRegistryUserCachePath } }
+        Set-Variable -Name SavedPaths -Scope Script -Value $saved
+
+        Set-Variable -Name MissingUser -Scope Script -Value (Join-Path $TestDrive 'no-user' 'registry.json')
+    }
+
+    AfterAll {
+        & $UsePaths $SavedPaths.Bundled $SavedPaths.User
+    }
+
+    BeforeEach {
+        # Default for each test: the fixture as the bundled file, no user cache.
+        & $UsePaths $Fixture $MissingUser
+    }
+
+    It "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph" {
+        (Get-Command Update-TerraformRegistryCache -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        (Get-Command Get-TerraformRegistryProvider -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+    }
+
+    It "reads the bundled file when there is no user cache" {
+        $all = @(Get-TerraformRegistryProvider -ErrorAction Stop)
+        $all.Count | Should -Be 6
+        $all[0].ProviderAddress | Should -Be 'registry.terraform.io/acme/null'
+    }
+
+    It "prefers the user cache over the bundled file" {
+        $user = Join-Path $TestDrive 'user-cache' 'registry.json'
+        New-Item -ItemType Directory -Path (Split-Path $user -Parent) -Force | Out-Null
+        $document = Get-Content -LiteralPath $Fixture -Raw | ConvertFrom-TerraformJson
+        $document.providers = @($document.providers | Where-Object name -eq 'widget')
+        $document | ConvertTo-TerraformJson | Set-Content -LiteralPath $user
+        & $UsePaths $Fixture $user
+
+        @(Get-TerraformRegistryProvider).ProviderAddress | Should -Be @('registry.terraform.io/acme/widget')
+        @(Get-TerraformRegistryProvider -NoBundledData).ProviderAddress | Should -Be @('registry.terraform.io/acme/widget')
+    }
+
+    It "warns and returns nothing with -NoBundledData and no user cache" {
+        $result = @(Get-TerraformRegistryProvider -NoBundledData -WarningVariable warnings -WarningAction SilentlyContinue)
+        $result.Count | Should -Be 0
+        @($warnings).Count | Should -Be 1
+        "$($warnings[0])" | Should -BeLike '*Update-TerraformRegistryCache*'
+    }
+
+    It "matches a wildcard against the bare name in every namespace" {
+        @(Get-TerraformRegistryProvider 'aws*').Source | Should -Be @('aws-ia/awsx', 'hashicorp/aws', 'hashicorp/awscc')
+    }
+
+    It "matches a bare name in any namespace" {
+        @(Get-TerraformRegistryProvider null).Source | Should -Be @('acme/null', 'hashicorp/null')
+    }
+
+    It "matches namespace/name and the full address" {
+        @(Get-TerraformRegistryProvider 'hashicorp/aws').Source | Should -Be @('hashicorp/aws')
+        @(Get-TerraformRegistryProvider 'hashicorp/*').Count | Should -Be 3
+        @(Get-TerraformRegistryProvider 'registry.terraform.io/acme/widget').Source | Should -Be @('acme/widget')
+    }
+
+    It "filters by -Tier" {
+        @(Get-TerraformRegistryProvider -Tier partner).Source | Should -Be @('aws-ia/awsx')
+        @(Get-TerraformRegistryProvider -Tier community).Count | Should -Be 2
+        @(Get-TerraformRegistryProvider 'aws*' -Tier official).Source | Should -Be @('hashicorp/aws', 'hashicorp/awscc')
+    }
+
+    It "computes VersionCount and sets the default display properties" {
+        (Get-TerraformRegistryProvider hashicorp/aws).VersionCount | Should -Be 3
+        (Get-TypeData TerraformGraph.RegistryProvider).DefaultDisplayPropertySet.ReferencedProperties |
+            Should -Be @('ProviderAddress', 'Tier', 'Latest', 'VersionCount')
+    }
+
+    It "writes versions newest first and a Latest that skips pre-releases" {
+        # The harvest is mocked: this checks sorting, Latest and the file written, offline.
+        Mock -ModuleName TerraformGraph Get-TerraformRegistryHarvest {
+            [pscustomobject]@{
+                Provider = [pscustomobject]@{ Namespace = 'hashicorp'; Name = 'aws'; Tier = 'official'; Description = 'd' }
+                Versions = @(
+                    [pscustomobject]@{ Version = '5.59.0'; Protocols = [string[]]@('5.0'); Published = '2026-03-15T00:00:00Z' }
+                    [pscustomobject]@{ Version = '6.0.0-beta1'; Protocols = [string[]]@('5.0'); Published = '2026-05-01T00:00:00Z' }
+                    [pscustomobject]@{ Version = '5.60.0'; Protocols = [string[]]@('5.0'); Published = '2026-04-01T00:00:00Z' }
+                )
+                Error = $null
+            }
+        }
+        $path = Join-Path $TestDrive 'harvest' 'registry.json'
+        $result = Update-TerraformRegistryCache -Path $path -PassThru -ErrorAction Stop
+        $result.ProviderCount | Should -Be 1
+        $result.VersionCount | Should -Be 3
+        $result.Scope | Should -Be 'official,partner'
+
+        & $UsePaths $Fixture $path
+        $aws = Get-TerraformRegistryProvider hashicorp/aws
+        $aws.ProviderAddress | Should -Be 'registry.terraform.io/hashicorp/aws'
+        $aws.Latest | Should -Be '5.60.0'
+        @($aws.Versions.version) | Should -Be @('6.0.0-beta1', '5.60.0', '5.59.0')
+        @(Get-ChildItem -LiteralPath (Split-Path $path -Parent) -Force).Name | Should -Be @('registry.json')
+    }
+
+    It "resolves a wildcard to exactly one provider" {
+        $provider = InModuleScope TerraformGraph { Resolve-TerraformRegistryProvider -Name 'hashicorp/awsc*' }
+        $provider.ProviderAddress | Should -Be 'registry.terraform.io/hashicorp/awscc'
+    }
+
+    It "throws for an ambiguous pattern and lists every match, official first" {
+        { InModuleScope TerraformGraph { Resolve-TerraformRegistryProvider -Name 'aws*' } } |
+            Should -Throw "'aws*' matches 3 providers: hashicorp/aws, hashicorp/awscc, aws-ia/awsx. Specify one."
+    }
+
+    It "throws for a pattern with no match and names the harvest date" {
+        { InModuleScope TerraformGraph { Resolve-TerraformRegistryProvider -Name 'foo' } } |
+            Should -Throw "'foo' matches no provider in the registry cache (harvested 2026-10-01). Run Update-TerraformRegistryCache or pass a full address."
+    }
+
+    It "stops Get-TerraformProviderSchema -Provider 'aws*' with the ambiguous message before running terraform" {
+        Mock -ModuleName TerraformGraph Invoke-TerraformCli { throw 'terraform must not run' }
+        { Get-TerraformProviderSchema -Provider 'aws*' -WorkingDirectory (Join-Path $TestDrive 'never') -ErrorAction Stop } |
+            Should -Throw "'aws*' matches 3 providers: hashicorp/aws, hashicorp/awscc, aws-ia/awsx. Specify one."
+        Should -Invoke -ModuleName TerraformGraph Invoke-TerraformCli -Times 0 -Exactly
+        Test-Path -LiteralPath (Join-Path $TestDrive 'never') | Should -BeFalse
+    }
+
+    It "completes -Provider with cached addresses, official first" {
+        $line = 'Get-TerraformProviderSchema -Provider aws'
+        (TabExpansion2 $line $line.Length).CompletionMatches.CompletionText |
+            Should -Be @('hashicorp/aws', 'hashicorp/awscc', 'aws-ia/awsx')
+    }
+
+    It "completes -Version newest first for the provider already given" {
+        $line = 'Get-TerraformProviderSchema -Provider hashicorp/aws -Version '
+        (TabExpansion2 $line $line.Length).CompletionMatches.CompletionText |
+            Should -Be @('6.0.0-beta1', '5.60.0', '5.59.0')
+    }
+
+    It "completes Get-TerraformRegistryProvider -Name" {
+        $line = 'Get-TerraformRegistryProvider -Name wid'
+        (TabExpansion2 $line $line.Length).CompletionMatches.CompletionText | Should -Be @('acme/widget')
+    }
+
+    It "returns no completions when there is no cache" {
+        & $UsePaths (Join-Path $TestDrive 'no-bundled.json') $MissingUser
+        $results = InModuleScope TerraformGraph {
+            @(& $script:TerraformRegistryProviderCompleter 'Get-TerraformProviderSchema' 'Provider' 'aws' $null @{})
+            @(& $script:TerraformRegistryVersionCompleter 'Get-TerraformProviderSchema' 'Version' '' $null @{ Provider = 'hashicorp/aws' })
+        }
+        @($results).Count | Should -Be 0
+    }
+
+    Context "live harvest (registry)" -Skip:(-not (Test-Connection registry.terraform.io -Count 1 -Quiet)) {
+
+        It "harvests official and partner providers to a TestDrive path" {
+            $path = Join-Path $TestDrive 'live' 'registry.json'
+            $result = Update-TerraformRegistryCache -Scope OfficialPartner -Path $path -PassThru -ErrorAction Stop
+            $result.ProviderCount | Should -BeGreaterThan 50
+            Test-Path -LiteralPath $path | Should -BeTrue
+        }
+    }
+}

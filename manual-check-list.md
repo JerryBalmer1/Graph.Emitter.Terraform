@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.8.0
+Module version: 0.9.0
 Last updated: 2026-10-06
 
 ## 0 Setup
@@ -17,9 +17,9 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.8.0`, then eleven names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema, Get-TerraformVariableTrace, Install-TerraformGraphSkill, Test-TerraformGraphSkill.
+Expect: `0.9.0`, then thirteen names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformVariableTrace, Install-TerraformGraphSkill, Test-TerraformGraphSkill, Update-TerraformRegistryCache.
 
-Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph"
+Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph"
 
 ## 1 Get-TerraformAST
 
@@ -1227,3 +1227,135 @@ finally {
 Expect: Only `imported`; no TerraformGraph line.
 
 Pester: "prints nothing on import when TERRAFORMGRAPH_SKILL_HINT is 0"
+
+## 11 Update-TerraformRegistryCache and Get-TerraformRegistryProvider
+
+Items 11.1 to 11.5 read the bundled cache (harvested 2026-10-07). If a user cache exists at `$env:LOCALAPPDATA\TerraformGraphegistry.json` it is read instead, and counts and versions can differ.
+
+### 11.1 Wildcard
+
+Bare-name wildcard across every namespace.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformRegistryProvider aws*
+```
+
+Expect: Four rows: hashicorp/aws official 6.67.0 509, hashicorp/awscc official 1.104.0 188, nullstone-io/awsex partner 0.1.3 4, traceableai/awsapigateway partner 0.7.0 7 (full registry.terraform.io addresses), columns ProviderAddress, Tier, Latest, VersionCount.
+
+Pester: "matches a wildcard against the bare name in every namespace", "computes VersionCount and sets the default display properties"
+
+### 11.2 Bare name
+
+A name with no slash matches that name in any namespace.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformRegistryProvider google | Format-Table ProviderAddress, Source, Tier, Latest
+```
+
+Expect: One row: registry.terraform.io/hashicorp/google, Source hashicorp/google, official, Latest 8.6.0.
+
+Pester: "matches a bare name in any namespace", "matches namespace/name and the full address"
+
+### 11.3 -Tier
+
+Counts official providers, then filters them by namespace/name.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformRegistryProvider -Tier official | Measure-Object | Select-Object -ExpandProperty Count
+Get-TerraformRegistryProvider -Tier official -Name 'hashicorp/a*'
+```
+
+Expect: `34`, then seven official rows: hashicorp/ad, archive, aws, awscc, azuread, azurerm, azurestack.
+
+Pester: "filters by -Tier"
+
+### 11.4 Ambiguous schema call
+
+A wildcard -Provider that matches several providers stops before terraform runs.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformProviderSchema -Provider 'aws*'
+```
+
+Expect: An error, no terraform output: `'aws*' matches 4 providers: hashicorp/aws, hashicorp/awscc, nullstone-io/awsex, Traceableai/awsapigateway. Specify one.`
+
+Pester: "throws for an ambiguous pattern and lists every match, official first", "stops Get-TerraformProviderSchema -Provider 'aws*' with the ambiguous message before running terraform"
+
+### 11.5 Argument completers (interactive)
+
+Run the block, then follow the keystrokes in its comments in the same interactive pwsh window. The last lines print the same completions without a keyboard.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+# Interactive: in this same pwsh window, type the text below without pressing Enter,
+# then press Ctrl+Space (or Tab to cycle):
+#   Get-TerraformProviderSchema -Provider aws
+# Then clear the line and type, then press Ctrl+Space:
+#   Get-TerraformProviderSchema -Provider hashicorp/null -Version 3.2
+# The same completions, non-interactively:
+$line = 'Get-TerraformProviderSchema -Provider aws'
+(TabExpansion2 $line $line.Length).CompletionMatches.CompletionText
+$line = 'Get-TerraformProviderSchema -Provider hashicorp/null -Version 3.2'
+(TabExpansion2 $line $line.Length).CompletionMatches.CompletionText -join ', '
+```
+
+Expect: Typing `Get-TerraformProviderSchema -Provider aws` and pressing Ctrl+Space lists hashicorp/aws, hashicorp/awscc, nullstone-io/awsex, Traceableai/awsapigateway (official first; the tooltip shows the full address, tier and latest). `-Version 3.2` then Ctrl+Space lists 3.2.4, 3.2.4-alpha.2, 3.2.3, 3.2.2, 3.2.1, 3.2.0. The printed lines show the same values.
+
+Pester: "completes -Provider with cached addresses, official first", "completes -Version newest first for the provider already given", "completes Get-TerraformRegistryProvider -Name"
+
+### 11.6 -NoBundledData with no user cache
+
+A child process whose LOCALAPPDATA has no cache, reading without the bundled file.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$empty = Join-Path $env:TEMP 'tg-check-no-appdata'
+try {
+    pwsh -NoProfile -Command "`$env:LOCALAPPDATA = '$empty'; Import-Module C:\__Code\TerraformGraph\src\TerraformGraph\TerraformGraph.psd1; `$r = @(Get-TerraformRegistryProvider -NoBundledData); 'Providers: ' + `$r.Count"
+}
+finally {
+    Remove-Item -LiteralPath $empty -Recurse -Force -ErrorAction SilentlyContinue
+}
+```
+
+Expect: `WARNING: No provider registry cache found. Run Update-TerraformRegistryCache to create one.` then `Providers: 0`.
+
+Pester: "warns and returns nothing with -NoBundledData and no user cache"
+
+### 11.7 Update to a temp path
+
+Harvests official and partner providers from registry.terraform.io (network, about 15 to 30 seconds).
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-registry'
+try {
+    Update-TerraformRegistryCache -Path (Join-Path $dir 'registry.json') -PassThru | Format-List ProviderCount, VersionCount, Scope, Elapsed
+    Get-ChildItem -LiteralPath $dir -Force | Select-Object Name
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+}
+```
+
+Expect: ProviderCount about 428, VersionCount about 25,000 (25053 on 2026-10-06), Scope `official,partner`, Elapsed under a minute; the folder holds only registry.json (no leftover temp file).
+
+Pester: "harvests official and partner providers to a TestDrive path", "writes versions newest first and a Latest that skips pre-releases"

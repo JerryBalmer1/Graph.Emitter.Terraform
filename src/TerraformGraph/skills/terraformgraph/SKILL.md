@@ -26,13 +26,19 @@ pwsh -NoProfile -Command 'Invoke-Pester -Path .\tests'
 - `Get-TerraformModuleGraph` — `-Path` root module (`-Recurse`, `-GroupBy Call|Source`) → `TerraformGraph.ModuleGraph` (Nodes `TerraformGraph.ModuleNode`, Edges, Unresolved). Never runs `terraform init`; non-local sources come from `.terraform/modules/modules.json`.
 - `ConvertTo-TerraformVariableGraph` — `TerraformGraph.ModuleGraph` → `TerraformGraph.VariableGraph` (variables, locals, outputs; edges Reference, Argument, OutputReference; Unresolved, Skipped). Never reparses.
 - `Get-TerraformVariableTrace` — `TerraformGraph.VariableGraph` + `-Id` (`-Direction Upstream|Downstream|Both`, `-MaxDepth`) → `TerraformGraph.VariableTrace` (Nodes `TerraformGraph.VariableTraceNode` with `Distance`, Edges).
-- `Get-TerraformProviderSchema` — `-Path` initialized dir, or `-Provider` fetched on demand (`-Version`, `-WorkingDirectory`, `-Cleanup`, `-Force`) → `OrderedDictionary` (default) or JSON string (`-OutputFormat Json`). Needs `terraform` on PATH; `-Provider` needs registry access.
+- `Update-TerraformRegistryCache` — (`-Scope OfficialPartner|All`, `-Path`, `-ThrottleLimit`, `-PassThru`) harvests the public registry's provider list and versions into the user cache `$env:LOCALAPPDATA\TerraformGraph\registry.json` → nothing, or `TerraformGraph.RegistryCache` with `-PassThru`. The only command that reads the provider list over the network.
+- `Get-TerraformRegistryProvider` — `-Name` patterns (`-Tier official|partner|community`, `-NoBundledData`) → `TerraformGraph.RegistryProvider` (ProviderAddress, Source, Tier, Latest, VersionCount, Versions newest first) from the cache, never the network. The user cache wins over the copy bundled with the module.
+- `Get-TerraformProviderSchema` — `-Path` initialized dir, or `-Provider` fetched on demand (`-Version`, `-WorkingDirectory`, `-Cleanup`, `-Force`, `-NoBundledData`) → `OrderedDictionary` (default) or JSON string (`-OutputFormat Json`). Needs `terraform` on PATH; `-Provider` needs registry access.
 - `ConvertTo-TerraformSchemaGraph` — provider schema (dictionary, JSON text, or PSCustomObject) (`-Provider`, `-IncludeFunctions`) → `TerraformGraph.SchemaGraph` (Providers, Nodes `TerraformGraph.SchemaNode`, Edges `Contains`, Summary).
 - `ConvertTo-TerraformResourceGraph` — `TerraformGraph.ModuleGraph` + optional `-SchemaGraph` array → `TerraformGraph.ResourceGraph` (Nodes `TerraformGraph.ResourceNode`, `InstanceOf` Edges, Skipped, Providers, MatchedCount, UnmatchedCount, Findings).
 - `ConvertTo-TerraformJson` — any object → JSON string with no 100-level depth cap (`-Depth`, `-Compress`, `-AsArray`).
 - `ConvertFrom-TerraformJson` — JSON string → PSCustomObject, or ordered dictionaries with `-AsHashtable` (`-Depth`, `-NoEnumerate`).
 
 Use `ConvertTo-TerraformJson` / `ConvertFrom-TerraformJson` instead of the built-in cmdlets for provider schemas: `ConvertTo-Json` silently truncates past depth 100.
+
+## Provider names and wildcards
+
+Name patterns match by shape: `aws` or `aws*` matches the bare name in any namespace, `hashicorp/aws*` matches namespace/name, and `registry.terraform.io/hashicorp/aws` matches the full address. `Get-TerraformProviderSchema -Provider` with a wildcard resolves against the registry cache and must match exactly one provider; otherwise it stops before running terraform, with every match listed (`'aws*' matches 4 providers: hashicorp/aws, hashicorp/awscc, ... Specify one.`). A `-Provider` without a wildcard needs no cache. Tab completion of `-Provider`, `-Version` and `Get-TerraformRegistryProvider -Name` reads the cache only.
 
 ## Canonical Ids
 

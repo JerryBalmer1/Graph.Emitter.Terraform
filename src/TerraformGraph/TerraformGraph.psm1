@@ -661,6 +661,14 @@ function Get-TerraformProviderSchema {
         A bare name means the hashicorp namespace.
         The source written to required_providers drops the host only when it is
         registry.terraform.io; any other host is kept, as in 'example.com/acme/thing'.
+        A value with a wildcard, such as 'aws*' or 'hashicorp/google*', is resolved against
+        the provider registry cache (see Get-TerraformRegistryProvider) before anything
+        runs; it must match exactly one provider, or the command stops with an error that
+        lists every match. A value without a wildcard needs no cache.
+
+    .PARAMETER NoBundledData
+        When -Provider has a wildcard, ignore the registry cache bundled with the module and
+        read only the user cache.
 
     .PARAMETER Version
         Version constraint written verbatim into required_providers, such as '~> 5.0',
@@ -739,7 +747,10 @@ function Get-TerraformProviderSchema {
 
         [Parameter(ParameterSetName = 'Provider', Mandatory)]
         [ValidateScript({
-            $null = ConvertTo-TerraformProviderAddress -Provider $_
+            # A wildcard is resolved against the registry cache in the body.
+            if (-not [WildcardPattern]::ContainsWildcardCharacters($_)) {
+                $null = ConvertTo-TerraformProviderAddress -Provider $_
+            }
             $true
         })]
         [string]
@@ -761,10 +772,30 @@ function Get-TerraformProviderSchema {
         [switch]
         $Force,
 
+        [Parameter(ParameterSetName = 'Provider')]
+        [switch]
+        $NoBundledData,
+
         [ValidateSet('OrderedHashtable', 'Json')]
         [string]
         $OutputFormat = 'OrderedHashtable'
     )
+
+    # Before anything else, so an ambiguous or unknown pattern fails without running terraform.
+    if ($PSCmdlet.ParameterSetName -eq 'Provider' -and [WildcardPattern]::ContainsWildcardCharacters($Provider)) {
+        try {
+            $resolved = Resolve-TerraformRegistryProvider -Name $Provider -NoBundledData:$NoBundledData
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+                [System.ArgumentException]::new($_.Exception.Message),
+                'RegistryProviderNotResolved',
+                [System.Management.Automation.ErrorCategory]::InvalidArgument,
+                $Provider))
+        }
+        Write-Verbose "Provider '$Provider' resolved to $($resolved.ProviderAddress) from the registry cache"
+        $Provider = $resolved.ProviderAddress
+    }
 
     if (-not (Get-Command terraform -CommandType Application -ErrorAction SilentlyContinue)) {
         throw "terraform is not on PATH."
@@ -2514,6 +2545,529 @@ function ConvertTo-TerraformResourceGraph {
         }
     }
 }
+
+# Provider registry cache. The user file wins over the bundled one; tests point these at
+# fixtures with InModuleScope. Nothing below touches the network except
+# Update-TerraformRegistryCache.
+$script:TerraformRegistrySource = 'registry.terraform.io'
+$script:TerraformRegistryBundledPath = Join-Path $PSScriptRoot 'data' 'registry.json'
+$script:TerraformRegistryUserCachePath = Join-Path ($env:LOCALAPPDATA ?? [Environment]::GetFolderPath('LocalApplicationData')) 'TerraformGraph' 'registry.json'
+$script:TerraformRegistryCacheMemo = $null
+$script:TerraformRegistryTierRank = @{ official = 0; partner = 1; community = 2 }
+
+Update-TypeData -TypeName 'TerraformGraph.RegistryProvider' -DefaultDisplayPropertySet ProviderAddress, Tier, Latest, VersionCount -Force
+Update-TypeData -TypeName 'TerraformGraph.RegistryCache' -DefaultDisplayPropertySet Path, HarvestedOn, Scope, ProviderCount, VersionCount, Elapsed -Force
+
+function Get-TerraformRegistryCache {
+    # Not exported. The user cache if present, else the bundled file (unless
+    # -NoBundledData), else $null. Parsed once per file version and kept in memory, so
+    # argument completers stay fast after the first Tab.
+    param([switch]$NoBundledData)
+
+    $paths = @($script:TerraformRegistryUserCachePath)
+    if (-not $NoBundledData) { $paths += $script:TerraformRegistryBundledPath }
+    foreach ($path in $paths) {
+        if (-not $path -or -not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        $item = Get-Item -LiteralPath $path
+        $key = "$($item.FullName)|$($item.LastWriteTimeUtc.Ticks)|$($item.Length)"
+        if ($script:TerraformRegistryCacheMemo -and $script:TerraformRegistryCacheMemo.Key -ceq $key) {
+            return $script:TerraformRegistryCacheMemo.Value
+        }
+
+        $document = [TerraformGraph.Json]::Deserialize([System.IO.File]::ReadAllText($item.FullName), 1024, $false)
+        $providers = foreach ($entry in @($document.providers)) {
+            $versions = @($entry.versions)
+            [pscustomobject]@{
+                PSTypeName      = 'TerraformGraph.RegistryProvider'
+                ProviderAddress = [string]$entry.address
+                Source          = "$($entry.namespace)/$($entry.name)"
+                Namespace       = [string]$entry.namespace
+                Name            = [string]$entry.name
+                Tier            = [string]$entry.tier
+                Description     = [string]$entry.description
+                Latest          = $entry.latest
+                VersionCount    = $versions.Count
+                Versions        = $versions
+            }
+        }
+        $cache = [pscustomobject]@{
+            Path        = $item.FullName
+            HarvestedOn = [string]$document.harvestedOn
+            Scope       = [string]$document.scope
+            Source      = [string]$document.source
+            Providers   = @($providers)
+        }
+        $script:TerraformRegistryCacheMemo = @{ Key = $key; Value = $cache }
+        return $cache
+    }
+    $null
+}
+
+function Select-TerraformRegistryProvider {
+    # Not exported. Providers matching any -Name pattern (all when none): a pattern with
+    # two slashes matches ProviderAddress, one slash namespace/name, none the bare name in
+    # any namespace. -like, so wildcards work and case is ignored. -ByTier sorts official
+    # first, then by namespace/name; otherwise cache order (by address).
+    param($Cache, [string[]]$Name, [string[]]$Tier, [switch]$ByTier)
+
+    $selected = foreach ($provider in $Cache.Providers) {
+        if ($Tier -and $Tier -notcontains $provider.Tier) { continue }
+        if (-not $Name) { $provider; continue }
+        foreach ($pattern in $Name) {
+            $value = switch ($pattern.Split('/').Count) {
+                1       { $provider.Name }
+                2       { $provider.Source }
+                default { $provider.ProviderAddress }
+            }
+            if ($value -like $pattern) { $provider; break }
+        }
+    }
+    if (-not $ByTier) { return $selected }
+    $list = [System.Collections.Generic.List[object]]::new()
+    foreach ($provider in $selected) { $list.Add($provider) }
+    $rank = $script:TerraformRegistryTierRank
+    $list.Sort([System.Comparison[object]] {
+            param($a, $b)
+            $byTier = ($rank[$a.Tier] ?? 9).CompareTo(($rank[$b.Tier] ?? 9))
+            if ($byTier) { return $byTier }
+            [string]::CompareOrdinal($a.Source.ToLowerInvariant(), $b.Source.ToLowerInvariant())
+        })
+    $list.ToArray()
+}
+
+function Resolve-TerraformRegistryProvider {
+    # Not exported. Exactly one cached provider for -Name, or a throw whose message lists
+    # every match. Callers turn the throw into their own terminating error.
+    param([string]$Name, [switch]$NoBundledData)
+
+    $cache = Get-TerraformRegistryCache -NoBundledData:$NoBundledData
+    if (-not $cache) {
+        throw "'$Name' matches no provider: there is no registry cache. Run Update-TerraformRegistryCache or pass a full address."
+    }
+    $found = @(Select-TerraformRegistryProvider -Cache $cache -Name $Name -ByTier)
+    if ($found.Count -eq 1) { return $found[0] }
+    if ($found.Count -eq 0) {
+        $date = if ($cache.HarvestedOn.Length -ge 10) { $cache.HarvestedOn.Substring(0, 10) } else { $cache.HarvestedOn }
+        throw "'$Name' matches no provider in the registry cache (harvested $date). Run Update-TerraformRegistryCache or pass a full address."
+    }
+    throw "'$Name' matches $($found.Count) providers: $(@($found.Source) -join ', '). Specify one."
+}
+
+function Invoke-TerraformRegistryRequest {
+    # Not exported. GET one registry URL and parse it with TerraformGraph.Json, which keeps
+    # date strings as strings (Invoke-RestMethod would turn them into DateTime). Retries
+    # twice on 429 and 5xx with a 1 s, then 2 s backoff. Also defined inside the
+    # ForEach-Object -Parallel runspaces of Update-TerraformRegistryCache, from this text,
+    # so keep it self-contained.
+    param([string]$Uri)
+    for ($attempt = 0; ; $attempt++) {
+        try {
+            $response = Invoke-WebRequest -Uri $Uri -TimeoutSec 60 -ErrorAction Stop
+            # application/vnd.api+json (v2) comes back as bytes, application/json (v1) as text.
+            $content = $response.Content
+            if ($content -is [byte[]]) { $content = [System.Text.Encoding]::UTF8.GetString($content) }
+            return [TerraformGraph.Json]::Deserialize([string]$content, 1024, $false)
+        }
+        catch {
+            $status = [int]$_.Exception.Response.StatusCode
+            if ($attempt -ge 2 -or ($status -ne 429 -and $status -lt 500)) { throw }
+            Start-Sleep -Seconds ($attempt + 1)
+        }
+    }
+}
+
+function Get-TerraformRegistryHarvest {
+    # Not exported. Lists providers and fetches every provider's versions from the public
+    # registry. Probed 2026-10-06:
+    #
+    #   List: GET https://registry.terraform.io/v2/providers?filter[tier]=official,partner&page[size]=100&page[number]=N
+    #     page[size] is capped at 100; meta.pagination has total-pages, total-count,
+    #     next-page (null on the last page). Without filter[tier] it lists every tier
+    #     (7418 providers on 2026-10-06; official,partner 428). Tier is attributes.tier:
+    #     official | partner | community. One data[] element:
+    #       { "type": "providers", "id": "5246",
+    #         "attributes": { "alias": null, "description": "Management of Ansible ...",
+    #           "downloads": 573672, "featured": false, "full-name": "ansible/aap",
+    #           "logo-url": "/images/providers/hashicorp.svg", "name": "aap",
+    #           "namespace": "ansible", "owner-name": "", "repository-id": 702581735,
+    #           "robots-noindex": false, "source": "https://github.com/ansible/terraform-provider-aap",
+    #           "tier": "official", "unlisted": false, "warning": "" },
+    #         "links": { "self": "/v2/providers/5246" } }
+    #     (v1 /v1/providers?limit=&offset= also pages and carries tier, but lists one row
+    #     per provider version, so v2 is used.)
+    #
+    #   Versions, two calls per provider because neither has every field:
+    #   GET https://registry.terraform.io/v1/providers/<namespace>/<name>/versions
+    #     protocols, no publish date. One versions[] element:
+    #       { "version": "1.0.0", "protocols": [ "4" ], "platforms": [ { "os": "linux", "arch": "386" }, ... ] }
+    #   GET https://registry.terraform.io/v2/providers/<namespace>/<name>?include=provider-versions
+    #     publish date, no protocols; included[] is complete (509 for hashicorp/aws). One element:
+    #       { "type": "provider-versions", "id": "2672",
+    #         "attributes": { "description": "terraform-provider-null", "downloads": 394605,
+    #           "published-at": "2019-04-11T23:12:14Z", "tag": "v2.1.1", "version": "2.1.1" },
+    #         "links": { "self": "/v2/provider-versions/2672" } }
+    param(
+        [ValidateSet('OfficialPartner', 'All')]
+        [string]
+        $Scope,
+
+        [int]
+        $ThrottleLimit
+    )
+
+    $registry = "https://$($script:TerraformRegistrySource)"
+    $filter = if ($Scope -eq 'OfficialPartner') { '&filter[tier]=official,partner' } else { '' }
+
+    $listed = [System.Collections.Generic.List[object]]::new()
+    $page = 1
+    while ($page) {
+        $response = Invoke-TerraformRegistryRequest -Uri "$registry/v2/providers?page[size]=100&page[number]=$page$filter"
+        $pagination = $response.meta.pagination
+        $total = [int]$pagination.'total-pages'
+        Write-Progress -Id 1 -Activity 'Listing registry providers' -Status "Page $page of $total" -PercentComplete ([math]::Min(100, 100 * $page / [math]::Max(1, $total)))
+        foreach ($item in @($response.data)) {
+            $attributes = $item.attributes
+            $listed.Add([pscustomobject]@{
+                Namespace   = [string]$attributes.namespace
+                Name        = [string]$attributes.name
+                Tier        = [string]$attributes.tier
+                Description = [string]$attributes.description
+            })
+        }
+        $page = $pagination.'next-page'
+    }
+    Write-Progress -Id 1 -Activity 'Listing registry providers' -Completed
+    Write-Verbose "Listed $($listed.Count) providers"
+
+    $requestDefinition = ${function:Invoke-TerraformRegistryRequest}.ToString()
+    $done = 0
+    $fetched = $listed | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
+        Set-Item -Path function:Invoke-TerraformRegistryRequest -Value $using:requestDefinition
+        $provider = $_
+        $base = "$($using:registry)"
+        try {
+            $v1 = Invoke-TerraformRegistryRequest -Uri "$base/v1/providers/$($provider.Namespace)/$($provider.Name)/versions"
+            $v2 = Invoke-TerraformRegistryRequest -Uri "$base/v2/providers/$($provider.Namespace)/$($provider.Name)?include=provider-versions"
+            $published = @{}
+            foreach ($included in @($v2.included)) {
+                if ($included.type -eq 'provider-versions') { $published[[string]$included.attributes.version] = $included.attributes.'published-at' }
+            }
+            $versions = foreach ($version in @($v1.versions)) {
+                [pscustomobject]@{
+                    Version   = [string]$version.version
+                    Protocols = [string[]]@($version.protocols)
+                    Published = $published[[string]$version.version]
+                }
+            }
+            [pscustomobject]@{ Provider = $provider; Versions = @($versions); Error = $null }
+        }
+        catch {
+            [pscustomobject]@{ Provider = $provider; Versions = $null; Error = $_.Exception.Message }
+        }
+    } | ForEach-Object {
+        $done++
+        Write-Progress -Id 1 -Activity 'Fetching provider versions' -Status "$done of $($listed.Count)" -PercentComplete (100 * $done / [math]::Max(1, $listed.Count))
+        $_
+    }
+    Write-Progress -Id 1 -Activity 'Fetching provider versions' -Completed
+
+    $failed = @($fetched | Where-Object Error)
+    if ($failed.Count) {
+        $names = @($failed | Select-Object -First 10 | ForEach-Object { "$($_.Provider.Namespace)/$($_.Provider.Name) ($($_.Error))" })
+        throw "Failed to fetch versions for $($failed.Count) providers: $($names -join '; ')$(if ($failed.Count -gt 10) { '; ...' }). The cache was not written."
+    }
+
+    $fetched
+}
+
+function Sort-TerraformRegistryVersion {
+    # Not exported. Version records newest first by semantic version; strings that do not
+    # parse sort after every parsed version, ordinal descending.
+    param([object[]]$Versions)
+
+    $keyed = foreach ($version in $Versions) {
+        $semver = $null
+        $null = [System.Management.Automation.SemanticVersion]::TryParse([string]$version.Version, [ref]$semver)
+        [pscustomobject]@{ Semver = $semver; Record = $version }
+    }
+    $list = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in $keyed) { $list.Add($entry) }
+    $list.Sort([System.Comparison[object]] {
+            param($a, $b)
+            if ($a.Semver -and $b.Semver) { return $b.Semver.CompareTo($a.Semver) }
+            if ($a.Semver) { return -1 }
+            if ($b.Semver) { return 1 }
+            [string]::CompareOrdinal([string]$b.Record.Version, [string]$a.Record.Version)
+        })
+    foreach ($entry in $list) {
+        [pscustomobject]@{
+            Record     = $entry.Record
+            PreRelease = if ($entry.Semver) { [bool]$entry.Semver.PreReleaseLabel } else { ([string]$entry.Record.Version).Contains('-') }
+        }
+    }
+}
+
+function Update-TerraformRegistryCache {
+    <#
+    .SYNOPSIS
+        Downloads the list of Terraform providers and their versions into the registry cache.
+
+    .DESCRIPTION
+        Update-TerraformRegistryCache lists providers from the public registry
+        (registry.terraform.io, v2 API, 100 per page), then fetches every provider's
+        versions with ForEach-Object -Parallel: the v1 versions endpoint for protocols and
+        the v2 provider-versions include for publish dates, two calls per provider. Calls
+        that return 429 or 5xx are retried twice with a short backoff. If any provider still
+        fails, nothing is written.
+
+        The file is written atomically: a temporary file in the same folder, then Move-Item.
+        Providers are sorted by address; versions newest first, pre-releases included. Each
+        provider's latest is its newest version that is not a pre-release.
+
+        This is the only TerraformGraph command that reads the registry list over the
+        network. Get-TerraformRegistryProvider, the -Provider wildcards of
+        Get-TerraformProviderSchema and the argument completers only read the cache.
+
+    .PARAMETER Scope
+        OfficialPartner (default): official and partner providers. All: every tier,
+        including community, which is many times larger and slower.
+
+    .PARAMETER Path
+        Cache file to write. Defaults to the user cache,
+        $env:LOCALAPPDATA\TerraformGraph\registry.json, which takes precedence over the
+        bundled copy.
+
+    .PARAMETER ThrottleLimit
+        Concurrent provider requests. Default 6.
+
+    .PARAMETER PassThru
+        Return a TerraformGraph.RegistryCache summary.
+
+    .EXAMPLE
+        Update-TerraformRegistryCache -Verbose
+
+        Refresh the user cache with official and partner providers.
+
+    .EXAMPLE
+        Update-TerraformRegistryCache -Scope All -Path .\registry-all.json -PassThru
+
+        Harvest every tier into a separate file and show the counts.
+
+    .OUTPUTS
+        None, or TerraformGraph.RegistryCache with -PassThru: Path, HarvestedOn, Scope,
+        ProviderCount, VersionCount, Elapsed.
+
+    .LINK
+        Get-TerraformRegistryProvider
+    #>
+    [CmdletBinding()]
+    param(
+        [ValidateSet('OfficialPartner', 'All')]
+        [string]
+        $Scope = 'OfficialPartner',
+
+        [string]
+        $Path = $script:TerraformRegistryUserCachePath,
+
+        [ValidateRange(1, 64)]
+        [int]
+        $ThrottleLimit = 6,
+
+        [switch]
+        $PassThru
+    )
+
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $fetched = Get-TerraformRegistryHarvest -Scope $Scope -ThrottleLimit $ThrottleLimit
+    }
+    catch {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.InvalidOperationException]::new($_.Exception.Message, $_.Exception),
+            'RegistryHarvestFailed',
+            [System.Management.Automation.ErrorCategory]::ConnectionError,
+            $script:TerraformRegistrySource))
+    }
+
+    $versionCount = 0
+    $providers = foreach ($entry in $fetched) {
+        $provider = $entry.Provider
+        $sorted = @(Sort-TerraformRegistryVersion -Versions $entry.Versions)
+        $versionCount += $sorted.Count
+        $latest = $sorted | Where-Object { -not $_.PreRelease } | Select-Object -First 1
+        [ordered]@{
+            address     = "$($script:TerraformRegistrySource)/$($provider.Namespace)/$($provider.Name)".ToLowerInvariant()
+            namespace   = $provider.Namespace
+            name        = $provider.Name
+            tier        = $provider.Tier
+            description = $provider.Description
+            latest      = if ($latest) { $latest.Record.Version } else { $null }
+            versions    = [object[]]@(foreach ($version in $sorted) {
+                    [ordered]@{
+                        version   = $version.Record.Version
+                        protocols = [object[]]@($version.Record.Protocols)
+                        published = $version.Record.Published
+                    }
+                })
+        }
+    }
+    $list = [System.Collections.Generic.List[object]]::new()
+    foreach ($provider in $providers) { $list.Add($provider) }
+    $list.Sort([System.Comparison[object]] { param($a, $b) [string]::CompareOrdinal($a.address, $b.address) })
+
+    $harvestedOn = [datetime]::UtcNow
+    $document = [ordered]@{
+        harvestedOn = $harvestedOn.ToString('yyyy-MM-ddTHH:mm:ssZ', [cultureinfo]::InvariantCulture)
+        scope       = if ($Scope -eq 'OfficialPartner') { 'official,partner' } else { 'all' }
+        source      = $script:TerraformRegistrySource
+        providers   = $list.ToArray()
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path, (Get-Location -PSProvider FileSystem).ProviderPath)
+    $directory = Split-Path -Path $fullPath -Parent
+    $null = New-Item -ItemType Directory -Path $directory -Force -ErrorAction Stop
+    $temporary = Join-Path $directory ".registry.$([guid]::NewGuid().ToString('n')).tmp"
+    try {
+        [System.IO.File]::WriteAllText($temporary, [TerraformGraph.Json]::Serialize($document, 1024, $false) + "`n")
+        Move-Item -LiteralPath $temporary -Destination $fullPath -Force -ErrorAction Stop
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+    }
+    $stopwatch.Stop()
+    Write-Verbose "Wrote $($list.Count) providers and $versionCount versions to $fullPath in $($stopwatch.Elapsed)"
+
+    if ($PassThru) {
+        [pscustomobject]@{
+            PSTypeName    = 'TerraformGraph.RegistryCache'
+            Path          = $fullPath
+            HarvestedOn   = $harvestedOn
+            Scope         = $document.scope
+            ProviderCount = $list.Count
+            VersionCount  = $versionCount
+            Elapsed       = $stopwatch.Elapsed
+        }
+    }
+}
+
+function Get-TerraformRegistryProvider {
+    <#
+    .SYNOPSIS
+        Lists Terraform providers and their versions from the registry cache.
+
+    .DESCRIPTION
+        Get-TerraformRegistryProvider reads the provider registry cache, never the network.
+        The cache is the user file ($env:LOCALAPPDATA\TerraformGraph\registry.json, written
+        by Update-TerraformRegistryCache) when present, else the copy bundled with the
+        module. With no cache it writes one warning naming Update-TerraformRegistryCache
+        and returns nothing.
+
+        -Name patterns allow wildcards and match by shape: 'aws' or 'aws*' matches the bare
+        name in any namespace, 'hashicorp/aws*' matches namespace/name, and
+        'registry.terraform.io/hashicorp/aws' matches the full address. Case is ignored.
+
+    .PARAMETER Name
+        One or more name patterns. Default: every provider.
+
+    .PARAMETER Tier
+        Only these tiers: official, partner, community.
+
+    .PARAMETER NoBundledData
+        Ignore the bundled cache; read only the user cache.
+
+    .EXAMPLE
+        Get-TerraformRegistryProvider aws*
+
+        Every cached provider whose name starts with aws, in any namespace.
+
+    .EXAMPLE
+        Get-TerraformRegistryProvider -Tier partner -Name 'datadog/*'
+
+        Partner providers in the datadog namespace.
+
+    .EXAMPLE
+        (Get-TerraformRegistryProvider hashicorp/aws).Versions | Select-Object -First 5
+
+        The five newest hashicorp/aws versions with protocols and publish dates.
+
+    .OUTPUTS
+        TerraformGraph.RegistryProvider: ProviderAddress, Source (namespace/name), Namespace,
+        Name, Tier, Description, Latest, VersionCount, Versions (newest first: Version,
+        Protocols, Published). Default view is ProviderAddress, Tier, Latest, VersionCount.
+
+    .LINK
+        Update-TerraformRegistryCache
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [string[]]
+        $Name,
+
+        [ValidateSet('official', 'partner', 'community')]
+        [string[]]
+        $Tier,
+
+        [switch]
+        $NoBundledData
+    )
+
+    $cache = Get-TerraformRegistryCache -NoBundledData:$NoBundledData
+    if (-not $cache) {
+        Write-Warning 'No provider registry cache found. Run Update-TerraformRegistryCache to create one.'
+        return
+    }
+    Select-TerraformRegistryProvider -Cache $cache -Name $Name -Tier $Tier
+}
+
+# Argument completers read the cache only and never throw.
+$script:TerraformRegistryProviderCompleter = {
+    param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+    try {
+        $cache = Get-TerraformRegistryCache -NoBundledData:([bool]$fakeBoundParameters['NoBundledData'])
+        if (-not $cache) { return }
+        $word = ([string]$wordToComplete).Trim('''', '"')
+        $pattern = "$([WildcardPattern]::Escape($word))*"
+        foreach ($provider in Select-TerraformRegistryProvider -Cache $cache -ByTier) {
+            if ($provider.Name -like $pattern -or $provider.Source -like $pattern -or $provider.ProviderAddress -like $pattern) {
+                [System.Management.Automation.CompletionResult]::new($provider.Source, $provider.Source, 'ParameterValue',
+                    "$($provider.ProviderAddress) ($($provider.Tier), latest $($provider.Latest))")
+            }
+        }
+    }
+    catch { }
+}
+
+$script:TerraformRegistryVersionCompleter = {
+    param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+    try {
+        $name = [string]$fakeBoundParameters['Provider']
+        if (-not $name) { return }
+        $cache = Get-TerraformRegistryCache -NoBundledData:([bool]$fakeBoundParameters['NoBundledData'])
+        if (-not $cache) { return }
+        $provider = if ([WildcardPattern]::ContainsWildcardCharacters($name)) {
+            $found = @(Select-TerraformRegistryProvider -Cache $cache -Name $name)
+            if ($found.Count -eq 1) { $found[0] }
+        }
+        else {
+            $address = (ConvertTo-TerraformProviderAddress -Provider $name).Address
+            $cache.Providers | Where-Object ProviderAddress -eq $address | Select-Object -First 1
+        }
+        if (-not $provider) { return }
+        $word = ([string]$wordToComplete).Trim('''', '"')
+        foreach ($version in $provider.Versions) {
+            if ([string]$version.version -like "$([WildcardPattern]::Escape($word))*") {
+                [System.Management.Automation.CompletionResult]::new($version.version, $version.version, 'ParameterValue',
+                    "$($version.version) (published $($version.published))")
+            }
+        }
+    }
+    catch { }
+}
+
+Register-ArgumentCompleter -CommandName Get-TerraformProviderSchema -ParameterName Provider -ScriptBlock $script:TerraformRegistryProviderCompleter
+Register-ArgumentCompleter -CommandName Get-TerraformProviderSchema -ParameterName Version -ScriptBlock $script:TerraformRegistryVersionCompleter
+Register-ArgumentCompleter -CommandName Get-TerraformRegistryProvider -ParameterName Name -ScriptBlock $script:TerraformRegistryProviderCompleter
 
 # Agent tools that read project skills: the project-relative folder skills are copied
 # into, and the path whose presence means the tool is used in a repo. These paths are

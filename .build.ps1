@@ -297,6 +297,17 @@ task Test CheckDependencies, RemoveModule, ImportModule, {
 
 }
 
+# Not part of the default build. Run when cutting a release: refreshes the provider
+# registry cache that ships with the module (network, a few minutes), then stage it.
+task BuildRegistry RemoveModule, ImportModule, {
+    $path = Join-Path $PSScriptRoot 'src\TerraformGraph\data\registry.json'
+    $result = Update-TerraformRegistryCache -Scope OfficialPartner -Path $path -PassThru -ErrorAction Stop
+    Write-Host "ProviderCount: $($result.ProviderCount)"
+    Write-Host "VersionCount:  $($result.VersionCount)"
+    Write-Host "Elapsed:       $($result.Elapsed)"
+    Write-Host "Size:          $((Get-Item -LiteralPath $path).Length) bytes ($path)"
+}
+
 task Package {
     $zipPath = Join-Path $PSScriptRoot "TerraformGraph.zip"
     Compress-Archive -Path "$PSScriptRoot/src/TerraformGraph/*" -DestinationPath $zipPath -Force

@@ -19,7 +19,7 @@ Parse Terraform configurations into an HCL AST and build graphs of module calls 
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.8.0**. Not yet published to the PowerShell Gallery.
+Source version **0.9.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -301,6 +301,48 @@ $graph.Nodes | Where-Object { $_.UnknownAttributes -or $_.UnknownBlocks -or $_.M
 ```
 
 The provider is resolved per module, the way Terraform does it: the local name is the type up to its first underscore (`aws_instance` → `aws`), or the name in a `provider = aws.west` argument (which also sets `ProviderAlias`). It maps through that module's own `required_providers` sources; an undeclared name falls back to `terraform.io/builtin/terraform` for `terraform` and `registry.terraform.io/hashicorp/<name>` otherwise. Child modules do not inherit their parent's `required_providers`. Only the top level of each block is checked, not the contents of nested blocks; the meta-arguments `count`, `for_each`, `provider`, `depends_on` and the `lifecycle`, `connection`, `provisioner` blocks are never reported.
+
+## Provider registry cache
+
+A local list of Terraform providers and their versions, so names can be searched, wildcards resolved and arguments tab-completed without calling the registry. Two files, read in this order:
+
+1. User cache: `$env:LOCALAPPDATA\TerraformGraph\registry.json`, written by `Update-TerraformRegistryCache`.
+2. Bundled: `data/registry.json` inside the module, official and partner providers harvested on **2026-10-07** (UTC): 428 providers, 25,052 versions.
+
+The first file that exists wins. `-NoBundledData` skips the bundled file, so only the user cache counts. Each provider has `ProviderAddress`, `Source` (`namespace/name`), `Tier` (`official`, `partner`, `community`), `Description`, `Latest` (newest version that is not a pre-release), `VersionCount` and `Versions` (newest first, pre-releases included, each with `version`, `protocols` and `published`).
+
+```powershell
+# Refresh the user cache (official and partner; -Scope All adds community, much larger).
+Update-TerraformRegistryCache -PassThru
+
+# Search the cache: never the network.
+Get-TerraformRegistryProvider aws*                 # bare name, any namespace
+Get-TerraformRegistryProvider 'hashicorp/google*'  # namespace/name
+Get-TerraformRegistryProvider -Tier partner
+(Get-TerraformRegistryProvider hashicorp/aws).Versions | Select-Object -First 5
+
+# A wildcard -Provider must match exactly one provider.
+Get-TerraformProviderSchema -Provider 'hashicorp/awsc*' -Cleanup
+```
+
+Patterns match by shape: no slash matches the bare name in any namespace, one slash matches `namespace/name`, two slashes match the full address; case is ignored. With a wildcard, `Get-TerraformProviderSchema -Provider` resolves against the cache before running anything, and stops if the pattern is ambiguous or unknown:
+
+```
+'aws*' matches 4 providers: hashicorp/aws, hashicorp/awscc, nullstone-io/awsex, Traceableai/awsapigateway. Specify one.
+'foo*' matches no provider in the registry cache (harvested 2026-10-07). Run Update-TerraformRegistryCache or pass a full address.
+```
+
+Matches are listed official first, then partner, then community. A `-Provider` without a wildcard keeps working with no cache at all.
+
+Tab completion reads the cache only and never touches the network: `Get-TerraformProviderSchema -Provider` and `Get-TerraformRegistryProvider -Name` complete `namespace/name` sources (official first), and `-Version` completes the versions of the provider already typed, newest first. With no cache they complete nothing.
+
+`Update-TerraformRegistryCache` lists providers from the v2 API (100 per page), then makes two calls per provider in parallel (`-ThrottleLimit`, default 6): v1 `/versions` for protocols and v2 `include=provider-versions` for publish dates. 429 and 5xx responses are retried twice. If any provider still fails, nothing is written; otherwise the file is replaced atomically.
+
+The bundled file is refreshed when cutting a release, not in the default build:
+
+```powershell
+Invoke-Build BuildRegistry   # writes src/TerraformGraph/data/registry.json, prints ProviderCount, VersionCount, Elapsed
+```
 
 ## Agent skills
 
