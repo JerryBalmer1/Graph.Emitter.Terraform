@@ -83,7 +83,7 @@ Get-ChildItem .\infra -Filter *.tf | Get-TerraformAST | Group-Object File | Sele
 
 Expect: three groups: 9 main.tf, 2 outputs.tf, 7 variables.tf.
 
-Pester: none
+Pester: "binds pipeline FileInfo input to -FilePath"
 
 ### 1.5 Error: missing file
 
@@ -150,7 +150,7 @@ finally {
 
 Expect: `Get-TerraformAST: ... No .tf files found.` and the temp directory is removed.
 
-Pester: none
+Pester: "writes a non-terminating error for a directory with no .tf files"
 
 ### 1.9 Error: HCL syntax error
 
@@ -172,7 +172,7 @@ finally {
 
 Expect: a timestamped `Error parsing HCL file: ...` log line from the DLL, then an error `Error parsing HCL file: <temp>\tg-check-badhcl\main.tf:1,31-32: Unclosed configuration block; There is no closing brace for this block before the end of the file. ...` ending in `(<temp>\tg-check-badhcl\main.tf)`.
 
-Pester: none
+Pester: "writes a non-terminating parse error for an unclosed block"
 
 ## 2 ConvertTo-TerraformJson
 
@@ -385,7 +385,7 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 
 Expect: `The maximum configured depth of 2 has been exceeded. Cannot read next JSON array. LineNumber: 0 | BytePositionInLine: 2.`
 
-Pester: none
+Pester: "throws when JSON nesting exceeds -Depth"
 
 ## 4 Get-TerraformProviderSchema
 
@@ -643,4 +643,4 @@ Get-TerraformModuleGraph -Path .\does-not-exist-dir
 
 Expect: `Cannot validate argument on parameter 'Path'. Path '.\does-not-exist-dir' is not an existing directory.`
 
-Pester: none
+Pester: "rejects a missing directory" (Get-TerraformModuleGraph context)

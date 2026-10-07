@@ -63,13 +63,25 @@ Get-TerraformAST -Path .\infra
 ```
 
 ```text
-Type      Name                 Line Column File
-----      ----                 ---- ------ ----
-terraform                         1      1 main.tf
-provider  null                    1      1 main.tf
-variable  aws_region              1      1 variables.tf
-variable  instance_count          7      1 variables.tf
-output    region                  1      1 outputs.tf
+Type   : terraform
+Name   :
+Line   : 1
+Column : 1
+File   : main.tf
+
+Type   : provider
+Name   : null
+Line   : 16
+Column : 1
+File   : main.tf
+
+Type   : provider
+Name   : local
+Line   : 17
+Column : 1
+File   : main.tf
+
+...
 ```
 
 ### Directory, recursive (`-Path -Recurse`)

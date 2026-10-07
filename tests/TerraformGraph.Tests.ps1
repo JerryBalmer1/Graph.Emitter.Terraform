@@ -60,6 +60,37 @@ Describe "TerraformGraph" {
             { Get-TerraformAST -Path (Join-Path $RepoRoot "does-not-exist-dir") -ErrorAction Stop } |
                 Should -Throw
         }
+
+        It "binds pipeline FileInfo input to -FilePath" {
+            $piped = @(Get-ChildItem $Infra -Filter *.tf | Get-TerraformAST -ErrorAction Stop)
+            $piped.Count | Should -Be @(Get-TerraformAST -Path $Infra -ErrorAction Stop).Count
+            $groups = $piped | Group-Object File | Sort-Object Name
+            $groups.Name | Should -Be @('main.tf', 'outputs.tf', 'variables.tf')
+            # Object[] has its own Count, so enumerate the groups' Count explicitly.
+            $groups | ForEach-Object Count | Should -Be @(9, 2, 7)
+        }
+
+        It "writes a non-terminating error for a directory with no .tf files" {
+            $empty = Join-Path $TestDrive 'empty'
+            New-Item -ItemType Directory -Path $empty | Out-Null
+            $out = Get-TerraformAST -Path $empty -ErrorAction SilentlyContinue -ErrorVariable astErrors
+            $out | Should -BeNullOrEmpty
+            $astErrors.Count | Should -Be 1
+            $astErrors[0].Exception.Message | Should -Be 'No .tf files found.'
+        }
+
+        It "writes a non-terminating parse error for an unclosed block" {
+            $badFile = Join-Path $TestDrive 'badhcl' 'main.tf'
+            New-Item -ItemType File -Path $badFile -Value 'resource "terraform_data" "x" {' -Force | Out-Null
+            $out = Get-TerraformAST -Path (Split-Path $badFile) -ErrorAction SilentlyContinue -ErrorVariable astErrors
+            $out | Should -BeNullOrEmpty
+            # -ErrorVariable also collects the records thrown and caught inside the module;
+            # the one written to the caller is tagged with Get-TerraformAST.
+            $written = @($astErrors | Where-Object { $_.FullyQualifiedErrorId -like '*,Get-TerraformAST' })
+            $written.Count | Should -Be 1
+            $written[0].Exception.Message |
+                Should -BeLike "Error parsing HCL file: $badFile`:1,31-32: Unclosed configuration block; There is no closing brace for this block before the end of the file.*($badFile)"
+        }
     }
 
     Context "block types in infra" {
@@ -254,6 +285,11 @@ Describe "TerraformGraph" {
 
         It "joins Get-Content lines from the pipeline" {
             "{", '  "a": 1', "}" | ConvertFrom-TerraformJson | Select-Object -ExpandProperty a | Should -Be 1
+        }
+
+        It "throws when JSON nesting exceeds -Depth" {
+            { '[[[[1]]]]' | ConvertFrom-TerraformJson -Depth 2 -ErrorAction Stop } |
+                Should -Throw '*maximum configured depth of 2 has been exceeded*'
         }
     }
 
@@ -465,6 +501,11 @@ Describe "TerraformGraph" {
             $RecursiveGraph.NodeCount | Should -Be 3
             $RecursiveGraph.EdgeCount | Should -Be 2
             $RecursiveGraph.UnresolvedCount | Should -Be 0
+        }
+
+        It "rejects a missing directory" {
+            { Get-TerraformModuleGraph -Path (Join-Path $RepoRoot 'does-not-exist-dir') -ErrorAction Stop } |
+                Should -Throw "*is not an existing directory*"
         }
     }
 }
