@@ -37,7 +37,7 @@
         "https://developer.hashicorp.com/terraform/cli/commands/init"
       ],
       "harvestedBy": "Get-TerraformProviderSchema",
-      "lastPulled": "2026-10-07T03:58:00Z"
+      "lastPulled": "2026-10-07T09:54:59Z"
     },
     {
       "kind": "docs",
@@ -49,7 +49,7 @@
         "https://developer.hashicorp.com/terraform/registry/providers/docs"
       ],
       "harvestedBy": "Update-TerraformProviderDocCache",
-      "lastPulled": "2026-10-07T05:19:53Z"
+      "lastPulled": "2026-10-07T09:55:01Z"
     },
     {
       "kind": "classifiers",
@@ -137,7 +137,7 @@
       "docsVersion": "5.8.0",
       "schemaVersion": "5.8.0",
       "classifierVersion": "5.8.0",
-      "harvestedOn": "2026-10-07T03:55:31Z"
+      "harvestedOn": "2026-10-07T09:54:51Z"
     },
     {
       "provider": "registry.terraform.io/hashicorp/azurestack",
@@ -361,7 +361,7 @@
       "docsVersion": "1.16.0",
       "schemaVersion": "1.16.0",
       "classifierVersion": "1.16.0",
-      "harvestedOn": "2026-10-07T05:07:05Z"
+      "harvestedOn": "2026-10-07T09:54:59Z"
     },
     {
       "provider": "registry.terraform.io/vmware/vsphere",
@@ -369,7 +369,7 @@
       "docsVersion": "2.17.1",
       "schemaVersion": "2.17.1",
       "classifierVersion": "2.17.1",
-      "harvestedOn": "2026-10-07T05:07:08Z"
+      "harvestedOn": "2026-10-07T09:55:01Z"
     }
   ]
 }
