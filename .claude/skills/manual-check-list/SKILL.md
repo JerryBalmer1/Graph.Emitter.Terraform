@@ -65,6 +65,8 @@ Pester: "parses infra with -Path -Recurse and includes nested modules"
 
 Rules:
 - The code block is self-contained. It always starts with the three setup lines above so it works in any shell and can never resolve to the installed TerraformAST module. No item depends on a previous item having run.
+- Never wrap a block in `pwsh -Command { ... }`. Pasted into an interactive console, the scriptblock form runs and prints nothing, so the item looks like it passed; it only prints when the parent's output is redirected, which is how an agent runs it, so the agent sees output the person never will.
+- A fresh process per item stays the rule here: TerraformGraph's P/Invoke pins the Go DLL for the life of the process, so `Import-Module -Force` keeps running the old parser after a rebuild. When an item needs a child process (that, a changed PATH or `LOCALAPPDATA`, or an exit code), use the string form (`pwsh -NoProfile -Command "..."`) or write the body to a temp `.ps1` with a single-quoted here-string and run `pwsh -NoProfile -File` on it, and remove the temp file in a `finally`. Either way, restore every environment variable the item changes in a `finally`.
 - Expect is one or two sentences describing what appears on screen: counts, property names, a specific value, or the exact error text. Not "it works".
 - Pester names the test(s) in tests/TerraformGraph.Tests.ps1 that cover the same behaviour, by their It description in quotes. If none exists, write `Pester: none` so the gap is visible. Do not write a test just to fill this line; report the gap instead.
 - Error cases are items too (missing path, wrong extension, modules.json absent). Expect states the error text.
@@ -74,7 +76,7 @@ Rules:
 
 1. Read manual-check-list.md and the current psd1 FunctionsToExport.
 2. For each function you added or changed, read its parameter block and help examples from the file named for it. Function code is one function per file, named for the function: `src/TerraformGraph/Public/<Verb-Noun>.ps1` for an exported command, `src/TerraformGraph/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `TerraformGraph.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships.
-3. Add or edit items. Run every block you add or edit in a fresh process (`pwsh -NoProfile -File` on a temp script, or `pwsh -NoProfile -Command`) and confirm the output matches Expect before writing it down. Fix the Expect line, not the output.
+3. Add or edit items. Run every block you add or edit in a fresh process (`pwsh -NoProfile -File` on a temp script, or `pwsh -NoProfile -Command`) and confirm the output matches Expect before writing it down. Fix the Expect line, not the output. Running it that way does not catch a block that is silent when pasted into a console (see the `pwsh -Command { ... }` rule above), so check the block against that rule too.
 4. Update Module version and Last updated at the top.
 5. Stage the file. Do not commit.
 6. In your task report, list the item numbers added, changed, or marked removed, one line each.
@@ -84,3 +86,4 @@ Rules:
 - Do not put checklist items anywhere else (README, CLAUDE.md, help). Link to them by number if needed.
 - Do not paraphrase Pester test names; copy them.
 - Do not write an Expect you have not seen.
+- Do not use `pwsh -Command { ... }` in a block.
