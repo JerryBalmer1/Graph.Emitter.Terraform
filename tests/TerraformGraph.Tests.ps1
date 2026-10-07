@@ -1302,3 +1302,113 @@ locals {
         }
     }
 }
+
+# Only Claude is exercised: Claude Code is what the author uses. The other tools'
+# paths go through the same copy mechanism but are untested.
+Describe "Skills" {
+
+    BeforeAll {
+        $moduleBase = (Get-Module TerraformGraph).ModuleBase
+        Set-Variable -Name Psd1 -Scope Script -Value (Join-Path $moduleBase 'TerraformGraph.psd1')
+        Set-Variable -Name BundledSkill -Scope Script -Value (Join-Path $moduleBase 'skills' 'terraformgraph' 'SKILL.md')
+        Set-Variable -Name Marker -Scope Script -Value '<!-- terraformgraph-skill -->'
+
+        # Imports the module in a new pwsh process from $Dir and returns what it printed.
+        $importOutput = {
+            param([string]$Dir, [string]$Hint)
+            $setHint = if ($Hint) { "`$env:TERRAFORMGRAPH_SKILL_HINT = '$Hint'" } else { 'Remove-Item Env:TERRAFORMGRAPH_SKILL_HINT -ErrorAction SilentlyContinue' }
+            pwsh -NoProfile -Command "$setHint; Set-Location -LiteralPath '$Dir'; Import-Module '$Psd1'" 2>&1 | Out-String
+        }
+        Set-Variable -Name ImportOutput -Scope Script -Value $importOutput
+    }
+
+    BeforeEach {
+        # A fake repo that uses Claude, fresh for every test.
+        $repo = Join-Path $TestDrive ([guid]::NewGuid().ToString('n'))
+        New-Item -ItemType Directory -Path (Join-Path $repo '.claude') -Force | Out-Null
+        Set-Variable -Name Repo -Scope Script -Value $repo
+        Set-Variable -Name InstalledSkill -Scope Script -Value (Join-Path $repo '.claude' 'skills' 'terraformgraph' 'SKILL.md')
+    }
+
+    It "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph" {
+        (Get-Command Install-TerraformGraphSkill -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        (Get-Command Test-TerraformGraphSkill -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+    }
+
+    It "installs SKILL.md for Claude identical to the bundled file" {
+        $result = Install-TerraformGraphSkill -Path $Repo -Tool Claude -PassThru -ErrorAction Stop
+        $result.Tool | Should -Be 'Claude'
+        $result.Status | Should -Be 'Installed'
+        $result.Files | Should -Be 1
+        (Get-FileHash -LiteralPath $InstalledSkill).Hash | Should -Be (Get-FileHash -LiteralPath $BundledSkill).Hash
+    }
+
+    It "reports Claude Detected, Installed and not Stale after install" {
+        Install-TerraformGraphSkill -Path $Repo -Tool Claude -ErrorAction Stop
+        $status = Test-TerraformGraphSkill -Path $Repo -Tool Claude -ErrorAction Stop
+        $status.Detected | Should -BeTrue
+        $status.Installed | Should -BeTrue
+        $status.Stale | Should -BeFalse
+    }
+
+    It "returns Unchanged on a second install without -Force" {
+        Install-TerraformGraphSkill -Path $Repo -Tool Claude -ErrorAction Stop
+        $result = Install-TerraformGraphSkill -Path $Repo -Tool Claude -PassThru -ErrorAction Stop -ErrorVariable errors
+        $result.Status | Should -Be 'Unchanged'
+        $result.Files | Should -Be 0
+        $errors.Count | Should -Be 0
+    }
+
+    It "reports an edited copy as Stale, skips it without -Force and restores it with -Force" {
+        Install-TerraformGraphSkill -Path $Repo -Tool Claude -ErrorAction Stop
+        Add-Content -LiteralPath $InstalledSkill -Value 'local edit'
+        (Test-TerraformGraphSkill -Path $Repo -Tool Claude).Stale | Should -BeTrue
+
+        (Install-TerraformGraphSkill -Path $Repo -Tool Claude -PassThru -ErrorAction Stop).Status | Should -Be 'Skipped'
+        (Test-TerraformGraphSkill -Path $Repo -Tool Claude).Stale | Should -BeTrue
+
+        (Install-TerraformGraphSkill -Path $Repo -Tool Claude -Force -PassThru -ErrorAction Stop).Status | Should -Be 'Updated'
+        (Test-TerraformGraphSkill -Path $Repo -Tool Claude).Stale | Should -BeFalse
+        (Get-FileHash -LiteralPath $InstalledSkill).Hash | Should -Be (Get-FileHash -LiteralPath $BundledSkill).Hash
+    }
+
+    It "creates AGENTS.md with the marker and never appends it twice" {
+        Install-TerraformGraphSkill -Path $Repo -Tool Claude -ErrorAction Stop
+        Install-TerraformGraphSkill -Path $Repo -Tool Claude -Force -ErrorAction Stop
+        $agents = Join-Path $Repo 'AGENTS.md'
+        @(Get-Content -LiteralPath $agents | Where-Object { $_ -eq $Marker }).Count | Should -Be 1
+        Get-Content -LiteralPath $agents -Raw | Should -BeLike '*.claude/skills/terraformgraph/SKILL.md*'
+    }
+
+    It "appends to an existing AGENTS.md without changing its content" {
+        $agents = Join-Path $Repo 'AGENTS.md'
+        Set-Content -LiteralPath $agents -Value "# Rules`n`nKeep this line." -NoNewline
+        Install-TerraformGraphSkill -Path $Repo -Tool Claude -ErrorAction Stop
+        Install-TerraformGraphSkill -Path $Repo -Tool Claude -ErrorAction Stop
+        $text = Get-Content -LiteralPath $agents -Raw
+        $text | Should -BeLike "# Rules`n`nKeep this line.*"
+        @(Get-Content -LiteralPath $agents | Where-Object { $_ -eq $Marker }).Count | Should -Be 1
+    }
+
+    It "reports Detected false for every tool in a directory with no markers" {
+        $bare = Join-Path $TestDrive 'skills-bare'
+        New-Item -ItemType Directory -Path $bare -Force | Out-Null
+        $status = @(Test-TerraformGraphSkill -Path $bare -ErrorAction Stop)
+        $status.Tool | Should -Be @('Claude', 'Codex', 'Cursor', 'Gemini', 'Copilot')
+        @($status | Where-Object Detected).Count | Should -Be 0
+        @($status | Where-Object Installed).Count | Should -Be 0
+    }
+
+    It "prints the install hint on import where .claude exists without the skill" {
+        & $ImportOutput $Repo | Should -BeLike '*Install-TerraformGraphSkill -Tool Claude*'
+    }
+
+    It "prints nothing on import when TERRAFORMGRAPH_SKILL_HINT is 0" {
+        (& $ImportOutput $Repo '0').Trim() | Should -BeNullOrEmpty
+    }
+
+    It "prints nothing on import once the skill is installed" {
+        Install-TerraformGraphSkill -Path $Repo -Tool Claude -ErrorAction Stop
+        (& $ImportOutput $Repo).Trim() | Should -BeNullOrEmpty
+    }
+}

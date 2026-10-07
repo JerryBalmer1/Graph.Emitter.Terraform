@@ -13,6 +13,9 @@ src/TerraformGraph/       PowerShell module root
   TerraformGraph.psm1     P/Invoke + ConvertFrom-TerraformHclFile + exported functions
   TerraformGraph.Json.cs  System.Text.Json serializer/deserializer (TerraformGraph.Json)
   lib/                  TerraformGraph.dll (build artifact, gitignored) + TerraformGraph.h
+  skills/terraformgraph/SKILL.md  Canonical agent skill (shipped with the module)
+.claude/skills/terraformgraph/  Generated copy of the skill (Install-TerraformGraphSkill)
+AGENTS.md               Generated pointer section (Install-TerraformGraphSkill)
 infra/                  Fixture modules used by tests and README examples
 tests/                  Pester 6.1+ (*.Tests.ps1)
 Dockerfile              Cross-compile Windows DLL with mingw from Linux
@@ -31,6 +34,8 @@ Exported functions:
 - `ConvertTo-TerraformVariableGraph` — ModuleGraph to a graph of variables, locals and outputs (Nodes, Edges, Unresolved, Skipped, Summary); edges Reference, Argument, OutputReference from declaration expressions and module call arguments only; references found by private `Get-TerraformExpressionReferences`; never reparses.
 - `Get-TerraformVariableTrace` — breadth-first walk of a VariableGraph from `-Id` (`-Direction Upstream|Downstream|Both`, `-MaxDepth`); nodes copied with `Distance`, negative upstream under Both.
 - `ConvertTo-TerraformResourceGraph` — ModuleGraph (plus optional `-SchemaGraph` array) to an inventory of resource/data blocks (Nodes, Edges, Skipped, Providers, MatchedCount, UnmatchedCount, Findings); `InstanceOf` edge to the schema node when matched; top-level-only `UnknownAttributes`, `UnknownBlocks`, `MissingRequired`; Reason `NoSchemaGraph|ProviderNotInSchemaGraph|TypeNotInProvider`; never reparses.
+- `Install-TerraformGraphSkill` — copy `skills/*` into `<Path>/<tool skills folder>/` (`-Tool Claude|Codex|Cursor|Gemini|Copilot|All`, default Claude; `-Force`, `-PassThru` → SkillInstall); creates or appends once to `AGENTS.md` behind `<!-- terraformgraph-skill -->`; no network.
+- `Test-TerraformGraphSkill` — per tool SkillStatus (Detected, Installed, Stale, SkillPath); read only. Private `Show-TerraformGraphSkillHint` runs it at import and prints one host line for detected-but-not-installed tools; `TERRAFORMGRAPH_SKILL_HINT=0` silences it. Tool paths live only in the private `$script:TerraformGraphSkillTools` table.
 
 Planned: none.
 
@@ -45,6 +50,10 @@ Planned: none.
 ## Naming
 
 Node types never have a property named `Address`, `Count`, `Length`, or any other member of `System.Array` (member access on an array of nodes would hit the array's own member); use a qualified name (`ModuleAddress`, `ResourceAddress`).
+
+## Skills
+
+`src/TerraformGraph/skills/` is canonical and ships with the module. `.claude/skills/terraformgraph/` is a generated copy: after editing the canonical `SKILL.md`, re-run `Install-TerraformGraphSkill -Path . -Tool Claude -Force` and stage both. Never edit the copy by hand. `.claude/skills/manual-check-list` is a repo-development skill and is not shipped.
 
 ## AST
 

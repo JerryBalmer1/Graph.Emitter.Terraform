@@ -2514,3 +2514,309 @@ function ConvertTo-TerraformResourceGraph {
         }
     }
 }
+
+# Agent tools that read project skills: the project-relative folder skills are copied
+# into, and the path whose presence means the tool is used in a repo. These paths are
+# the convention as of 2026-10; this table is the only place to correct them.
+$script:TerraformGraphSkillTools = [ordered]@{
+    Claude  = @{ SkillsDir = '.claude/skills'; Marker = '.claude' }
+    Codex   = @{ SkillsDir = '.codex/skills';  Marker = '.codex' }
+    Cursor  = @{ SkillsDir = '.cursor/skills'; Marker = '.cursor' }
+    Gemini  = @{ SkillsDir = '.gemini/skills'; Marker = '.gemini' }
+    Copilot = @{ SkillsDir = '.github/skills'; Marker = '.github/copilot-instructions.md' }
+}
+
+# Skill views. SkillPath is long, so it comes last.
+Update-TypeData -TypeName 'TerraformGraph.SkillInstall' -DefaultDisplayPropertySet Tool, Status, Files, SkillPath -Force
+Update-TypeData -TypeName 'TerraformGraph.SkillStatus' -DefaultDisplayPropertySet Tool, Detected, Installed, Stale, SkillPath -Force
+
+# The canonical skills shipped with the module; Install-TerraformGraphSkill copies this folder.
+$script:TerraformGraphSkillSource = Join-Path $PSScriptRoot 'skills'
+
+function Resolve-TerraformGraphSkillTool {
+    # Not exported. Expands 'All' and removes duplicates, in tool-map order.
+    param([string[]]$Tool)
+    $all = $Tool -contains 'All'
+    foreach ($name in $script:TerraformGraphSkillTools.Keys) {
+        if ($all -or $Tool -contains $name) { $name }
+    }
+}
+
+function Get-TerraformGraphSkillFile {
+    # Not exported. Every bundled skill file as {Source, Relative}, Relative using the
+    # platform separator, in ordinal order so installs are deterministic.
+    $root = (Resolve-Path -LiteralPath $script:TerraformGraphSkillSource -ErrorAction Stop).ProviderPath
+    $files = @(Get-ChildItem -LiteralPath $root -Recurse -File | Sort-Object { $_.FullName } -Culture '')
+    foreach ($file in $files) {
+        [pscustomobject]@{
+            Source   = $file.FullName
+            Relative = [System.IO.Path]::GetRelativePath($root, $file.FullName)
+        }
+    }
+}
+
+function Test-TerraformGraphSkillFileEqual {
+    # Not exported. True when both files exist with the same bytes.
+    param([string]$Left, [string]$Right)
+    if (-not (Test-Path -LiteralPath $Right -PathType Leaf)) { return $false }
+    (Get-FileHash -LiteralPath $Left -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $Right -Algorithm SHA256).Hash
+}
+
+function Install-TerraformGraphSkill {
+    <#
+    .SYNOPSIS
+        Copies the TerraformGraph agent skill into a repository for one or more agent tools.
+
+    .DESCRIPTION
+        Install-TerraformGraphSkill copies the skills folder that ships with the module
+        (skills/terraformgraph/SKILL.md, an Agent Skills SKILL.md) into the project skills
+        folder of each agent tool under -Path, such as .claude/skills/terraformgraph for
+        Claude. Files are copied, never linked.
+
+        Without -Force, a file that already exists with the same content is left alone and
+        a file that exists with different content is skipped with a verbose message, so a
+        local edit is never lost. With -Force, differing files are overwritten. Running it
+        again is safe.
+
+        It also makes sure AGENTS.md at -Path points at the installed skill: a missing
+        AGENTS.md is created with a short section, and an existing one gets that section
+        appended once. The section starts with the marker line
+        <!-- terraformgraph-skill -->; when the marker is already there AGENTS.md is not
+        touched. Existing AGENTS.md content is never rewritten.
+
+        Never touches the network.
+
+    .PARAMETER Path
+        Repository root. Defaults to the current location.
+
+    .PARAMETER Tool
+        Claude (default), Codex, Cursor, Gemini, Copilot, or All. Skills folders:
+        .claude/skills, .codex/skills, .cursor/skills, .gemini/skills, .github/skills.
+
+    .PARAMETER Force
+        Overwrite installed files whose content differs from the bundled skill.
+
+    .PARAMETER PassThru
+        Return one TerraformGraph.SkillInstall per tool.
+
+    .EXAMPLE
+        Install-TerraformGraphSkill
+
+        Copy the skill to .claude/skills/terraformgraph in the current directory and add
+        the AGENTS.md section.
+
+    .EXAMPLE
+        Install-TerraformGraphSkill -Path C:\src\infra-live -Tool Claude, Cursor -PassThru
+
+        Install for two tools and report what was written.
+
+    .EXAMPLE
+        Test-TerraformGraphSkill | Where-Object Stale | ForEach-Object { Install-TerraformGraphSkill -Tool $_.Tool -Force }
+
+        Refresh every installed copy that no longer matches the module's skill, such as
+        after a module upgrade.
+
+    .OUTPUTS
+        None, or TerraformGraph.SkillInstall with -PassThru: Tool, Path, SkillPath (the
+        tool's skills folder), Status (Installed, Updated, Unchanged or Skipped) and Files
+        (the number of files written).
+
+    .NOTES
+        Status: Installed when files were written and none existed before; Updated when
+        files were written over or next to an earlier install; Unchanged when every file
+        already matched; Skipped when nothing was written because files differ and -Force
+        was not given.
+
+    .LINK
+        Test-TerraformGraphSkill
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [string]
+        $Path = $PWD,
+
+        [ValidateSet('Claude', 'Codex', 'Cursor', 'Gemini', 'Copilot', 'All')]
+        [string[]]
+        $Tool = 'Claude',
+
+        [switch]
+        $Force,
+
+        [switch]
+        $PassThru
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.IO.DirectoryNotFoundException]::new("Path '$Path' is not an existing directory."),
+            'SkillPathNotFound',
+            [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+            $Path))
+    }
+    $root = (Resolve-Path -LiteralPath $Path).ProviderPath
+    $files = @(Get-TerraformGraphSkillFile)
+    $tools = @(Resolve-TerraformGraphSkillTool -Tool $Tool)
+    $results = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($name in $tools) {
+        $skillsDir = Join-Path $root $script:TerraformGraphSkillTools[$name].SkillsDir
+        $written = 0
+        $existed = 0
+        $skipped = 0
+        foreach ($file in $files) {
+            $target = Join-Path $skillsDir $file.Relative
+            if (Test-Path -LiteralPath $target -PathType Leaf) {
+                $existed++
+                if (Test-TerraformGraphSkillFileEqual -Left $file.Source -Right $target) { continue }
+                if (-not $Force) {
+                    Write-Verbose "Skipping $target; it differs from the bundled skill. Use -Force to overwrite."
+                    $skipped++
+                    continue
+                }
+            }
+            $null = New-Item -ItemType Directory -Path (Split-Path -Path $target -Parent) -Force -ErrorAction Stop
+            Copy-Item -LiteralPath $file.Source -Destination $target -Force -ErrorAction Stop
+            Write-Verbose "Wrote $target"
+            $written++
+        }
+
+        $status = if ($written -gt 0) { ($existed -gt 0) ? 'Updated' : 'Installed' }
+        elseif ($skipped -gt 0) { 'Skipped' }
+        else { 'Unchanged' }
+
+        $results.Add([pscustomobject]@{
+            PSTypeName = 'TerraformGraph.SkillInstall'
+            Tool       = $name
+            Path       = $root
+            SkillPath  = $skillsDir
+            Status     = $status
+            Files      = $written
+        })
+    }
+
+    # AGENTS.md: create, or append the section once. The marker guards repeat runs.
+    $marker = '<!-- terraformgraph-skill -->'
+    $agentsPath = Join-Path $root 'AGENTS.md'
+    $existing = if (Test-Path -LiteralPath $agentsPath -PathType Leaf) { [System.IO.File]::ReadAllText($agentsPath) }
+    if ($null -eq $existing -or -not $existing.Contains($marker)) {
+        $section = @(
+            $marker
+            '## TerraformGraph skill'
+            ''
+            'This repository has the TerraformGraph agent skill (PowerShell module for parsing Terraform and graphing modules, variables, provider schemas and resources). Load it from:'
+            ''
+            foreach ($name in $tools) { "- ``$($script:TerraformGraphSkillTools[$name].SkillsDir)/terraformgraph/SKILL.md``" }
+            ''
+            'The copies are generated by Install-TerraformGraphSkill; re-run it to update them.'
+        ) -join "`n"
+        if ($null -eq $existing) {
+            [System.IO.File]::WriteAllText($agentsPath, "# AGENTS.md`n`n$section`n")
+        }
+        else {
+            $separator = if ($existing.Length -eq 0) { '' } elseif ($existing.EndsWith("`n")) { "`n" } else { "`n`n" }
+            [System.IO.File]::AppendAllText($agentsPath, "$separator$section`n")
+        }
+        Write-Verbose "Wrote the TerraformGraph section to $agentsPath"
+    }
+
+    if ($PassThru) { $results.ToArray() }
+}
+
+function Test-TerraformGraphSkill {
+    <#
+    .SYNOPSIS
+        Reports which agent tools a repository uses and whether the TerraformGraph skill is installed for them.
+
+    .DESCRIPTION
+        Test-TerraformGraphSkill checks -Path for each agent tool: Detected when the tool's
+        marker exists (.claude, .codex, .cursor, .gemini, or .github/copilot-instructions.md),
+        Installed when every bundled skill file is in the tool's skills folder, and Stale
+        when it is installed but at least one file differs from the skill shipped with the
+        module. It only reads.
+
+    .PARAMETER Path
+        Repository root. Defaults to the current location.
+
+    .PARAMETER Tool
+        Claude, Codex, Cursor, Gemini, Copilot, or All (default).
+
+    .EXAMPLE
+        Test-TerraformGraphSkill
+
+        Status of every tool in the current directory.
+
+    .EXAMPLE
+        Test-TerraformGraphSkill -Path C:\src\infra-live | Where-Object { $_.Detected -and -not $_.Installed }
+
+        Tools the repository uses that do not have the skill yet.
+
+    .OUTPUTS
+        TerraformGraph.SkillStatus: Tool, Detected, Installed, Stale, SkillPath (the tool's
+        skills folder).
+
+    .LINK
+        Install-TerraformGraphSkill
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [string]
+        $Path = $PWD,
+
+        [ValidateSet('Claude', 'Codex', 'Cursor', 'Gemini', 'Copilot', 'All')]
+        [string[]]
+        $Tool = 'All'
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+            [System.IO.DirectoryNotFoundException]::new("Path '$Path' is not an existing directory."),
+            'SkillPathNotFound',
+            [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+            $Path))
+    }
+    $root = (Resolve-Path -LiteralPath $Path).ProviderPath
+    $files = @(Get-TerraformGraphSkillFile)
+
+    foreach ($name in Resolve-TerraformGraphSkillTool -Tool $Tool) {
+        $entry = $script:TerraformGraphSkillTools[$name]
+        $skillsDir = Join-Path $root $entry.SkillsDir
+        $installed = $files.Count -gt 0
+        $stale = $false
+        foreach ($file in $files) {
+            $target = Join-Path $skillsDir $file.Relative
+            if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { $installed = $false; break }
+            if (-not $stale -and -not (Test-TerraformGraphSkillFileEqual -Left $file.Source -Right $target)) { $stale = $true }
+        }
+
+        [pscustomobject]@{
+            PSTypeName = 'TerraformGraph.SkillStatus'
+            Tool       = $name
+            Detected   = Test-Path -LiteralPath (Join-Path $root $entry.Marker)
+            Installed  = $installed
+            Stale      = $installed -and $stale
+            SkillPath  = $skillsDir
+        }
+    }
+}
+
+function Show-TerraformGraphSkillHint {
+    # Not exported. Runs once at import: one host line when the current directory uses an
+    # agent tool that does not have the skill. Silent otherwise, and when
+    # TERRAFORMGRAPH_SKILL_HINT is '0'. Reads a few local paths; never throws.
+    try {
+        if ($env:TERRAFORMGRAPH_SKILL_HINT -eq '0') { return }
+        $location = Get-Location -PSProvider FileSystem -ErrorAction Stop
+        $missing = @(Test-TerraformGraphSkill -Path $location.ProviderPath -ErrorAction Stop |
+            Where-Object { $_.Detected -and -not $_.Installed } |
+            ForEach-Object Tool)
+        if ($missing.Count -eq 0) { return }
+        Write-Host "TerraformGraph: detected $($missing -join ', ') in this directory. Run Install-TerraformGraphSkill -Tool $($missing -join ',') to give them the TerraformGraph skill."
+    }
+    catch {
+        Write-Verbose "TerraformGraph skill hint skipped: $($_.Exception.Message)"
+    }
+}
+
+Show-TerraformGraphSkillHint

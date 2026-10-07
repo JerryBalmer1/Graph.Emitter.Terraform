@@ -19,7 +19,7 @@ Parse Terraform configurations into an HCL AST and build graphs of module calls 
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.7.0**. Not yet published to the PowerShell Gallery.
+Source version **0.8.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -301,6 +301,44 @@ $graph.Nodes | Where-Object { $_.UnknownAttributes -or $_.UnknownBlocks -or $_.M
 ```
 
 The provider is resolved per module, the way Terraform does it: the local name is the type up to its first underscore (`aws_instance` → `aws`), or the name in a `provider = aws.west` argument (which also sets `ProviderAlias`). It maps through that module's own `required_providers` sources; an undeclared name falls back to `terraform.io/builtin/terraform` for `terraform` and `registry.terraform.io/hashicorp/<name>` otherwise. Child modules do not inherit their parent's `required_providers`. Only the top level of each block is checked, not the contents of nested blocks; the meta-arguments `count`, `for_each`, `provider`, `depends_on` and the `lifecycle`, `connection`, `provisioner` blocks are never reported.
+
+## Agent skills
+
+The module ships an agent skill at `skills/terraformgraph/SKILL.md` inside the module folder. It follows the open Agent Skills format: YAML front matter with `name` and `description` (when an agent should load it), then a Markdown body. The body covers importing the module, the functions in pipeline order with their input and output types, the canonical Id scheme, the `ModuleAddress`/`ResourceAddress` naming rule, and three example pipelines.
+
+`Install-TerraformGraphSkill` copies that folder into a repository's project skills folder for each agent tool you name, and makes sure `AGENTS.md` at the repository root points at it. `Test-TerraformGraphSkill` reports, per tool, whether the repository uses it (`Detected`), whether the skill is there (`Installed`), and whether the copy differs from the module's (`Stale`). Neither touches the network.
+
+```powershell
+# Claude (the default) in the current directory.
+Install-TerraformGraphSkill
+
+# Several tools in another repository, with a result per tool.
+Install-TerraformGraphSkill -Path C:\src\infra-live -Tool Claude, Cursor -PassThru
+
+# What is detected and installed; refresh stale copies after a module upgrade.
+Test-TerraformGraphSkill
+Test-TerraformGraphSkill | Where-Object Stale | ForEach-Object { Install-TerraformGraphSkill -Tool $_.Tool -Force }
+```
+
+Files are copied, not linked. Without `-Force`, an identical file is left alone and a file that differs (a local edit) is skipped with a verbose message; `-Force` overwrites it. `-PassThru` returns `Tool`, `Status` (`Installed`, `Updated`, `Unchanged`, `Skipped`), `Files` written and `SkillPath`. A missing `AGENTS.md` is created; an existing one gets the section appended once, guarded by the marker line `<!-- terraformgraph-skill -->`, and its existing content is never rewritten.
+
+On import, the module checks the current directory. If an agent tool is detected there without the skill, it prints one line:
+
+```
+TerraformGraph: detected Claude in this directory. Run Install-TerraformGraphSkill -Tool Claude to give them the TerraformGraph skill.
+```
+
+It is silent when nothing is detected or everything is installed. Set `$env:TERRAFORMGRAPH_SKILL_HINT = '0'` before importing to turn it off.
+
+| Tool | Skills folder | Detected by |
+|---|---|---|
+| Claude | `.claude/skills` | `.claude` |
+| Codex | `.codex/skills` | `.codex` |
+| Cursor | `.cursor/skills` | `.cursor` |
+| Gemini | `.gemini/skills` | `.gemini` |
+| Copilot | `.github/skills` | `.github/copilot-instructions.md` |
+
+These paths are the convention as of 2026-10. Only Claude is tested: Claude Code is what the author uses; the other tools' paths use the same copy mechanism but are untested.
 
 ---
 

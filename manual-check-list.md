@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.7.0
+Module version: 0.8.0
 Last updated: 2026-10-06
 
 ## 0 Setup
@@ -17,9 +17,9 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.7.0`, then nine names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema, Get-TerraformVariableTrace.
+Expect: `0.8.0`, then eleven names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformModuleGraph, Get-TerraformProviderSchema, Get-TerraformVariableTrace, Install-TerraformGraphSkill, Test-TerraformGraphSkill.
 
-Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph"
+Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph"
 
 ## 1 Get-TerraformAST
 
@@ -1058,3 +1058,172 @@ finally {
 Expect: NodeCount 1, MatchedCount 1, UnmatchedCount 0, Findings 1; terraform_data.x with SchemaMatched True, UnknownAttributes {bogus}, UnknownBlocks {} and MissingRequired {}.
 
 Pester: "lists an attribute the schema does not declare in UnknownAttributes"
+
+## 10 Install-TerraformGraphSkill and Test-TerraformGraphSkill
+
+### 10.1 Install to a temp directory
+
+Copies the bundled skill into a fake repo that uses Claude.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-skill'
+New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
+try {
+    Install-TerraformGraphSkill -Path $dir -PassThru
+    Get-ChildItem -LiteralPath (Join-Path $dir '.claude\skills') -Recurse -File | Select-Object -ExpandProperty FullName
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: One row: Tool Claude, Status Installed, Files 1, SkillPath ending `\tg-check-skill\.claude\skills`; then one file, `...\tg-check-skill\.claude\skills\terraformgraph\SKILL.md`.
+
+Pester: "installs SKILL.md for Claude identical to the bundled file"
+
+### 10.2 Test-TerraformGraphSkill output
+
+Reports every tool for a repo that has .claude and .cursor, with the skill installed for Claude only.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-skill'
+New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $dir '.cursor') -Force | Out-Null
+try {
+    Install-TerraformGraphSkill -Path $dir
+    Test-TerraformGraphSkill -Path $dir | Format-Table Tool, Detected, Installed, Stale
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: Five rows in order Claude, Codex, Cursor, Gemini, Copilot; Claude Detected True, Installed True, Stale False; Cursor Detected True, Installed False; Codex, Gemini and Copilot all False.
+
+Pester: "reports Claude Detected, Installed and not Stale after install", "reports Detected false for every tool in a directory with no markers"
+
+### 10.3 Idempotent re-run
+
+Installs twice; the second run writes nothing.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-skill'
+New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
+try {
+    Install-TerraformGraphSkill -Path $dir -PassThru | Format-Table Tool, Status, Files
+    Install-TerraformGraphSkill -Path $dir -PassThru | Format-Table Tool, Status, Files
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: Two tables: Claude Installed 1, then Claude Unchanged 0. No error.
+
+Pester: "returns Unchanged on a second install without -Force"
+
+### 10.4 Stale, then -Force
+
+Edits the installed copy, shows it as Stale, then restores it.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-skill'
+New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
+try {
+    Install-TerraformGraphSkill -Path $dir
+    Add-Content -LiteralPath (Join-Path $dir '.claude\skills\terraformgraph\SKILL.md') -Value 'local edit'
+    Test-TerraformGraphSkill -Path $dir -Tool Claude | Format-Table Tool, Installed, Stale
+    Install-TerraformGraphSkill -Path $dir -PassThru -Verbose | Format-Table Tool, Status, Files
+    Install-TerraformGraphSkill -Path $dir -Force -PassThru | Format-Table Tool, Status, Files
+    Test-TerraformGraphSkill -Path $dir -Tool Claude | Format-Table Tool, Installed, Stale
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: Claude Installed True Stale True; a VERBOSE line `Skipping ...\SKILL.md; it differs from the bundled skill. Use -Force to overwrite.` and Claude Skipped 0; then Claude Updated 1; then Claude Installed True Stale False.
+
+Pester: "reports an edited copy as Stale, skips it without -Force and restores it with -Force"
+
+### 10.5 AGENTS.md marker count
+
+Installs twice into a repo that already has an AGENTS.md.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-skill'
+New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $dir 'AGENTS.md') -Value '# Existing rules'
+try {
+    Install-TerraformGraphSkill -Path $dir
+    Install-TerraformGraphSkill -Path $dir -Force
+    (Select-String -LiteralPath (Join-Path $dir 'AGENTS.md') -SimpleMatch '<!-- terraformgraph-skill -->').Count
+    Get-Content -LiteralPath (Join-Path $dir 'AGENTS.md')
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: `1`, then AGENTS.md: `# Existing rules`, a blank line, `<!-- terraformgraph-skill -->`, `## TerraformGraph skill`, the load sentence, `- .claude/skills/terraformgraph/SKILL.md` (in backticks) and the re-run sentence.
+
+Pester: "creates AGENTS.md with the marker and never appends it twice", "appends to an existing AGENTS.md without changing its content"
+
+### 10.6 Import hint visible
+
+Imports the module in a new process from a directory with .claude and no skill.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-skill'
+New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
+try {
+    pwsh -NoProfile -Command "Remove-Item Env:TERRAFORMGRAPH_SKILL_HINT -ErrorAction SilentlyContinue; Set-Location -LiteralPath '$dir'; Import-Module C:\__Code\TerraformGraph\src\TerraformGraph\TerraformGraph.psd1"
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: One line: `TerraformGraph: detected Claude in this directory. Run Install-TerraformGraphSkill -Tool Claude to give them the TerraformGraph skill.`
+
+Pester: "prints the install hint on import where .claude exists without the skill"
+
+### 10.7 Import hint silenced
+
+Same directory with TERRAFORMGRAPH_SKILL_HINT set to 0.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-skill'
+New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
+try {
+    pwsh -NoProfile -Command "`$env:TERRAFORMGRAPH_SKILL_HINT = '0'; Set-Location -LiteralPath '$dir'; Import-Module C:\__Code\TerraformGraph\src\TerraformGraph\TerraformGraph.psd1; 'imported'"
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: Only `imported`; no TerraformGraph line.
+
+Pester: "prints nothing on import when TERRAFORMGRAPH_SKILL_HINT is 0"
