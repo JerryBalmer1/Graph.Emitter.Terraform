@@ -26,8 +26,9 @@ Exported functions:
 - `ConvertTo-TerraformJson` — serialize objects to JSON with no 100-level depth cap (`-Depth`, `-Compress`, `-AsArray`).
 - `ConvertFrom-TerraformJson` — parse deep JSON into PSCustomObjects or ordered dictionaries (`-Depth`, `-AsHashtable`, `-NoEnumerate`).
 - `Get-TerraformProviderSchema` — run `terraform providers schema -json` in `-Path` (`-OutputFormat OrderedHashtable|Json`).
+- `Get-TerraformModuleGraph` — module-call graph (Nodes, Edges, Unresolved) from `module` blocks in `-Path`; `-Recurse`, `-GroupBy Call|Source`; non-local sources via `.terraform/modules/modules.json`, never runs init.
 
-Planned: `Get-TerraformGraph` (module dependency graph, `-Recurse` via `.terraform/modules/modules.json`) is not implemented yet.
+Planned: none.
 
 ## AST
 
@@ -57,6 +58,10 @@ Paths that must stay aligned:
 Image tag is `terraformgraph`. Temporary container is `TerraformGraph-tmp`.
 
 `mkdir -p` the lib directory in the builder stage before `go build`.
+
+## Testing
+
+After any Go rebuild, run tests in a fresh pwsh process (pwsh -NoProfile -Command 'Invoke-Pester -Path .\tests'); P/Invoke pins the DLL for the life of the process, so an open shell will keep running the old parser.
 
 ## Conventions
 

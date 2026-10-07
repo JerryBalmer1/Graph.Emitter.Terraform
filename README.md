@@ -19,7 +19,7 @@ Parse Terraform configurations into an HCL AST and build a graph of module and p
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.2.0**. Not yet published to the PowerShell Gallery.
+Source version **0.3.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -157,9 +157,22 @@ $schema['provider_schemas'].Keys
 Get-TerraformProviderSchema -Path .\infra -OutputFormat Json | Set-Content .\schema.json
 ```
 
-## Roadmap
+### Module graph (`Get-TerraformModuleGraph`)
 
-- `Get-TerraformGraph` (planned, not implemented): build the module dependency graph from module block `source` addresses, with `-Recurse` following every module call via `.terraform/modules/modules.json`.
+Build a graph of module calls from the `module` blocks in a root module (`-Path`, default current location). Each call is a `TerraformGraph.ModuleNode` with `Key`, `ModuleAddress`, `Source`, `SourceKind`, `Dir`, `Depth`, the calling `Block` and, once parsed, its own `Blocks`; each call also gets one `TerraformGraph.ModuleEdge` from its parent.
+
+```powershell
+# Root and its direct calls; children are resolved but not parsed.
+Get-TerraformModuleGraph -Path .\infra
+
+# Follow every call down the tree.
+(Get-TerraformModuleGraph -Path .\infra -Recurse).Nodes
+
+# Node and edge Ids are source strings instead of ModuleAddress.
+(Get-TerraformModuleGraph -Path .\infra -Recurse -GroupBy Source).Edges
+```
+
+`-GroupBy` only decides `Id`, and so the `From`/`To` of each edge: `Call` (default) uses `ModuleAddress` such as `module.network.module.endpoint`, `Source` uses the source string such as `./modules/endpoint`, so calls to the same module share an Id (edges are not deduplicated). Calls that cannot be resolved stay in the graph with `Resolved` `$false` and a `Reason` — `NonLiteralSource`, `LocalPathMissing`, or `NotInitialized` for a registry, git, http, s3 or gcs source with no entry in `.terraform/modules/modules.json` — and are collected in `Unresolved` for a quick check. A call whose directory is already one of its own ancestors keeps `Resolved` `$true` and its `Dir`, gets `Reason` `Cycle`, and is not followed; a module called from two places is otherwise walked once per call. `terraform init` is never run; local sources need no init at all.
 
 ---
 

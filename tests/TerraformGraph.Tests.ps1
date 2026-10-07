@@ -311,4 +311,160 @@ Describe "TerraformGraph" {
                 Should -Throw "*is not an existing directory*"
         }
     }
+
+    Context "Get-TerraformModuleGraph" {
+
+        BeforeAll {
+            # All infra sources are local, so no terraform init is needed.
+            $flat      = Get-TerraformModuleGraph -Path $Infra -ErrorAction Stop
+            $recursive = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop
+            $bySource  = Get-TerraformModuleGraph -Path $Infra -Recurse -GroupBy Source -ErrorAction Stop
+            Set-Variable -Name FlatGraph      -Value $flat      -Scope Script
+            Set-Variable -Name RecursiveGraph -Value $recursive -Scope Script
+            Set-Variable -Name SourceGraph    -Value $bySource  -Scope Script
+
+            $missing = Join-Path $TestDrive 'missing-local'
+            New-Item -ItemType Directory -Path $missing | Out-Null
+            Set-Content -Path (Join-Path $missing 'main.tf') -Value "module `"gone`" {`n  source = `"./does-not-exist`"`n}"
+            Set-Variable -Name MissingLocal -Value $missing -Scope Script
+
+            $registry = Join-Path $TestDrive 'registry'
+            New-Item -ItemType Directory -Path $registry | Out-Null
+            Set-Content -Path (Join-Path $registry 'main.tf') -Value "module `"vpc`" {`n  source = `"terraform-aws-modules/vpc/aws`"`n}"
+            Set-Variable -Name RegistryRoot -Value $registry -Scope Script
+
+            # Writes main.tf into $Dir with one module block per label = source pair.
+            function New-ModuleFixture([string]$Dir, [System.Collections.Specialized.OrderedDictionary]$Calls) {
+                New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+                $tf = foreach ($label in $Calls.Keys) {
+                    "module `"$label`" {`n  source = `"$($Calls[$label])`"`n}"
+                }
+                Set-Content -Path (Join-Path $Dir 'main.tf') -Value ($tf -join "`n") -Encoding utf8NoBOM
+            }
+
+            # root calls ./shared twice; shared calls ./leaf.
+            $diamond = Join-Path $TestDrive 'diamond'
+            New-ModuleFixture $diamond ([ordered]@{ a = './shared'; b = './shared' })
+            New-ModuleFixture (Join-Path $diamond 'shared') ([ordered]@{ leaf = './leaf' })
+            New-Item -ItemType File -Path (Join-Path $diamond 'shared' 'leaf' 'main.tf') -Value 'locals {}' -Force | Out-Null
+            Set-Variable -Name DiamondRoot -Value $diamond -Scope Script
+
+            # root -> ./x -> ../y -> ../x. x and y are siblings so ../x leads back to x.
+            $cycle = Join-Path $TestDrive 'cycle'
+            New-ModuleFixture $cycle ([ordered]@{ x = './x' })
+            New-ModuleFixture (Join-Path $cycle 'x') ([ordered]@{ y = '../y' })
+            New-ModuleFixture (Join-Path $cycle 'y') ([ordered]@{ x = '../x' })
+            Set-Variable -Name CycleRoot -Value $cycle -Scope Script
+        }
+
+        It "is exported from TerraformGraph" {
+            (Get-Command Get-TerraformModuleGraph -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        }
+
+        It "stops at direct children without -Recurse" {
+            @($FlatGraph.Nodes).Count | Should -Be 2
+            @($FlatGraph.Edges).Count | Should -Be 1
+            $network = $FlatGraph.Nodes | Where-Object Key -eq 'network'
+            $network.Depth | Should -Be 1
+            $network.Resolved | Should -BeTrue
+            $network.Blocks | Should -BeNullOrEmpty
+        }
+
+        It "follows nested calls with -Recurse" {
+            @($RecursiveGraph.Nodes).Count | Should -Be 3
+            @($RecursiveGraph.Edges).Count | Should -Be 2
+            $endpoint = $RecursiveGraph.Nodes | Where-Object Name -eq 'endpoint'
+            $endpoint.Depth | Should -Be 2
+            $endpoint.ParentKey | Should -Be 'network'
+            $endpoint.ModuleAddress | Should -Be 'module.network.module.endpoint'
+            @($endpoint.Blocks).Count | Should -BeGreaterThan 0
+        }
+
+        It "describes the root node" {
+            $root = $RecursiveGraph.Nodes | Where-Object ModuleAddress -eq 'root'
+            $root.Key | Should -Be ''
+            $root.ModuleAddress | Should -Be 'root'
+            $root.ParentKey | Should -BeNullOrEmpty
+            $root.Depth | Should -Be 0
+            $root.Source | Should -BeNullOrEmpty
+            $root.SourceKind | Should -Be 'Root'
+        }
+
+        It "keeps the calling module block on the network node" {
+            $network = $RecursiveGraph.Nodes | Where-Object Key -eq 'network'
+            $network.SourceKind | Should -Be 'Local'
+            $network.Block.Type | Should -Be 'module'
+            $network.Block.Name | Should -Be 'network'
+        }
+
+        It "links edges by Id and records the module block line" {
+            $root    = $RecursiveGraph.Nodes | Where-Object ModuleAddress -eq 'root'
+            $network = $RecursiveGraph.Nodes | Where-Object Key -eq 'network'
+            $edge    = $RecursiveGraph.Edges | Where-Object Call -eq 'module.network'
+            $edge.From | Should -Be $root.Id
+            $edge.To | Should -Be $network.Id
+            $line = (Select-String -LiteralPath $MainTf -Pattern '^module "network"').LineNumber
+            $edge.Line | Should -Be $line
+        }
+
+        It "uses Source as Id with -GroupBy Source and ModuleAddress with -GroupBy Call" {
+            $bySource = $SourceGraph.Nodes | Where-Object Name -eq 'endpoint'
+            $bySource.Id | Should -Be $bySource.Source
+            $byCall = $RecursiveGraph.Nodes | Where-Object Name -eq 'endpoint'
+            $RecursiveGraph.GroupBy | Should -Be 'Call'
+            $byCall.Id | Should -Be $byCall.ModuleAddress
+        }
+
+        It "marks a missing local source as LocalPathMissing" {
+            $graph = Get-TerraformModuleGraph -Path $MissingLocal -ErrorAction Stop
+            $gone = $graph.Nodes | Where-Object Name -eq 'gone'
+            $gone.Resolved | Should -BeFalse
+            $gone.Reason | Should -Be 'LocalPathMissing'
+            $graph.Unresolved.ModuleAddress | Should -Contain 'module.gone'
+        }
+
+        It "walks a module called from two places once per call" {
+            $graph = Get-TerraformModuleGraph -Path $DiamondRoot -Recurse -ErrorAction Stop
+            $a = $graph.Nodes | Where-Object Key -eq 'a'
+            $b = $graph.Nodes | Where-Object Key -eq 'b'
+            $a.Blocks | Should -Not -BeNullOrEmpty
+            $b.Blocks | Should -Not -BeNullOrEmpty
+            $a.Dir | Should -Be $b.Dir
+            $graph.Nodes.ModuleAddress | Should -Contain 'module.a.module.leaf'
+            $graph.Nodes.ModuleAddress | Should -Contain 'module.b.module.leaf'
+            @($graph.Nodes).Count | Should -Be 5
+            @($graph.Edges).Count | Should -Be 4
+        }
+
+        It "stops at a call whose Dir is one of its own ancestors" {
+            $graph = Get-TerraformModuleGraph -Path $CycleRoot -Recurse -ErrorAction Stop
+            $cycles = @($graph.Nodes | Where-Object Reason -eq 'Cycle')
+            $cycles.Count | Should -Be 1
+            $cycles[0].ModuleAddress | Should -Be 'module.x.module.y.module.x'
+            $cycles[0].Resolved | Should -BeTrue
+            $cycles[0].Dir | Should -Be ($graph.Nodes | Where-Object Key -eq 'x').Dir
+            $cycles[0].Blocks | Should -BeNullOrEmpty
+            @($graph.Nodes).Count | Should -Be 4
+            @($graph.Edges).Count | Should -Be 3
+            @($graph.Unresolved).Count | Should -Be 0
+        }
+
+        It "marks a registry source without .terraform as NotInitialized" {
+            $graph = Get-TerraformModuleGraph -Path $RegistryRoot -ErrorAction Stop
+            $vpc = $graph.Nodes | Where-Object Name -eq 'vpc'
+            $vpc.Resolved | Should -BeFalse
+            $vpc.Reason | Should -Be 'NotInitialized'
+            $vpc.SourceKind | Should -Be 'Registry'
+        }
+
+        It "sets the default display properties" {
+            (Get-TypeData TerraformGraph.ModuleNode).DefaultDisplayPropertySet.ReferencedProperties |
+                Should -Be @('ModuleAddress', 'SourceKind', 'Depth', 'Resolved', 'Dir')
+            (Get-TypeData TerraformGraph.ModuleGraph).DefaultDisplayPropertySet.ReferencedProperties |
+                Should -Be @('Root', 'GroupBy', 'NodeCount', 'EdgeCount', 'UnresolvedCount')
+            $RecursiveGraph.NodeCount | Should -Be 3
+            $RecursiveGraph.EdgeCount | Should -Be 2
+            $RecursiveGraph.UnresolvedCount | Should -Be 0
+        }
+    }
 }
