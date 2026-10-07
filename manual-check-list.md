@@ -170,7 +170,7 @@ finally {
 }
 ```
 
-Expect: a timestamped `Error parsing HCL file: ...` log line from the DLL, then an error `Error parsing HCL file: <temp>\tg-check-badhcl\main.tf:1,31-32: Unclosed configuration block; There is no closing brace for this block before the end of the file. ...` ending in `(<temp>\tg-check-badhcl\main.tf)`.
+Expect: exactly one error, attributed to `Get-TerraformAST:`, and no other console output: `Error parsing HCL file: <temp>\tg-check-badhcl\main.tf:1,31-32: Unclosed configuration block; There is no closing brace for this block before the end of the file. ...` ending in `(<temp>\tg-check-badhcl\main.tf)`.
 
 Pester: "writes a non-terminating parse error for an unclosed block"
 

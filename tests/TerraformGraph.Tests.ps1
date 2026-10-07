@@ -84,12 +84,20 @@ Describe "TerraformGraph" {
             New-Item -ItemType File -Path $badFile -Value 'resource "terraform_data" "x" {' -Force | Out-Null
             $out = Get-TerraformAST -Path (Split-Path $badFile) -ErrorAction SilentlyContinue -ErrorVariable astErrors
             $out | Should -BeNullOrEmpty
-            # -ErrorVariable also collects the records thrown and caught inside the module;
-            # the one written to the caller is tagged with Get-TerraformAST.
-            $written = @($astErrors | Where-Object { $_.FullyQualifiedErrorId -like '*,Get-TerraformAST' })
-            $written.Count | Should -Be 1
-            $written[0].Exception.Message |
+            $astErrors.Count | Should -Be 1
+            $astErrors[0].FullyQualifiedErrorId | Should -Be 'HclParseError,Get-TerraformAST'
+            $astErrors[0].Exception.Message |
                 Should -BeLike "Error parsing HCL file: $badFile`:1,31-32: Unclosed configuration block; There is no closing brace for this block before the end of the file.*($badFile)"
+        }
+
+        It "writes one parse error per bad file and no output" {
+            $dir = Join-Path $TestDrive 'badhcl2'
+            New-Item -ItemType File -Path (Join-Path $dir 'a.tf') -Value 'resource "terraform_data" "a" {' -Force | Out-Null
+            New-Item -ItemType File -Path (Join-Path $dir 'b.tf') -Value 'variable "b" {' -Force | Out-Null
+            $out = Get-TerraformAST -Path $dir -ErrorAction SilentlyContinue -ErrorVariable astErrors
+            $out | Should -BeNullOrEmpty
+            $astErrors.Count | Should -Be 2
+            $astErrors.TargetObject | Should -Be @((Join-Path $dir 'a.tf'), (Join-Path $dir 'b.tf'))
         }
     }
 

@@ -64,6 +64,15 @@ function ConvertTo-TerraformGraphBlock {
     $Block
 }
 
+function New-TerraformHclParseError {
+    param([string]$Message, [string]$Path)
+    [System.Management.Automation.ErrorRecord]::new(
+        [System.InvalidOperationException]::new($Message),
+        'HclParseError',
+        [System.Management.Automation.ErrorCategory]::ParserError,
+        $Path)
+}
+
 function ConvertFrom-TerraformHclFile {
     <#
     .SYNOPSIS
@@ -97,7 +106,9 @@ function ConvertFrom-TerraformHclFile {
 
     .NOTES
         Not exported. Get-TerraformAST is the supported entry point.
-        Parse failures throw so a 7.4+ agent with ErrorAction Stop can correct them.
+        Parse failures are returned as an ErrorRecord instead of thrown. Any throw inside
+        the module lands in the caller's -ErrorVariable even when caught, so the caller
+        writes the record once and decides whether it terminates.
 
     .LINK
         Get-TerraformAST
@@ -117,7 +128,7 @@ function ConvertFrom-TerraformHclFile {
 
     $astJsonPtr = [TerraformGraph.HCLParser]::ParseHCL($absPath)
     if ($astJsonPtr -eq [IntPtr]::Zero) {
-        throw "Failed to parse HCL file: Null pointer returned ($absPath)"
+        return New-TerraformHclParseError -Message "Failed to parse HCL file: Null pointer returned ($absPath)" -Path $absPath
     }
 
     try {
@@ -128,11 +139,11 @@ function ConvertFrom-TerraformHclFile {
     }
 
     if (-not $astJson) {
-        throw "Failed to convert AST JSON to string ($absPath)"
+        return New-TerraformHclParseError -Message "Failed to convert AST JSON to string ($absPath)" -Path $absPath
     }
 
     if ($astJson.StartsWith("Error ")) {
-        throw "$astJson ($absPath)"
+        return New-TerraformHclParseError -Message "$astJson ($absPath)" -Path $absPath
     }
 
     # System.Text.Json reader with no practical depth limit; ConvertFrom-Json caps nesting.
@@ -264,11 +275,13 @@ function Get-TerraformAST {
         }
 
         foreach ($file in $files) {
-            try {
-                ConvertFrom-TerraformHclFile -LiteralPath $file.FullName
-            }
-            catch {
-                Write-Error -ErrorRecord $_
+            foreach ($item in ConvertFrom-TerraformHclFile -LiteralPath $file.FullName) {
+                if ($item -is [System.Management.Automation.ErrorRecord]) {
+                    $PSCmdlet.WriteError($item)
+                }
+                else {
+                    $item
+                }
             }
         }
     }

@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -29,19 +28,16 @@ func ParseHCL(filePath *C.char) *C.char {
 	// Resolve the absolute path (cross-platform)
 	absPath, err := filepath.Abs(goFilePath)
 	if err != nil {
-		log.Printf("Error resolving absolute path: %v", err)
 		return C.CString(fmt.Sprintf("Error resolving absolute path: %v", err))
 	}
 
 	src, err := os.ReadFile(absPath)
 	if err != nil {
-		log.Printf("Error reading HCL file: %v", err)
 		return C.CString(fmt.Sprintf("Error reading HCL file: %v", err))
 	}
 
 	astJson, err := parseToJSON(src, absPath)
 	if err != nil {
-		log.Printf("%v", err)
 		return C.CString(err.Error())
 	}
 
