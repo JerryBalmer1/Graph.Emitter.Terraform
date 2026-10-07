@@ -12,7 +12,10 @@ The HCL parser DLL is Windows x64 only. The module imports anywhere: off Windows
 src/go/                 Go parser (hcl_parser.go) — buildmode=c-shared
 src/TerraformGraph/       PowerShell module root
   TerraformGraph.psd1
-  TerraformGraph.psm1     P/Invoke + ConvertFrom-TerraformHclFile + exported functions
+  TerraformGraph.psm1     Wiring only: module-scope state, parser DLL and Json.dll loads, type data, completers, dot-source, Export-ModuleMember
+  Classes/              Class and enum definitions, one per file (none today)
+  Private/<Verb-Noun>.ps1  One private function per file (82)
+  Public/<Verb-Noun>.ps1   One exported function per file (26; the psd1 FunctionsToExport)
   TerraformGraph.Json.cs  System.Text.Json serializer/deserializer (TerraformGraph.Json)
   TerraformGraph.Format.ps1xml  Table views for BundleEntry and SubcategorySurveyRow (more than four default columns)
   lib/                  Build outputs, gitignored: TerraformGraph.dll and TerraformGraph.h (BuildDLL), TerraformGraph.Json.dll (BuildJson)
@@ -21,7 +24,7 @@ src/TerraformGraph/       PowerShell module root
   data/bundle.json      Bundle manifest: provider set and per-provider versions (Invoke-Build HarvestBundleDocs; shipped)
   classifiers/          drawers.json, map.json, DECISIONS.md and <address-slug>.<version>.json classifiers (Invoke-Build BuildClassifier; committed and shipped)
 src/json/               TerraformGraph.Json.csproj (net8.0) and nuget.config for BuildJson
-tools/                  Copy-TerraformGraphModule.ps1 (the shipped file set; AssembleModule, Pester) and Update-TerraformGraphDocTables.ps1 (GenerateDocTables, Pester -Check)
+tools/                  Copy-TerraformGraphModule.ps1 (the shipped file set and the assembled psm1; AssembleModule, Pester) and Update-TerraformGraphDocTables.ps1 (GenerateDocTables, Pester -Check)
 dist/schema-packs/      Schema and docs packs from Invoke-Build BuildSchemaPack (gitignored; attached to GitHub releases)
 dist/survey/            subcategories.json from Invoke-Build HarvestBundleDocs (gitignored)
 dist/module/            The publishable module tree from Invoke-Build AssembleModule (gitignored)
@@ -37,6 +40,8 @@ tests/                  Pester 6.1+ (*.Tests.ps1) run by Invoke-Tests.ps1; fixtu
 Dockerfile              Cross-compile the Windows DLL with mingw (golang:1.24, as go.mod); .dockerignore keeps the context to src/go
 .build.ps1              InvokeBuild: CheckDependencies, CheckTestDependencies, BuildDLL, BuildJson, RemoveModule, ImportModule, Test (default), GenerateDocTables, AssembleModule, BuildRegistry, BuildSchemaPack, BuildClassifier, HarvestBundleDocs, CheckBundle, Package, Release, Publish
 ```
+
+One function per file (0.15.0). Function code is one function per file, named for the function: `src/TerraformGraph/Public/<Verb-Noun>.ps1` for an exported command, `src/TerraformGraph/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `TerraformGraph.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships. The file name equals the function name exactly (`Verb-Noun.ps1`), the file holds that function and nothing else, and its comment-based help sits inside the function. The psm1 declares every `$script:` variable, runs the platform guard and the DLL and Json.dll loads, registers type data and argument completers, then dot-sources `Classes`, `Private` and `Public` in that order (between the `#region TerraformGraph source files` markers), then makes the calls that need the functions: `Reset-TerraformRegistryThrottle`, `Export-ModuleMember` from the psd1 list, `Show-TerraformGraphSkillHint`. A value a file needs at load time is declared in the psm1, never in another file. The dev loop imports `src/` (dot-sourced); the release imports `dist/module/TerraformGraph`, whose psm1 `AssembleModule` (tools/Copy-TerraformGraphModule.ps1) builds by replacing the region with the files' contents, each headed `# <folder>/<file>`. Pester: "every Public file defines exactly the function it is named for", "every Private file defines exactly one function and it is not exported", "psd1 FunctionsToExport equals the Public/ listing", "no function is defined twice across the tree, and the psm1 defines none". Shared code that needs a name becomes a private function in its own file.
 
 Module name is **TerraformGraph**. Do not reintroduce `PS.Util.Terraform`.
 
@@ -71,9 +76,9 @@ Exported functions (generated from Get-Command and comment-based help by Invoke-
 - `Get-TerraformSubcategorySurvey` — Counts the doc subcategory labels each provider publishes: one row per provider and label. Bundle (default): `[-BundlePath] [-OutputPath] [-PassThru]`; Provider: `-Provider [-Version] [-OutputPath] [-PassThru]`. Output: `TerraformGraph.SubcategorySurveyRow`.
 <!-- /generated:functions -->
 
-Planned: view (0.15.0), compare (0.16.0), eras (0.17.0, derived from compares); see ONTOLOGY.md "Not here yet".
+Planned: view (0.16.0), compare (0.17.0), eras (0.18.0, derived from compares); see ONTOLOGY.md "Not here yet".
 
-Every terminating error goes through private `Stop-TerraformGraphCommand -Id -Message -Category -Target` (DECISIONS 50): it builds the ErrorRecord and calls the calling command's `$PSCmdlet.ThrowTerminatingError`, so the FullyQualifiedErrorId reads `<Id>,<command>`; a private helper whose caller catches and rewraps passes `-Throw` (that call cannot be caught otherwise). Messages name the command that fixes them. The ids and their fixing commands are the maintained list in Pester "names a documented fixing command for every terminating error id in the psm1", which reads the psm1 AST: a new id fails it until listed, a `throw "..."` outside a ValidateScript fails it, an ErrorRecord built or ThrowTerminatingError called anywhere but the helper fails it (`$PSCmdlet.ThrowTerminatingError($_)` passes a record on), and a user-facing literal message that names no command fails it. A missing bundle is `BundleNotFound` and a missing registry cache `RegistryCacheNotFound` in every command (`Get-TerraformGraphErrorId` lets a catch pass them on).
+Every terminating error goes through private `Stop-TerraformGraphCommand -Id -Message -Category -Target` (DECISIONS 50): it builds the ErrorRecord and calls the calling command's `$PSCmdlet.ThrowTerminatingError`, so the FullyQualifiedErrorId reads `<Id>,<command>`; a private helper whose caller catches and rewraps passes `-Throw` (that call cannot be caught otherwise). Messages name the command that fixes them. The ids and their fixing commands are the maintained list in Pester "names a documented fixing command for every terminating error id in the psm1", which reads the AST of every file under src/TerraformGraph (the psm1, Classes, Private, Public; its RequiresBuild twin reads the assembled dist psm1): a new id fails it until listed, a `throw "..."` outside a ValidateScript fails it, an ErrorRecord built or ThrowTerminatingError called anywhere but the helper fails it (`$PSCmdlet.ThrowTerminatingError($_)` passes a record on), and a user-facing literal message that names no command fails it. A missing bundle is `BundleNotFound` and a missing registry cache `RegistryCacheNotFound` in every command (`Get-TerraformGraphErrorId` lets a catch pass them on).
 
 ## Canonical ids
 
@@ -153,6 +158,8 @@ Image tag is `terraformgraph`. Temporary container is `TerraformGraph-tmp`.
 ## Testing
 
 The default run, in a fresh process (P/Invoke pins the DLL for the life of the process, so an open shell keeps running the old parser after a Go rebuild): `pwsh -NoProfile -File .\tests\Invoke-Tests.ps1` (`Invoke-Build Test` runs the same). It excludes tests tagged `Live`. Tests tagged `RequiresTerraform` need the terraform binary but no network and are skipped, not failed, without it; `RequiresBuild` tests need both DLLs in `lib/` and are skipped without them.
+
+`$env:TERRAFORMGRAPH_TEST_MANIFEST` points the suite at another copy of the module, such as the assembled `dist/module/TerraformGraph/TerraformGraph.psd1` (manual-check-list 18.1); unset, it imports `src/`.
 
 The Live run, separately: `pwsh -NoProfile -File .\tests\Invoke-Tests.ps1 -Live` (`-All` for everything). Live tests call registry.terraform.io and run terraform init that downloads providers; they spend the registry's rate budget, so never run them during a harvest. A bare `Invoke-Pester` skips them unless `TERRAFORMGRAPH_LIVE=1`.
 

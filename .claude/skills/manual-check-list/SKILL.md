@@ -38,7 +38,7 @@ Last updated: <YYYY-MM-DD>
 ...
 ```
 
-Section 0 is always Setup. Sections 1 to 9 are one exported function each, in FunctionsToExport order; from section 10 on, a section covers a family of functions that work together (10 the two skill commands, 11 the registry cache, 12 schema packs, 13 provider docs, 14 classifiers, 15 bundle and survey) or one release's cross-cutting contracts (16 for 0.14.0, 17 for 0.14.1). A new function joins its family's section; a new family or release theme gets the next number. Within a section, one `###` item per parameter set or distinct behaviour worth seeing, numbered `N.M`. Never renumber existing items; append new ones and leave removed items' numbers unused with a one-line note "(removed in 0.x.0)" so references stay stable.
+Section 0 is always Setup. Sections 1 to 9 are one exported function each, in FunctionsToExport order; from section 10 on, a section covers a family of functions that work together (10 the two skill commands, 11 the registry cache, 12 schema packs, 13 provider docs, 14 classifiers, 15 bundle and survey) or one release's cross-cutting contracts (16 for 0.14.0, 17 for 0.14.1, 18 for 0.15.0). A new function joins its family's section; a new family or release theme gets the next number. Within a section, one `###` item per parameter set or distinct behaviour worth seeing, numbered `N.M`. Never renumber existing items; append new ones and leave removed items' numbers unused with a one-line note "(removed in 0.x.0)" so references stay stable.
 
 ## Item format
 
@@ -73,7 +73,7 @@ Rules:
 ## Procedure
 
 1. Read manual-check-list.md and the current psd1 FunctionsToExport.
-2. For each function you added or changed, read its parameter block and help examples from the psm1.
+2. For each function you added or changed, read its parameter block and help examples from the file named for it. Function code is one function per file, named for the function: `src/TerraformGraph/Public/<Verb-Noun>.ps1` for an exported command, `src/TerraformGraph/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `TerraformGraph.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships.
 3. Add or edit items. Run every block you add or edit in a fresh process (`pwsh -NoProfile -File` on a temp script, or `pwsh -NoProfile -Command`) and confirm the output matches Expect before writing it down. Fix the Expect line, not the output.
 4. Update Module version and Last updated at the top.
 5. Stage the file. Do not commit.

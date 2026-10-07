@@ -24,12 +24,12 @@ In the same task as any change to:
 - Terminology names match exported names exactly. The "In the module" column holds only backticked names of three kinds: an exported command (`Get-TerraformGraphBundle`), a typed object or one of its properties (`TerraformGraph.ClassifiedType.Drawer`), or a data file path relative to the module or repo root (`classifiers/map.json`). Pester ("resolves every term in ONTOLOGY.md's terminology table") resolves every one and fails on anything else, so rename the table in the same task as the code.
 - The term list is Id, node, edge, finding, pack, bundle, sources, drawer, classifier, map row, source, era, in that order. Adding a term means updating the Pester expectation in the same task.
 - Facts versus opinions: registry, schema, docs and parsed code are facts; drawers, map rows, classifiers and DECISIONS.md are opinions held as data with reasons. A new data file goes in one list or the other, never both.
-- Every claim about errors, exit codes or provenance must be true of the current code. Check the error id with `Select-String` in the psm1 before naming it.
+- Every claim about errors, exit codes or provenance must be true of the current code. Check the error id with `Select-String -Path .\src\TerraformGraph\Private\*.ps1, .\src\TerraformGraph\Public\*.ps1` before naming it.
 - Dense, plain sentences. No marketing words. A table beats a paragraph.
 
 ## Procedure
 
-1. Read the change (psm1, CLAUDE.md "Canonical ids", the data file) and the current ONTOLOGY.md.
+1. Read the change (the files named for the functions that changed, CLAUDE.md "Canonical ids", the data file) and the current ONTOLOGY.md. Function code is one function per file, named for the function: `src/TerraformGraph/Public/<Verb-Noun>.ps1` for an exported command, `src/TerraformGraph/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `TerraformGraph.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships.
 2. Edit the affected sections. Keep the banner and backlink first.
 3. Run the two Ontology tests in a fresh process: `pwsh -NoProfile -Command "Invoke-Pester -Path .\tests -FullNameFilter 'Ontology*' -CI"`.
 4. Stage ONTOLOGY.md. Do not commit.

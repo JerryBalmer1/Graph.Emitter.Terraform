@@ -17,7 +17,29 @@ BeforeDiscovery {
 BeforeAll {
     # Never resolve Get-TerraformAST from an installed copy of the old AST module.
     Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-    Import-Module "$PSScriptRoot\..\src\TerraformGraph\TerraformGraph.psd1" -Force
+    # TERRAFORMGRAPH_TEST_MANIFEST runs the suite against another copy of the module, such as
+    # the assembled dist/module/TerraformGraph/TerraformGraph.psd1 (checklist 18.1).
+    Import-Module ($env:TERRAFORMGRAPH_TEST_MANIFEST ? $env:TERRAFORMGRAPH_TEST_MANIFEST : "$PSScriptRoot\..\src\TerraformGraph\TerraformGraph.psd1") -Force
+
+    # The module's code as tests that read it see it: the wiring psm1, then one file per function
+    # under Classes, Private and Public. -Assembled builds the psm1 that ships instead
+    # (tools/Copy-TerraformGraphModule.ps1 into -Destination; needs both DLLs) and returns it.
+    function Get-TerraformGraphSourceFile {
+        param([switch]$Assembled, [string]$Destination)
+        $repoRoot = Split-Path $PSScriptRoot -Parent
+        if ($Assembled) {
+            $null = & (Join-Path $repoRoot 'tools' 'Copy-TerraformGraphModule.ps1') -RepoRoot $repoRoot -OutputPath $Destination
+            return Join-Path $Destination 'TerraformGraph.psm1'
+        }
+        $moduleRoot = Join-Path $repoRoot 'src' 'TerraformGraph'
+        Join-Path $moduleRoot 'TerraformGraph.psm1'
+        foreach ($folder in 'Classes', 'Private', 'Public') {
+            $path = Join-Path $moduleRoot $folder
+            if (Test-Path -LiteralPath $path -PathType Container) {
+                Get-ChildItem -LiteralPath $path -Filter '*.ps1' -File | Sort-Object Name | ForEach-Object FullName
+            }
+        }
+    }
 }
 
 Describe "TerraformGraph" {
@@ -3132,134 +3154,195 @@ Describe "Classifier precedence" {
 
 Describe "Contracts" {
 
-    It "names a documented fixing command for every terminating error id in the psm1" {
-        # Maintained list: every FullyQualifiedErrorId the module can raise, with the command
-        # that fixes it (DECISIONS 50). A new id fails this test until it is added here.
-        $documented = [ordered]@{
-            HclParseError                  = "Get-TerraformAST -FilePath <file>, after fixing the syntax (terraform validate reports the same error)"
-            ParserUnavailable              = 'Invoke-Build BuildDLL on Windows x64; on other platforms the schema, registry, docs, classifier and bundle commands work without the parser'
-            TerraformJsonSerializeFailed   = 'ConvertTo-TerraformJson -Depth <larger>, or break the circular reference'
-            TerraformJsonDeserializeFailed = 'ConvertFrom-TerraformJson -Depth <larger>, or -AsHashtable for keys that differ only by case'
-            TerraformProvidersSchemaFailed = 'Get-TerraformProviderSchema -Path <dir>, after terraform init in <dir>'
-            ProviderAddressInvalid         = "Get-TerraformRegistryProvider -Name '<name>' lists valid addresses"
-            TerraformNotOnPath             = 'Get-TerraformProviderSchema, after installing Terraform or adding it to PATH'
-            TerraformInitFailed            = 'Get-TerraformProviderSchema -Provider <address> -Force, after checking it with Get-TerraformRegistryProvider -Name <address>'
-            TerraformVersionUnreadable     = 'Get-TerraformProviderSchema -Provider <address> -Version <version> -SaveToCache -Force'
-            RegistryProviderNotResolved    = 'Update-TerraformRegistryCache when nothing matches; Get-TerraformRegistryProvider -Name <pattern> to pick one of several'
-            RegistryCacheNotFound          = 'Update-TerraformRegistryCache'
-            RegistryRequestFailed          = 'Update-TerraformRegistryCache (or the command that failed), after 10 minutes when the cause was a 429'
-            RegistryHarvestFailed          = 'Update-TerraformRegistryCache, after 10 minutes when the cause was a 429'
-            ProviderVersionInvalid         = 'Get-TerraformRegistryProvider -Name <provider> | Select-Object -ExpandProperty Versions'
-            SchemaProviderWildcard         = 'ConvertTo-TerraformSchemaGraph -Provider <pattern>, without -Schema'
-            SchemaMissingProviderSchemas   = 'Get-TerraformProviderSchema -Path <dir> | ConvertTo-TerraformSchemaGraph'
-            SchemaProviderNotFound         = 'Get-TerraformProviderSchema -Provider <address> -SaveToCache'
-            SchemaNotCached                = 'Get-TerraformSchemaPack -Provider <address>, or Get-TerraformProviderSchema -Provider <address> -SaveToCache'
-            VariableNodeNotFound           = 'Get-TerraformVariableTrace -VariableGraph $graph -Id <an Id from $graph.Nodes.Id>'
-            SchemaPackSourceNotFound       = 'Get-TerraformSchemaPack -Provider <name>, without -Source or with a folder holding manifest.json'
-            DocPackSourceNotFound          = 'Get-TerraformDocPack -Provider <name>, without -Source or with a folder holding manifest.json'
-            SchemaPackManifestUnavailable  = 'Get-TerraformSchemaPack -Source <url>, with $env:GH_TOKEN set for a private fork'
-            DocPackManifestUnavailable     = 'Get-TerraformDocPack -Source <url>, with $env:GH_TOKEN set for a private fork'
-            SchemaPackNotFound             = 'Get-TerraformProviderSchema -Provider <address> -SaveToCache'
-            DocPackNotFound                = 'Update-TerraformProviderDocCache -Provider <address>'
-            SchemaPackInvalidManifest      = 'Invoke-Build BuildSchemaPack'
-            DocPackInvalidManifest         = 'Invoke-Build BuildSchemaPack'
-            SchemaPackDownloadFailed       = 'Get-TerraformSchemaPack -Provider <address>, with $env:GH_TOKEN set for a private fork'
-            DocPackDownloadFailed          = 'Get-TerraformDocPack -Provider <address>, with $env:GH_TOKEN set for a private fork'
-            SchemaPackHashMismatch         = 'Get-TerraformSchemaPack -Provider <address>; Invoke-Build BuildSchemaPack if it repeats'
-            DocPackHashMismatch            = 'Get-TerraformDocPack -Provider <address>; Invoke-Build BuildSchemaPack if it repeats'
-            PackAssetNotFound              = 'Get-TerraformSchemaPack -Source <url-or-folder> that has the file (Get-TerraformDocPack for docs)'
-            ProviderDocNotOnRegistry       = 'Update-TerraformProviderDocCache -Provider <registry namespace/name>'
-            ProviderDocHarvestFailed       = 'Update-TerraformProviderDocCache -Provider <address> -Version <version> -Resume'
-            ResumeWithForce                = 'Update-TerraformProviderDocCache -Provider <address> -Resume'
-            BundleInvalid                  = 'New-TerraformGraphBundle -OutputPath <path>'
-            ProviderDocNotCached           = 'Get-TerraformDocPack -Provider <name>, or Update-TerraformProviderDocCache -Provider <name>'
-            ClassifierMapInvalid           = 'New-TerraformClassifier -Provider <address> after fixing the rows; Invoke-Build BuildClassifier for the bundled map'
-            ClassifierNotFound             = 'New-TerraformClassifier -Provider <name>'
-            BundleNotFound                 = 'New-TerraformGraphBundle -OutputPath <path>'
-            BundleNotFresh                 = "Test-TerraformGraphBundle | Format-List Item, InspectAction, RecommendedAction, then each row's RecommendedAction"
-            SkillPathNotFound              = 'New-Item -ItemType Directory -Path <path>, then Install-TerraformGraphSkill -Path <path>'
-        }
-
-        $psm1 = Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'TerraformGraph.psm1'
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile($psm1, [ref]$null, [ref]$null)
-        $helper = 'Stop-TerraformGraphCommand'
-        $exported = @((Get-Module TerraformGraph).ExportedFunctions.Keys)
-        $enclosing = {
-            param($node)
-            for ($p = $node.Parent; $p; $p = $p.Parent) {
-                if ($p -is [System.Management.Automation.Language.FunctionDefinitionAst]) { return $p.Name }
+    BeforeAll {
+        # The error-id contract over a set of files: the source tree (psm1, Classes, Private,
+        # Public) or the assembled psm1 that ships. Problems name the file and line.
+        $script:AssertErrorIdContract = {
+            param([string[]]$Path)
+            # Maintained list: every FullyQualifiedErrorId the module can raise, with the command
+            # that fixes it (DECISIONS 50). A new id fails this test until it is added here.
+            $documented = [ordered]@{
+                HclParseError                  = "Get-TerraformAST -FilePath <file>, after fixing the syntax (terraform validate reports the same error)"
+                ParserUnavailable              = 'Invoke-Build BuildDLL on Windows x64; on other platforms the schema, registry, docs, classifier and bundle commands work without the parser'
+                TerraformJsonSerializeFailed   = 'ConvertTo-TerraformJson -Depth <larger>, or break the circular reference'
+                TerraformJsonDeserializeFailed = 'ConvertFrom-TerraformJson -Depth <larger>, or -AsHashtable for keys that differ only by case'
+                TerraformProvidersSchemaFailed = 'Get-TerraformProviderSchema -Path <dir>, after terraform init in <dir>'
+                ProviderAddressInvalid         = "Get-TerraformRegistryProvider -Name '<name>' lists valid addresses"
+                TerraformNotOnPath             = 'Get-TerraformProviderSchema, after installing Terraform or adding it to PATH'
+                TerraformInitFailed            = 'Get-TerraformProviderSchema -Provider <address> -Force, after checking it with Get-TerraformRegistryProvider -Name <address>'
+                TerraformVersionUnreadable     = 'Get-TerraformProviderSchema -Provider <address> -Version <version> -SaveToCache -Force'
+                RegistryProviderNotResolved    = 'Update-TerraformRegistryCache when nothing matches; Get-TerraformRegistryProvider -Name <pattern> to pick one of several'
+                RegistryCacheNotFound          = 'Update-TerraformRegistryCache'
+                RegistryRequestFailed          = 'Update-TerraformRegistryCache (or the command that failed), after 10 minutes when the cause was a 429'
+                RegistryHarvestFailed          = 'Update-TerraformRegistryCache, after 10 minutes when the cause was a 429'
+                ProviderVersionInvalid         = 'Get-TerraformRegistryProvider -Name <provider> | Select-Object -ExpandProperty Versions'
+                SchemaProviderWildcard         = 'ConvertTo-TerraformSchemaGraph -Provider <pattern>, without -Schema'
+                SchemaMissingProviderSchemas   = 'Get-TerraformProviderSchema -Path <dir> | ConvertTo-TerraformSchemaGraph'
+                SchemaProviderNotFound         = 'Get-TerraformProviderSchema -Provider <address> -SaveToCache'
+                SchemaNotCached                = 'Get-TerraformSchemaPack -Provider <address>, or Get-TerraformProviderSchema -Provider <address> -SaveToCache'
+                VariableNodeNotFound           = 'Get-TerraformVariableTrace -VariableGraph $graph -Id <an Id from $graph.Nodes.Id>'
+                SchemaPackSourceNotFound       = 'Get-TerraformSchemaPack -Provider <name>, without -Source or with a folder holding manifest.json'
+                DocPackSourceNotFound          = 'Get-TerraformDocPack -Provider <name>, without -Source or with a folder holding manifest.json'
+                SchemaPackManifestUnavailable  = 'Get-TerraformSchemaPack -Source <url>, with $env:GH_TOKEN set for a private fork'
+                DocPackManifestUnavailable     = 'Get-TerraformDocPack -Source <url>, with $env:GH_TOKEN set for a private fork'
+                SchemaPackNotFound             = 'Get-TerraformProviderSchema -Provider <address> -SaveToCache'
+                DocPackNotFound                = 'Update-TerraformProviderDocCache -Provider <address>'
+                SchemaPackInvalidManifest      = 'Invoke-Build BuildSchemaPack'
+                DocPackInvalidManifest         = 'Invoke-Build BuildSchemaPack'
+                SchemaPackDownloadFailed       = 'Get-TerraformSchemaPack -Provider <address>, with $env:GH_TOKEN set for a private fork'
+                DocPackDownloadFailed          = 'Get-TerraformDocPack -Provider <address>, with $env:GH_TOKEN set for a private fork'
+                SchemaPackHashMismatch         = 'Get-TerraformSchemaPack -Provider <address>; Invoke-Build BuildSchemaPack if it repeats'
+                DocPackHashMismatch            = 'Get-TerraformDocPack -Provider <address>; Invoke-Build BuildSchemaPack if it repeats'
+                PackAssetNotFound              = 'Get-TerraformSchemaPack -Source <url-or-folder> that has the file (Get-TerraformDocPack for docs)'
+                ProviderDocNotOnRegistry       = 'Update-TerraformProviderDocCache -Provider <registry namespace/name>'
+                ProviderDocHarvestFailed       = 'Update-TerraformProviderDocCache -Provider <address> -Version <version> -Resume'
+                ResumeWithForce                = 'Update-TerraformProviderDocCache -Provider <address> -Resume'
+                BundleInvalid                  = 'New-TerraformGraphBundle -OutputPath <path>'
+                ProviderDocNotCached           = 'Get-TerraformDocPack -Provider <name>, or Update-TerraformProviderDocCache -Provider <name>'
+                ClassifierMapInvalid           = 'New-TerraformClassifier -Provider <address> after fixing the rows; Invoke-Build BuildClassifier for the bundled map'
+                ClassifierNotFound             = 'New-TerraformClassifier -Provider <name>'
+                BundleNotFound                 = 'New-TerraformGraphBundle -OutputPath <path>'
+                BundleNotFresh                 = "Test-TerraformGraphBundle | Format-List Item, InspectAction, RecommendedAction, then each row's RecommendedAction"
+                SkillPathNotFound              = 'New-Item -ItemType Directory -Path <path>, then Install-TerraformGraphSkill -Path <path>'
             }
-        }
-        $insideAttribute = {
-            param($node)
-            for ($p = $node.Parent; $p; $p = $p.Parent) {
-                if ($p -is [System.Management.Automation.Language.AttributeAst]) { return $true }
-            }
-            $false
-        }
-        $found = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
-        $problems = [System.Collections.Generic.List[string]]::new()
 
-        # 1. Every terminating error goes through the helper with a literal -Id.
-        $calls = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Stop-TerraformGraphCommand' }, $true)
-        foreach ($call in $calls) {
-            $elements = $call.CommandElements
-            $idAst = $null
-            $messageAst = $null
-            $throwSwitch = $false
-            for ($i = 1; $i -lt $elements.Count; $i++) {
-                if ($elements[$i] -is [System.Management.Automation.Language.CommandParameterAst]) {
-                    switch ($elements[$i].ParameterName) {
-                        'Id' { $idAst = $elements[$i + 1] }
-                        'Message' { $messageAst = $elements[$i + 1] }
-                        'Throw' { $throwSwitch = $true }
-                    }
+            $asts = @(foreach ($file in $Path) { [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$null) })
+            $findAll = { param($predicate) foreach ($ast in $asts) { $ast.FindAll($predicate, $true) } }
+            $where = { param($node) "$(Split-Path -Path $node.Extent.File -Leaf) line $($node.Extent.StartLineNumber)" }
+            $helper = 'Stop-TerraformGraphCommand'
+            $exported = @((Get-Module TerraformGraph).ExportedFunctions.Keys)
+            $enclosing = {
+                param($node)
+                for ($p = $node.Parent; $p; $p = $p.Parent) {
+                    if ($p -is [System.Management.Automation.Language.FunctionDefinitionAst]) { return $p.Name }
                 }
             }
-            $line = $call.Extent.StartLineNumber
-            if ($idAst -is [System.Management.Automation.Language.StringConstantExpressionAst]) { $null = $found.Add($idAst.Value) }
-            elseif ($idAst -is [System.Management.Automation.Language.ExpandableStringExpressionAst] -and $idAst.Value -match '^\$\(\$errorPrefix\)(\w+)$') {
-                foreach ($prefix in 'SchemaPack', 'DocPack') { $null = $found.Add("$prefix$($Matches[1])") }
+            $insideAttribute = {
+                param($node)
+                for ($p = $node.Parent; $p; $p = $p.Parent) {
+                    if ($p -is [System.Management.Automation.Language.AttributeAst]) { return $true }
+                }
+                $false
             }
-            else { $problems.Add("line ${line}: $helper -Id is not a literal ($($idAst.Extent.Text))") }
-            # A message the user sees (not a -Throw that a caller rewraps) names a command.
-            if (-not $throwSwitch -and ($messageAst -is [System.Management.Automation.Language.StringConstantExpressionAst] -or $messageAst -is [System.Management.Automation.Language.ExpandableStringExpressionAst])) {
-                $text = $messageAst.Extent.Text
-                $names = @(@($exported) + 'Invoke-Build' + 'New-Item' + 'terraform init' + '$commandName' | Where-Object { $text -like "*$_*" })
-                if (-not $names.Count) { $problems.Add("line ${line}: the $($idAst.Extent.Text) message names no command that fixes it") }
-            }
-        }
-        # 2. ErrorRecord::new only in the helper, and in New-TerraformHclParseError (non-terminating).
-        $records = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Extent.Text -eq 'new' -and $n.Expression.Extent.Text -match 'ErrorRecord\]$' }, $true)
-        foreach ($record in $records) {
-            $function = & $enclosing $record
-            if ($function -eq 'New-TerraformHclParseError') { $null = $found.Add($record.Arguments[1].Value) }
-            elseif ($function -ne $helper) { $problems.Add("line $($record.Extent.StartLineNumber): ErrorRecord built outside $helper") }
-        }
-        # 3. ThrowTerminatingError only in the helper, or passing on a record raised by it ($_).
-        $terminating = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Extent.Text -eq 'ThrowTerminatingError' }, $true)
-        foreach ($site in $terminating) {
-            if ((& $enclosing $site) -ne $helper -and $site.Arguments[0].Extent.Text -ne '$_') {
-                $problems.Add("line $($site.Extent.StartLineNumber): ThrowTerminatingError outside $helper")
-            }
-        }
-        # 4. No bare throws: only a rethrow (throw with nothing after it), the helper's own, and
-        #    ValidateScript blocks (those raise ParameterArgumentValidationError).
-        $throws = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.ThrowStatementAst] }, $true)
-        foreach ($statement in $throws) {
-            if (-not $statement.Pipeline -or (& $enclosing $statement) -eq $helper -or (& $insideAttribute $statement)) { continue }
-            $problems.Add("line $($statement.Extent.StartLineNumber): bare throw; use $helper")
-        }
+            $found = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
+            $problems = [System.Collections.Generic.List[string]]::new()
 
-        $problems | Should -BeNullOrEmpty
-        $undocumented = @($found | Where-Object { -not $documented.Contains($_) })
-        $undocumented | Should -BeNullOrEmpty -Because 'every error id needs an entry with its RecommendedAction in this test'
-        $gone = @($documented.Keys | Where-Object { -not $found.Contains($_) })
-        $gone | Should -BeNullOrEmpty -Because 'the list holds only ids the psm1 still throws'
-        foreach ($id in $documented.Keys) {
-            $command = ($documented[$id] -split '\s+')[0].TrimEnd(',', ';')
-            ($command -in $exported -or $command -in 'Invoke-Build', 'New-Item') | Should -BeTrue -Because "the action for $id must start with a command ($command)"
+            # 1. Every terminating error goes through the helper with a literal -Id.
+            $calls = & $findAll { param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Stop-TerraformGraphCommand' }
+            foreach ($call in $calls) {
+                $elements = $call.CommandElements
+                $idAst = $null
+                $messageAst = $null
+                $throwSwitch = $false
+                for ($i = 1; $i -lt $elements.Count; $i++) {
+                    if ($elements[$i] -is [System.Management.Automation.Language.CommandParameterAst]) {
+                        switch ($elements[$i].ParameterName) {
+                            'Id' { $idAst = $elements[$i + 1] }
+                            'Message' { $messageAst = $elements[$i + 1] }
+                            'Throw' { $throwSwitch = $true }
+                        }
+                    }
+                }
+                $line = & $where $call
+                if ($idAst -is [System.Management.Automation.Language.StringConstantExpressionAst]) { $null = $found.Add($idAst.Value) }
+                elseif ($idAst -is [System.Management.Automation.Language.ExpandableStringExpressionAst] -and $idAst.Value -match '^\$\(\$errorPrefix\)(\w+)$') {
+                    foreach ($prefix in 'SchemaPack', 'DocPack') { $null = $found.Add("$prefix$($Matches[1])") }
+                }
+                else { $problems.Add("${line}: $helper -Id is not a literal ($($idAst.Extent.Text))") }
+                # A message the user sees (not a -Throw that a caller rewraps) names a command.
+                if (-not $throwSwitch -and ($messageAst -is [System.Management.Automation.Language.StringConstantExpressionAst] -or $messageAst -is [System.Management.Automation.Language.ExpandableStringExpressionAst])) {
+                    $text = $messageAst.Extent.Text
+                    $names = @(@($exported) + 'Invoke-Build' + 'New-Item' + 'terraform init' + '$commandName' | Where-Object { $text -like "*$_*" })
+                    if (-not $names.Count) { $problems.Add("${line}: the $($idAst.Extent.Text) message names no command that fixes it") }
+                }
+            }
+            # 2. ErrorRecord::new only in the helper, and in New-TerraformHclParseError (non-terminating).
+            $records = & $findAll { param($n) $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Extent.Text -eq 'new' -and $n.Expression.Extent.Text -match 'ErrorRecord\]$' }
+            foreach ($record in $records) {
+                $function = & $enclosing $record
+                if ($function -eq 'New-TerraformHclParseError') { $null = $found.Add($record.Arguments[1].Value) }
+                elseif ($function -ne $helper) { $problems.Add("$(& $where $record): ErrorRecord built outside $helper") }
+            }
+            # 3. ThrowTerminatingError only in the helper, or passing on a record raised by it ($_).
+            $terminating = & $findAll { param($n) $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $n.Member.Extent.Text -eq 'ThrowTerminatingError' }
+            foreach ($site in $terminating) {
+                if ((& $enclosing $site) -ne $helper -and $site.Arguments[0].Extent.Text -ne '$_') {
+                    $problems.Add("$(& $where $site): ThrowTerminatingError outside $helper")
+                }
+            }
+            # 4. No bare throws: only a rethrow (throw with nothing after it), the helper's own, and
+            #    ValidateScript blocks (those raise ParameterArgumentValidationError).
+            $throws = & $findAll { param($n) $n -is [System.Management.Automation.Language.ThrowStatementAst] }
+            foreach ($statement in $throws) {
+                if (-not $statement.Pipeline -or (& $enclosing $statement) -eq $helper -or (& $insideAttribute $statement)) { continue }
+                $problems.Add("$(& $where $statement): bare throw; use $helper")
+            }
+
+            $problems | Should -BeNullOrEmpty
+            $undocumented = @($found | Where-Object { -not $documented.Contains($_) })
+            $undocumented | Should -BeNullOrEmpty -Because 'every error id needs an entry with its RecommendedAction in this test'
+            $gone = @($documented.Keys | Where-Object { -not $found.Contains($_) })
+            $gone | Should -BeNullOrEmpty -Because 'the list holds only ids the psm1 still throws'
+            foreach ($id in $documented.Keys) {
+                $command = ($documented[$id] -split '\s+')[0].TrimEnd(',', ';')
+                ($command -in $exported -or $command -in 'Invoke-Build', 'New-Item') | Should -BeTrue -Because "the action for $id must start with a command ($command)"
+            }
         }
+    }
+
+    It "names a documented fixing command for every terminating error id in the psm1" {
+        & $AssertErrorIdContract -Path @(Get-TerraformGraphSourceFile)
+    }
+
+    It "names a documented fixing command for every terminating error id in the assembled dist psm1" -Tag RequiresBuild -Skip:(-not $HasModuleBuild) {
+        & $AssertErrorIdContract -Path (Get-TerraformGraphSourceFile -Assembled -Destination (Join-Path $TestDrive 'errors' 'TerraformGraph'))
+    }
+
+    It "every Public file defines exactly the function it is named for" {
+        $public = Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'Public'
+        foreach ($file in Get-ChildItem -LiteralPath $public -File) {
+            $file.Extension | Should -BeExactly '.ps1' -Because "$($file.Name): Public holds only function files"
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$null)
+            $functions = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true))
+            @($functions.Name) | Should -BeExactly @($file.BaseName) -Because "$($file.Name) defines one function, named exactly for the file"
+            @($ast.EndBlock.Statements).Count | Should -Be 1 -Because "$($file.Name) holds the function and nothing else"
+            [bool]($ast.ParamBlock -or $ast.BeginBlock -or $ast.ProcessBlock) | Should -BeFalse -Because "$($file.Name) holds the function and nothing else"
+            $file.BaseName | Should -MatchExactly '^[A-Z][A-Za-z]+-[A-Z][A-Za-z0-9]+$' -Because 'files are named Verb-Noun.ps1'
+        }
+    }
+
+    It "every Private file defines exactly one function and it is not exported" {
+        $private = Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'Private'
+        $exported = @((Get-Module TerraformGraph).ExportedFunctions.Keys)
+        foreach ($file in Get-ChildItem -LiteralPath $private -File) {
+            $file.Extension | Should -BeExactly '.ps1' -Because "$($file.Name): Private holds only function files"
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$null)
+            $functions = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true))
+            @($functions.Name) | Should -BeExactly @($file.BaseName) -Because "$($file.Name) defines one function, named exactly for the file"
+            @($ast.EndBlock.Statements).Count | Should -Be 1 -Because "$($file.Name) holds the function and nothing else"
+            [bool]($ast.ParamBlock -or $ast.BeginBlock -or $ast.ProcessBlock) | Should -BeFalse -Because "$($file.Name) holds the function and nothing else"
+            $file.BaseName | Should -MatchExactly '^[A-Z][A-Za-z]+-[A-Z][A-Za-z0-9]+$' -Because 'files are named Verb-Noun.ps1'
+            $exported | Should -Not -Contain $file.BaseName -Because "$($file.Name) is private; an exported function lives in Public"
+        }
+    }
+
+    It "psd1 FunctionsToExport equals the Public/ listing" {
+        $moduleRoot = Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph'
+        $manifest = Import-PowerShellDataFile -Path (Join-Path $moduleRoot 'TerraformGraph.psd1')
+        $public = @(Get-ChildItem -LiteralPath (Join-Path $moduleRoot 'Public') -Filter '*.ps1' -File | ForEach-Object BaseName | Sort-Object -Culture '')
+        [string[]]@($manifest.FunctionsToExport | Sort-Object -Culture '') | Should -BeExactly ([string[]]$public)
+        [string[]]@((Get-Module TerraformGraph).ExportedFunctions.Keys | Sort-Object -Culture '') | Should -BeExactly ([string[]]$public)
+    }
+
+    It "no function is defined twice across the tree, and the psm1 defines none" {
+        $names = foreach ($file in Get-TerraformGraphSourceFile) {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$null)
+            foreach ($function in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+                [pscustomobject]@{ Name = $function.Name; File = Split-Path -Path $file -Leaf }
+            }
+        }
+        @($names | Group-Object Name | Where-Object Count -gt 1 | ForEach-Object { "$($_.Name) in $(@($_.Group.File) -join ', ')" }) | Should -BeNullOrEmpty
+        @($names | Where-Object File -eq 'TerraformGraph.psm1' | ForEach-Object Name) | Should -BeNullOrEmpty -Because 'the psm1 is wiring only; function code lives in the file named for the function'
     }
 
     It "lists in the psd1 FileList exactly what tools/Copy-TerraformGraphModule.ps1 assembles" {
@@ -3413,39 +3496,53 @@ Describe "Survey" {
 
 Describe "Ontology" {
 
-    It "resolves every term in ONTOLOGY.md's terminology table to an exported command, a typed object property or a data file" {
-        $repoRoot = Split-Path $PSScriptRoot -Parent
-        $moduleRoot = Join-Path $repoRoot 'src' 'TerraformGraph'
-        $text = Get-Content -LiteralPath (Join-Path $repoRoot 'ONTOLOGY.md') -Raw
-        $section = [regex]::Match($text, '(?ms)^## Terminology\s*$(.*?)(?=^## )').Groups[1].Value
-        $rows = @([regex]::Matches($section, '(?m)^\|(?!\s*-)(?!\s*Term\s*\|)\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|') | ForEach-Object { [pscustomobject]@{ Term = $_.Groups[1].Value; Names = $_.Groups[2].Value } })
-        @($rows.Term) | Should -Be @('Id', 'node', 'edge', 'finding', 'pack', 'bundle', 'sources', 'drawer', 'classifier', 'map row', 'source', 'era')
+    BeforeAll {
+        # The terminology check over a set of files: the source tree or the assembled psm1.
+        $script:AssertOntologyTerms = {
+            param([string[]]$Path)
+            $repoRoot = Split-Path $PSScriptRoot -Parent
+            $moduleRoot = Join-Path $repoRoot 'src' 'TerraformGraph'
+            $text = Get-Content -LiteralPath (Join-Path $repoRoot 'ONTOLOGY.md') -Raw
+            $section = [regex]::Match($text, '(?ms)^## Terminology\s*$(.*?)(?=^## )').Groups[1].Value
+            $rows = @([regex]::Matches($section, '(?m)^\|(?!\s*-)(?!\s*Term\s*\|)\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|') | ForEach-Object { [pscustomobject]@{ Term = $_.Groups[1].Value; Names = $_.Groups[2].Value } })
+            @($rows.Term) | Should -Be @('Id', 'node', 'edge', 'finding', 'pack', 'bundle', 'sources', 'drawer', 'classifier', 'map row', 'source', 'era')
 
-        # PSTypeName -> property names, from the hashtable literals that build each typed object.
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $moduleRoot 'TerraformGraph.psm1'), [ref]$null, [ref]$null)
-        $typed = @{}
-        foreach ($hashtable in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.HashtableAst] }, $true)) {
-            $keys = @($hashtable.KeyValuePairs | ForEach-Object { $_.Item1.Extent.Text.Trim('''', '"') })
-            $pair = $hashtable.KeyValuePairs | Where-Object { $_.Item1.Extent.Text -eq 'PSTypeName' } | Select-Object -First 1
-            if (-not $pair) { continue }
-            $typeName = $pair.Item2.Extent.Text.Trim('''', '"')
-            if (-not $typed.ContainsKey($typeName)) { $typed[$typeName] = [System.Collections.Generic.HashSet[string]]::new() }
-            foreach ($key in $keys) { $null = $typed[$typeName].Add($key) }
-        }
-        $exported = @((Get-Module TerraformGraph).ExportedFunctions.Keys)
+            # PSTypeName -> property names, from the hashtable literals that build each typed object.
+            $hashtables = foreach ($file in $Path) {
+                [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$null).FindAll({ param($node) $node -is [System.Management.Automation.Language.HashtableAst] }, $true)
+            }
+            $typed = @{}
+            foreach ($hashtable in $hashtables) {
+                $keys = @($hashtable.KeyValuePairs | ForEach-Object { $_.Item1.Extent.Text.Trim('''', '"') })
+                $pair = $hashtable.KeyValuePairs | Where-Object { $_.Item1.Extent.Text -eq 'PSTypeName' } | Select-Object -First 1
+                if (-not $pair) { continue }
+                $typeName = $pair.Item2.Extent.Text.Trim('''', '"')
+                if (-not $typed.ContainsKey($typeName)) { $typed[$typeName] = [System.Collections.Generic.HashSet[string]]::new() }
+                foreach ($key in $keys) { $null = $typed[$typeName].Add($key) }
+            }
+            $exported = @((Get-Module TerraformGraph).ExportedFunctions.Keys)
 
-        foreach ($row in $rows) {
-            $names = @([regex]::Matches($row.Names, '`([^`]+)`') | ForEach-Object { $_.Groups[1].Value })
-            $names.Count | Should -BeGreaterThan 0 -Because "the '$($row.Term)' row must name something in the module"
-            foreach ($name in $names) {
-                $resolved = if ($name -match '^[A-Z][a-z]+-Terraform\w+$') { $exported -contains $name }
-                elseif ($name -match '^(TerraformGraph\.\w+)\.(\w+)$') { $typed.ContainsKey($Matches[1]) -and $typed[$Matches[1]].Contains($Matches[2]) }
-                elseif ($name -match '^TerraformGraph\.\w+$') { $typed.ContainsKey($name) }
-                elseif ($name -match '[/\\]|\.(json|md)$') { (Test-Path -LiteralPath (Join-Path $moduleRoot $name)) -or (Test-Path -LiteralPath (Join-Path $repoRoot $name)) }
-                else { $false }
-                $resolved | Should -BeTrue -Because "'$name' in the '$($row.Term)' row must be an exported command, TerraformGraph.<Type>[.<Property>] or a data file"
+            foreach ($row in $rows) {
+                $names = @([regex]::Matches($row.Names, '`([^`]+)`') | ForEach-Object { $_.Groups[1].Value })
+                $names.Count | Should -BeGreaterThan 0 -Because "the '$($row.Term)' row must name something in the module"
+                foreach ($name in $names) {
+                    $resolved = if ($name -match '^[A-Z][a-z]+-Terraform\w+$') { $exported -contains $name }
+                    elseif ($name -match '^(TerraformGraph\.\w+)\.(\w+)$') { $typed.ContainsKey($Matches[1]) -and $typed[$Matches[1]].Contains($Matches[2]) }
+                    elseif ($name -match '^TerraformGraph\.\w+$') { $typed.ContainsKey($name) }
+                    elseif ($name -match '[/\\]|\.(json|md)$') { (Test-Path -LiteralPath (Join-Path $moduleRoot $name)) -or (Test-Path -LiteralPath (Join-Path $repoRoot $name)) }
+                    else { $false }
+                    $resolved | Should -BeTrue -Because "'$name' in the '$($row.Term)' row must be an exported command, TerraformGraph.<Type>[.<Property>] or a data file"
+                }
             }
         }
+    }
+
+    It "resolves every term in ONTOLOGY.md's terminology table to an exported command, a typed object property or a data file" {
+        & $AssertOntologyTerms -Path @(Get-TerraformGraphSourceFile)
+    }
+
+    It "resolves every term in ONTOLOGY.md's terminology table against the assembled dist psm1" -Tag RequiresBuild -Skip:(-not $HasModuleBuild) {
+        & $AssertOntologyTerms -Path (Get-TerraformGraphSourceFile -Assembled -Destination (Join-Path $TestDrive 'ontology' 'TerraformGraph'))
     }
 
     It "keeps the two doors: README's first line points to ONTOLOGY.md and ONTOLOGY.md links back first" {

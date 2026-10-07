@@ -12,6 +12,12 @@
     (Invoke-Build BuildJson), and every file under data/, classifiers/ and skills/. Nothing
     else: no lib/*.old, no C header, no TerraformGraph.Json.cs, no tests or repo docs.
 
+    The psm1 that ships is built, not copied. src/TerraformGraph/TerraformGraph.psm1 is wiring
+    only and dot-sources Classes/, Private/ and Public/ (one function per file) between the
+    '#region TerraformGraph source files' markers; the assembled psm1 is that wiring with the
+    region's body replaced by the files' contents, in that order (each file sorted by name and
+    headed by a '# <folder>/<file>' line), so the published module is one psm1 and no folders.
+
 .PARAMETER RepoRoot
     Repository root. Default: the parent of this script's folder.
 
@@ -79,12 +85,33 @@ if ($missing.Count) {
     throw "Cannot assemble the module:`n  $($fixes -join "`n  ")"
 }
 
+# The shipped psm1: the wiring with the dot-source region replaced by the source files.
+$begin = '#region TerraformGraph source files'
+$end = '#endregion TerraformGraph source files'
+$wiring = [System.IO.File]::ReadAllText($plan['TerraformGraph.psm1']) -replace "`r`n", "`n"
+$start = $wiring.IndexOf($begin)
+$stop = $wiring.IndexOf($end)
+if ($start -lt 0 -or $stop -lt $start) { throw "$($plan['TerraformGraph.psm1']) has no '$begin' ... '$end' region to replace." }
+$sources = foreach ($folder in 'Classes', 'Private', 'Public') {
+    $folderPath = Join-Path $source $folder
+    if (-not (Test-Path -LiteralPath $folderPath -PathType Container)) { continue }
+    foreach ($file in Get-ChildItem -LiteralPath $folderPath -Filter '*.ps1' -File | Sort-Object Name) {
+        "# $folder/$($file.Name)`n" + ([System.IO.File]::ReadAllText($file.FullName) -replace "`r`n", "`n").TrimEnd("`n") + "`n"
+    }
+}
+$assembled = $wiring.Substring(0, $start) + "$begin`n" + (@($sources) -join "`n") + $wiring.Substring($stop)
+
 $destination = [System.IO.Path]::GetFullPath($OutputPath)
 if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination -Recurse -Force }
 foreach ($item in $plan.GetEnumerator()) {
     $target = Join-Path $destination $item.Key
     $null = New-Item -ItemType Directory -Path (Split-Path -Path $target -Parent) -Force
-    Copy-Item -LiteralPath $item.Value -Destination $target
+    if ($item.Key -eq 'TerraformGraph.psm1') {
+        [System.IO.File]::WriteAllText($target, $assembled, [System.Text.UTF8Encoding]::new($false))
+    }
+    else {
+        Copy-Item -LiteralPath $item.Value -Destination $target
+    }
 }
 
 $written = @(Get-ChildItem -LiteralPath $destination -File -Recurse | ForEach-Object { [System.IO.Path]::GetRelativePath($destination, $_.FullName).Replace('\', '/') } | Sort-Object -Culture '')

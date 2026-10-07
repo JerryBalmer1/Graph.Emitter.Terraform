@@ -111,6 +111,10 @@ Harvests and `New-*` commands write to the user caches under `$env:LOCALAPPDATA\
 3. Nothing moves into `src/` except through an `Invoke-Build` task, and you commit nothing.
 4. Give the human both commands in your report, pasteable, so they can make the call.
 
+## Changing the module
+
+When the task is to change TerraformGraph itself (a clone of its repository): Function code is one function per file, named for the function: `src/TerraformGraph/Public/<Verb-Noun>.ps1` for an exported command, `src/TerraformGraph/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `TerraformGraph.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships. A new function is a new file in the folder for its kind; a new exported command also goes in the psd1 `FunctionsToExport`, and Pester fails until the two agree.
+
 ## Canonical Ids
 
 `Id` is unique per document and is what you join on. `<module>` is the ModuleAddress (`root` for the root module, else e.g. `module.network.module.endpoint`); `<address>` is the provider address (e.g. `registry.terraform.io/hashicorp/aws`, `terraform.io/builtin/terraform`).

@@ -2,6 +2,17 @@
 
 TerraformGraph release notes, newest first. The psd1 `ReleaseNotes` holds only the current version and links here.
 
+## 0.15.0
+
+The module source split one function per file. No behaviour change: the same 26 commands with the same parameters, parameter sets, aliases, output, error ids and messages.
+
+- `src/TerraformGraph/TerraformGraph.psm1` (7,955 lines) is wiring only (464 lines): module-scope state, the parser DLL and Json.dll loads, type data, argument completers, then the dot-source of `Private/` (82 files, one helper each) and `Public/` (26 files, one exported command each). `Classes/` is reserved; there are no classes or enums. To change a function, edit the file named for it.
+- The psm1 calls `Export-ModuleMember` with the psd1 `FunctionsToExport` list. Importing the psd1 is unchanged; importing the psm1 directly now exports those 26 commands instead of every function.
+- `Invoke-Build AssembleModule` builds the shipped psm1 by splicing the files into the wiring, so the published module is still one psm1 and the psd1 `FileList` is unchanged.
+- Proof (dist/split-proof, not committed): before the split and after it, from `src/` and from the assembled `dist/`, the exported commands, their parameters, parameter sets and aliases, the psd1 export list, the AssembleModule file list, the default test run, every module-scope variable name and a hash of every function body (108) match. The only differences are the shipped psm1's size and the six new tests.
+- Tests: the error-id contract and the ONTOLOGY.md terminology test read every source file, and a `RequiresBuild` twin of each reads the assembled psm1. New tests hold the layout: one function per file, named for it; Private functions are not exported; `FunctionsToExport` equals `Public/`; no function is defined twice; the psm1 defines none. `$env:TERRAFORMGRAPH_TEST_MANIFEST` runs the suite against another copy of the module.
+- Planned features move one release: view 0.16.0, compare 0.17.0, eras 0.18.0.
+
 ## 0.14.1
 
 Day-one fixes from the 0.14.0 audit. No new features.

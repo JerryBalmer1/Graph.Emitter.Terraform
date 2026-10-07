@@ -1,7 +1,7 @@
 @{
 
     RootModule           = 'TerraformGraph.psm1'
-    ModuleVersion        = '0.14.1'
+    ModuleVersion        = '0.15.0'
     GUID                 = '852206b0-33a6-4dc3-91eb-e9fd6166b17d'
     Author               = 'Jerry Balmer'
     CompanyName          = 'Jerry Balmer'
@@ -50,7 +50,7 @@
             Tags                       = @('Terraform', 'HCL', 'Graph', 'AST', 'PowerShell', 'PowerShell74', 'Windows')
             ProjectUri                 = 'https://github.com/JerryBalmer1/TerraformGraph'
             LicenseUri                 = 'https://github.com/JerryBalmer1/TerraformGraph/blob/main/LICENSE'
-            ReleaseNotes               = '0.14.1: Day-one fixes, no new features. Non-ASCII HCL round-trips (UTF-8 marshalling); the module imports on any platform and the parser commands throw ParserUnavailable off Windows x64; Apache License 2.0; every terminating error goes through one helper with a documented id and fix; Test-TerraformGraphBundle -Scope Repo|Machine (the release gate certifies the repo, not the user cache); Live and RequiresTerraform test tags; Invoke-Build AssembleModule, BuildJson and GenerateDocTables. Full history: https://github.com/JerryBalmer1/TerraformGraph/blob/main/CHANGELOG.md'
+            ReleaseNotes               = '0.15.0: The module source is split one function per file (Public/ for the 26 exported commands, Private/ for the helpers); the psm1 is wiring only, and Invoke-Build AssembleModule builds the single psm1 that ships. No behaviour change: the same commands, parameters, output, error ids and messages. Full history: https://github.com/JerryBalmer1/TerraformGraph/blob/main/CHANGELOG.md'
             RequireLicenseAcceptance   = $false
             ExternalModuleDependencies = @()
         }

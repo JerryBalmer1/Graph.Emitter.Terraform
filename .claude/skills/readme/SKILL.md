@@ -29,7 +29,7 @@ If the task touches none of these, leave the file alone.
 
 ## Procedure
 
-1. Read the psd1 `FunctionsToExport` and the parameter blocks of whatever changed.
+1. Read the psd1 `FunctionsToExport` and the parameter blocks of whatever changed. Function code is one function per file, named for the function: `src/TerraformGraph/Public/<Verb-Noun>.ps1` for an exported command, `src/TerraformGraph/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `TerraformGraph.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships.
 2. Edit the matching README section. Run every example you add or change in a fresh `pwsh -NoProfile` process and paste only output you saw.
 3. Check line 1 and that `ontolog` appears nowhere else: `Select-String -Path README.md -Pattern 'ontolog' | Select-Object LineNumber`.
 4. Run `Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json` and read the rows that are not Fresh. If the README quotes bundled data that is stale, say so in your report instead of quoting it as current. Follow "Promote or leave" below for each such row.

@@ -76,8 +76,8 @@ Named things, not guesses:
 
 | Planned | What it adds | Target |
 |---|---|---|
-| view | A collapsed graph: drawers as nodes, types and instances folded inside, for diagrams and agent context windows. | 0.15.0 |
-| compare | Two schema versions side by side: added, removed and changed types and attributes, as findings. | 0.16.0 |
-| eras | Provider version spans as first-class nodes, derived from compares (an era ends where a compare finds a breaking change), so "which schema era does this repository target" is a query. | 0.17.0 |
+| view | A collapsed graph: drawers as nodes, types and instances folded inside, for diagrams and agent context windows. | 0.16.0 |
+| compare | Two schema versions side by side: added, removed and changed types and attributes, as findings. | 0.17.0 |
+| eras | Provider version spans as first-class nodes, derived from compares (an era ends where a compare finds a breaking change), so "which schema era does this repository target" is a query. | 0.18.0 |
 
-Shipped in 0.14.0: the harvest and sources contract. Registry harvests survive the registry's rate limit and resume from a partial file, `data/bundle.json` names its sources, and every stale bundle check names the command that fixes it. Shipped in 0.14.1, the release before view: the error contract made true (every terminating error through one helper, checked by Pester), `Test-TerraformGraphBundle -Scope Repo` as the release gate, and a module that imports on any platform, with the parser commands throwing `ParserUnavailable` off Windows x64.
+Shipped in 0.14.0: the harvest and sources contract. Registry harvests survive the registry's rate limit and resume from a partial file, `data/bundle.json` names its sources, and every stale bundle check names the command that fixes it. Shipped in 0.14.1: the error contract made true (every terminating error through one helper, checked by Pester), `Test-TerraformGraphBundle -Scope Repo` as the release gate, and a module that imports on any platform, with the parser commands throwing `ParserUnavailable` off Windows x64. Shipped in 0.15.0, the release before view: the module source split one function per file, with no change to any command, Id, node, edge or error.

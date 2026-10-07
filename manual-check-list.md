@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.14.1
+Module version: 0.15.0
 Last updated: 2026-10-07
 
 ## 0 Setup
@@ -17,7 +17,7 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.14.1`, then twenty-six names (none added in 0.14.1), and no other output: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformClassifier, Get-TerraformClassifierFinding, Get-TerraformDocCache, Get-TerraformDocPack, Get-TerraformGraphBundle, Get-TerraformModuleGraph, Get-TerraformProviderDoc, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformSubcategorySurvey, Get-TerraformVariableTrace, Install-TerraformGraphSkill, New-TerraformClassifier, New-TerraformGraphBundle, Test-TerraformGraphBundle, Test-TerraformGraphSkill, Update-TerraformProviderDocCache, Update-TerraformRegistryCache.
+Expect: `0.15.0`, then twenty-six names (none added in 0.15.0; since 0.15.0 each is defined in src\TerraformGraph\Public\<name>.ps1), and no other output: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformClassifier, Get-TerraformClassifierFinding, Get-TerraformDocCache, Get-TerraformDocPack, Get-TerraformGraphBundle, Get-TerraformModuleGraph, Get-TerraformProviderDoc, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformSubcategorySurvey, Get-TerraformVariableTrace, Install-TerraformGraphSkill, New-TerraformClassifier, New-TerraformGraphBundle, Test-TerraformGraphBundle, Test-TerraformGraphSkill, Update-TerraformProviderDocCache, Update-TerraformRegistryCache.
 
 Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph", "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from TerraformGraph", "exports the four docs commands from TerraformGraph", "exports the three classifier commands from TerraformGraph", "exports the bundle commands and ships a bundled manifest with the official tier and two extras"
 
@@ -2123,3 +2123,107 @@ Remove-Item -LiteralPath $repo -Recurse -Force
 Expect: `TerraformGraph.0.14.1.nupkg` of about 3.4 MB (3,442,109 bytes on 2026-10-07), the same 16 paths as 17.5, then `old or h files: 0`. The repository is unregistered and the folder removed at the end.
 
 Pester: none
+
+## 18 Module split (0.15.0): one function per file, the assembled psm1
+
+### 18.1 Three-way diff: v0.14.1, src and dist
+
+The surface and the code are the same before and after the split: every exported command's parameter sets, parameters, types, positions, pipeline binding and aliases, then a SHA-256 of every function body in the module (public and private), from three fresh processes: the v0.14.1 psm1 (from git) in a copy of the assembled tree, the split src tree, and the assembled dist tree.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Invoke-Build AssembleModule | Out-Null
+$work = Join-Path $env:TEMP 'tg-check-split'
+Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+Copy-Item .\dist\module\TerraformGraph -Destination (Join-Path $work 'TerraformGraph') -Recurse
+git show v0.14.1:src/TerraformGraph/TerraformGraph.psm1 | Set-Content -LiteralPath (Join-Path $work 'TerraformGraph' 'TerraformGraph.psm1') -Encoding utf8NoBOM
+$surface = {
+    param($Psd1)
+    $env:TERRAFORMGRAPH_SKILL_HINT = '0'
+    $module = Import-Module $Psd1 -PassThru
+    $common = [System.Management.Automation.Cmdlet]::CommonParameters + [System.Management.Automation.Cmdlet]::OptionalCommonParameters
+    foreach ($command in Get-Command -Module TerraformGraph | Sort-Object Name) {
+        foreach ($set in $command.ParameterSets | Sort-Object Name) {
+            foreach ($p in $set.Parameters | Where-Object Name -notin $common | Sort-Object Name) {
+                "$($command.Name) $($set.Name) default=$($set.IsDefault) -$($p.Name) [$($p.ParameterType.Name)] mandatory=$($p.IsMandatory) position=$($p.Position) pipeline=$($p.ValueFromPipeline)/$($p.ValueFromPipelineByPropertyName) aliases=$(@($p.Aliases | Sort-Object) -join ',')"
+            }
+        }
+    }
+    & $module {
+        Get-ChildItem Function: | Where-Object { $_.Module.Name -eq 'TerraformGraph' } | Sort-Object Name | ForEach-Object {
+            $bytes = [Text.Encoding]::UTF8.GetBytes(($_.ScriptBlock.Ast.Extent.Text -replace "`r`n", "`n"))
+            "function $($_.Name) $([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)))"
+        }
+    }
+}
+$v0141 = pwsh -NoProfile -Command $surface -args (Join-Path $work 'TerraformGraph' 'TerraformGraph.psd1')
+$src = pwsh -NoProfile -Command $surface -args (Resolve-Path .\src\TerraformGraph\TerraformGraph.psd1).Path
+$dist = pwsh -NoProfile -Command $surface -args (Resolve-Path .\dist\module\TerraformGraph\TerraformGraph.psd1).Path
+"lines: v0.14.1 $($v0141.Count), src $($src.Count), dist $($dist.Count); functions $(@($src -like 'function *').Count)"
+"v0.14.1 vs src:  $(@(Compare-Object $v0141 $src -SyncWindow 0).Count) differences"
+"v0.14.1 vs dist: $(@(Compare-Object $v0141 $dist -SyncWindow 0).Count) differences"
+"src vs dist:     $(@(Compare-Object $src $dist -SyncWindow 0).Count) differences"
+Remove-Item -LiteralPath $work -Recurse -Force
+```
+
+Expect: the AssembleModule line (`Assembled TerraformGraph 0.15.0: 16 files, ...`), then `lines: v0.14.1 239, src 239, dist 239; functions 108`, then `0 differences` on all three comparison lines. The full proof of the split (the default test run, the AssembleModule file list and the module-scope variables as well) is in dist\split-proof from the 0.15.0 task; the only differences there are the shipped psm1's size and the six new tests.
+
+Pester: "names a documented fixing command for every terminating error id in the assembled dist psm1", "resolves every term in ONTOLOGY.md's terminology table against the assembled dist psm1"
+
+### 18.2 Import time, src and dist
+
+Three fresh imports each of the split source tree (108 files dot-sourced) and the assembled module (one psm1), with lib\TerraformGraph.Json.dll present.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Invoke-Build AssembleModule | Out-Null
+foreach ($psd1 in '.\src\TerraformGraph\TerraformGraph.psd1', '.\dist\module\TerraformGraph\TerraformGraph.psd1') {
+    1..3 | ForEach-Object { pwsh -NoProfile -Command "`$env:TERRAFORMGRAPH_SKILL_HINT = '0'; `$sw = [Diagnostics.Stopwatch]::StartNew(); Import-Module '$psd1'; '{0}  {1} ms' -f '$psd1', `$sw.ElapsedMilliseconds" }
+}
+```
+
+Expect: the AssembleModule line, then three src times and three dist times. On 2026-10-07: src 1,207, 1,180 and 1,331 ms; dist 441, 431 and 451 ms. Dot-sourcing 108 files costs src about 0.7 s over dist; the release imports dist.
+
+Pester: none
+
+### 18.3 File counts
+
+One file per function: 26 under Public (the exported commands), 82 under Private, no Classes folder, and a psm1 that is wiring only. Every exported command is defined in a Public file.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-ChildItem .\src\TerraformGraph\Public | Measure-Object | ForEach-Object Count
+Get-ChildItem .\src\TerraformGraph\Private | Measure-Object | ForEach-Object Count
+Test-Path .\src\TerraformGraph\Classes
+(Get-Content .\src\TerraformGraph\TerraformGraph.psm1).Count
+@(Get-Command -Module TerraformGraph | Where-Object { $_.ScriptBlock.File -notlike '*\Public\*' }).Count
+```
+
+Expect: `26`, `82`, `False`, `464` (the psm1's lines), `0` (exported commands defined outside Public).
+
+Pester: "every Public file defines exactly the function it is named for", "every Private file defines exactly one function and it is not exported", "psd1 FunctionsToExport equals the Public/ listing", "no function is defined twice across the tree, and the psm1 defines none"
+
+### 18.4 The default test run against the assembled module
+
+The whole default suite, importing dist\module\TerraformGraph instead of src (TERRAFORMGRAPH_TEST_MANIFEST). Takes about a minute and a half.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Invoke-Build AssembleModule | Out-Null
+$env:TERRAFORMGRAPH_TEST_MANIFEST = (Resolve-Path .\dist\module\TerraformGraph\TerraformGraph.psd1).Path
+pwsh -NoProfile -File .	ests\Invoke-Tests.ps1
+"exit $LASTEXITCODE"
+Remove-Item Env:TERRAFORMGRAPH_TEST_MANIFEST
+```
+
+Expect: the AssembleModule line, Pester's summary `Tests Passed: 235, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 17`, then `exit 0`.
+
+Pester: none (this runs Pester)

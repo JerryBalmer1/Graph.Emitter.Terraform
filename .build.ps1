@@ -317,8 +317,10 @@ task GenerateDocTables RemoveModule, ImportModule, {
 }
 
 # The publishable tree: dist/module/TerraformGraph holds exactly the psd1 FileList
-# (tools/Copy-TerraformGraphModule.ps1), then Test-ModuleManifest checks it. Needs both DLLs
-# (BuildDLL, BuildJson); dist/ is gitignored.
+# (tools/Copy-TerraformGraphModule.ps1), then Test-ModuleManifest checks it. Its psm1 is built,
+# not copied: the wiring psm1 with Classes/, Private/ and Public/ spliced into its dot-source
+# region, so the release imports one file. Needs both DLLs (BuildDLL, BuildJson); dist/ is
+# gitignored.
 task AssembleModule {
     $tree = Join-Path $PSScriptRoot 'dist' 'module' 'TerraformGraph'
     $files = & (Join-Path $PSScriptRoot 'tools' 'Copy-TerraformGraphModule.ps1') -RepoRoot $PSScriptRoot -OutputPath $tree

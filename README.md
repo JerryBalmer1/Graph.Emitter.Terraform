@@ -29,7 +29,7 @@ Exit code 0: every module call is at depth 3 or less (the root module is depth 0
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.14.1**. Not yet published to the PowerShell Gallery: install from a clone (see [Install](#install)).
+Source version **0.15.0**. Not yet published to the PowerShell Gallery: install from a clone (see [Install](#install)).
 
 ---
 
@@ -758,8 +758,10 @@ Invoke-Build CheckDependencies
 Invoke-Build BuildDLL         # Docker: golang 1.24 + mingw -> src/TerraformGraph/lib/TerraformGraph.dll (and the generated .h)
 Invoke-Build BuildJson        # optional, a .NET 8 SDK: lib/TerraformGraph.Json.dll, so import does not compile C#
 Invoke-Build                  # the default test run, no network: pwsh -NoProfile -File .\tests\Invoke-Tests.ps1
-Invoke-Build AssembleModule   # dist/module/TerraformGraph: exactly the files the psd1 FileList names
+Invoke-Build AssembleModule   # dist/module/TerraformGraph: exactly the files the psd1 FileList names, with one psm1 built from Private/ and Public/
 ```
+
+Function code is one function per file, named for the function: `src/TerraformGraph/Public/<Verb-Noun>.ps1` for an exported command, `src/TerraformGraph/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `TerraformGraph.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships.
 
 `BuildDLL` cross-compiles `src/go` with `github.com/hashicorp/hcl/v2` and copies `TerraformGraph.dll` into `src/TerraformGraph/lib/`. `pwsh -NoProfile -File .\tests\Invoke-Tests.ps1 -Live` runs the tests that call the registry; never run it while a harvest is going.
 
