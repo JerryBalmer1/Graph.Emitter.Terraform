@@ -20,9 +20,9 @@ In the same task as any change to:
 ## Rules
 
 - First non-blank line: the banner, one `>` line in the same style as README's line 1. Second non-blank line: the backlink to `README.md`. Keep both first; Pester ("keeps the two doors") checks them.
-- Sections stay in this order: What this is; Why Terraform is an unusually good ontology source; What agents get; Terminology; Facts and opinions; Not here yet.
+- Sections stay in this order: The ontology was already there; What this is; Why Terraform is an unusually good ontology source; What agents get; Terminology; Facts and opinions; Not here yet. The first one is written for someone who works on ontologies or agent systems and has never thought of Terraform as a source: the realisation, not a definition.
 - Terminology names match exported names exactly. The "In the module" column holds only backticked names of three kinds: an exported command (`Get-TerraformGraphBundle`), a typed object or one of its properties (`TerraformGraph.ClassifiedType.Drawer`), or a data file path relative to the module or repo root (`classifiers/map.json`). Pester ("resolves every term in ONTOLOGY.md's terminology table") resolves every one and fails on anything else, so rename the table in the same task as the code.
-- The term list is Id, node, edge, finding, pack, bundle, drawer, classifier, map row, source, era, in that order. Adding a term means updating the Pester expectation in the same task.
+- The term list is Id, node, edge, finding, pack, bundle, sources, drawer, classifier, map row, source, era, in that order. Adding a term means updating the Pester expectation in the same task.
 - Facts versus opinions: registry, schema, docs and parsed code are facts; drawers, map rows, classifiers and DECISIONS.md are opinions held as data with reasons. A new data file goes in one list or the other, never both.
 - Every claim about errors, exit codes or provenance must be true of the current code. Check the error id with `Select-String` in the psm1 before naming it.
 - Dense, plain sentences. No marketing words. A table beats a paragraph.
@@ -34,6 +34,14 @@ In the same task as any change to:
 3. Run the two Ontology tests in a fresh process: `pwsh -NoProfile -Command "Invoke-Pester -Path .\tests -FullNameFilter 'Ontology*' -CI"`.
 4. Stage ONTOLOGY.md. Do not commit.
 5. In your report, list the sections and terminology rows you changed.
+
+## Promote or leave
+
+Harvests and `New-*` commands write to the user caches under `$env:LOCALAPPDATA\TerraformGraph` (development); `src/` is production. When a provenance claim depends on bundled data, run `Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json`, and for every Stale or Missing row:
+- Run its `InspectAction` and put the output (the diff, or the cache state) in your report.
+- Run its `RecommendedAction` only if your task is about that data. Otherwise report the row and leave it; an ONTOLOGY.md edit is not a reason to refresh data.
+- Nothing moves into `src/` except through an Invoke-Build task, and you commit nothing.
+- Give the human both commands in the report, pasteable.
 
 ## Do not
 

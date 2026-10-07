@@ -29,7 +29,7 @@ Exit code 0: every module call is at depth 3 or less (the root module is depth 0
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.13.0**. Not yet published to the PowerShell Gallery.
+Source version **0.14.0**. Not yet published to the PowerShell Gallery.
 
 ---
 
@@ -346,7 +346,7 @@ Matches are listed official first, then partner, then community. A `-Provider` w
 
 Tab completion reads the cache only and never touches the network: `Get-TerraformProviderSchema -Provider` and `Get-TerraformRegistryProvider -Name` complete `namespace/name` sources (official first), and `-Version` completes the versions of the provider already typed, newest first. With no cache they complete nothing.
 
-`Update-TerraformRegistryCache` lists providers from the v2 API (100 per page), then makes two calls per provider in parallel (`-ThrottleLimit`, default 6): v1 `/versions` for protocols and v2 `include=provider-versions` for publish dates. 5xx responses are retried five times with a short backoff. A 429 is the registry's rate limit, which blocks an address for several minutes once a sustained run passes it, so a 429 is retried after 30, 60, 120, 240 and 300 seconds. If any provider still fails, nothing is written; otherwise the file is replaced atomically.
+`Update-TerraformRegistryCache` lists providers from the v2 API (100 per page), then makes two calls per provider in parallel (`-ThrottleLimit`, default 6): v1 `/versions` for protocols and v2 `include=provider-versions` for publish dates. 5xx responses are retried five times with a short backoff. A 429 is the registry's rate limit, handled as described under [Bulk docs harvest](#bulk-docs-harvest); the registry cache harvest and the docs harvest share that state for the whole session. If any provider still fails, nothing is written; otherwise the file is replaced atomically.
 
 The bundled file is refreshed when cutting a release, not in the default build:
 
@@ -457,7 +457,7 @@ Each file is `{ address, version, harvestedOn, schemaVersion, docCount, unmatche
 | Providers | Whatever the manifest lists | Any registry provider and version |
 | Integrity | sha256 from `manifest.json` | What the registry returns |
 
-`Update-TerraformProviderDocCache` lists the pages, fetches them in parallel (`-ThrottleLimit`, default 6, with 429/5xx retries) and writes the file atomically. For a whole set of providers, see [Bulk docs harvest](#bulk-docs-harvest). If the provider has no cached schema, it still writes the docs, but builds Ids from the provider name without checking, leaves `UnmatchedCount` empty, and warns. Fill the schema cache first.
+`Update-TerraformProviderDocCache` lists the pages, fetches them in parallel (`-ThrottleLimit`, default 6, with the 429 and 5xx handling under [Bulk docs harvest](#bulk-docs-harvest)) and writes the file atomically. For a whole set of providers, see [Bulk docs harvest](#bulk-docs-harvest). If the provider has no cached schema, it still writes the docs, but builds Ids from the provider name without checking, leaves `UnmatchedCount` empty, and warns. Fill the schema cache first.
 
 The default packs, as of 2026-10-06: azurerm 5.8.0 has 1,518 pages (1.18 MB gzipped, harvested in 44 s), 1 of them unmatched: a `container_app_environment_dapr_component` data source page with no such type in the schema. azuredevops 1.16.0 has 183 pages (92 KB), 1 unmatched: `environment_kubernetes_resource`. vsphere 2.17.1 has 87 pages (104 KB), none unmatched; 7 of its slugs already carry the `vsphere_` prefix. `BuildSchemaPack` with docs takes about 80 s for the three.
 
@@ -504,15 +504,37 @@ Nothing here downloads except `Get-TerraformDocPack` and `Update-TerraformProvid
   "providers": ["registry.terraform.io/microsoft/azuredevops", "registry.terraform.io/vmware/vsphere"],
   "exclude": [],
   "registry": { "harvestedOn": "...", "providerCount": 428 },
+  "sources": [ { "kind": "docs", "urls": [ "https://registry.terraform.io/v2/provider-docs/{id}", "..." ],
+                 "relatedUrls": [ "https://developer.hashicorp.com/terraform/registry/providers/docs" ],
+                 "harvestedBy": "Update-TerraformProviderDocCache", "lastPulled": "..." } ],
   "entries": [ { "provider": "registry.terraform.io/hashicorp/azurerm", "version": "5.8.0", "docsVersion": "5.8.0",
                  "schemaVersion": "5.8.0", "classifierVersion": "5.8.0", "harvestedOn": "..." } ] }
 ```
 
 Each entry's `version` is the provider's latest in that registry cache. `docsVersion` and `harvestedOn` come from the docs cache, and `schemaVersion` only when the schema cache holds exactly that version. `classifierVersion` is the newest classifier bundled with the module.
 
+`sources` says where each kind of shipped data comes from: the upstream URLs, the pages that document them, the command that pulls it, and when it last did. `lastPulled` is taken from the data itself (the registry cache's `harvestedOn`, the newest docs harvest, and so on), never the clock. The registry's v2 API has no published reference, so its endpoints are listed as used. `cmdb` is reserved and empty.
+
 ```powershell
 Get-TerraformGraphBundle                     # one row per provider: ProviderAddress, Version, DocsVersion, SchemaVersion, ClassifierVersion, HarvestedOn
-Get-TerraformGraphBundle -Document           # the whole manifest: Tiers, Providers, Exclude, RegistryHarvestedOn, Entries
+Get-TerraformGraphBundle -Document           # the whole manifest: Tiers, Providers, Exclude, RegistryHarvestedOn, Sources, Entries
+Get-TerraformGraphBundle -Sources            # Kind, HarvestedBy, LastPulled, Urls (and RelatedUrls)
+```
+
+The shipped `-Sources`, 0.14.0:
+
+```
+Kind        HarvestedBy                      LastPulled           Urls
+----        -----------                      ----------           ----
+registry    Update-TerraformRegistryCache    2026-10-07T02:55:12Z {https://registry.terraform.io/v2/providers?filter[tier]=official,partner&page[size]=100, https://registry.terraform.io/v1/providers/.
+schemas     Get-TerraformProviderSchema      2026-10-07T03:58:00Z {https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download/manifest.json}
+docs        Update-TerraformProviderDocCache 2026-10-07T05:19:53Z {https://registry.terraform.io/v2/provider-versions/{id}?include=provider-docs, https://registry.terraform.io/v2/provider-docs/{id}}
+classifiers New-TerraformClassifier          2026-10-07T05:22:55Z {https://github.com/JerryBalmer1/TerraformGraph/tree/main/src/TerraformGraph/classifiers}
+skills      Install-TerraformGraphSkill                           {https://github.com/JerryBalmer1/TerraformGraph/tree/main/src/TerraformGraph/skills}
+cmdb                                                              {}
+```
+
+```powershell
 
 # Your own set, written to $env:LOCALAPPDATA\TerraformGraph\bundle.json (read before the bundled copy).
 New-TerraformGraphBundle -Tier official -Provider 'vmware/*' -Exclude hashicorp/hcs -PassThru
@@ -525,13 +547,18 @@ Each of `-Tier`, `-Provider` and `-Exclude` you leave out comes from the bundled
 
 ```powershell
 $summary = Update-TerraformProviderDocCache -BundlePath .\bundle.json -Resume
-$summary                                       # ProviderCount, PageCount, UnmatchedCount, FailureCount, Elapsed
+$summary                                       # ProviderCount, PageCount, UnmatchedCount, FailureCount, RateLimitHits, Elapsed
+$summary | Format-List SecondsBlocked, PartialResumes, LogPath
 $summary.Failures | Format-Table ProviderAddress, Version, Error
 ```
 
 `-BundlePath` harvests every provider in the bundle's set at its latest version, one provider after another. Pages are fetched in parallel (`-ThrottleLimit`, default 6). A provider that fails is a warning and a `Failed` row with its `Error`, never a stop, and nothing is written for it. Without `-Resume` every provider is harvested again; with it, a provider already cached at that version is skipped without any network call, which is how an interrupted run is finished. `-Resume` also works with `-Provider`.
 
-The registry rate-limits sustained runs. Past its limit it answers 429 for several minutes, so a 429 is retried after 30, 60, 120, 240 and 300 seconds.
+A harvest that stops part-way (a failed page, Ctrl+C) keeps the pages it fetched in `$env:LOCALAPPDATA\TerraformGraph\docs\<address-slug>\<version>.partial.json`, also saved every 100 pages in case the process dies. Rerun the same command with `-Resume` and it fetches only the missing pages (`ResumedPages` on the row, `PartialResumes` on the summary); a finished harvest deletes the file, `-Force` deletes it and starts over, and the file is never read as cached docs.
+
+Every bundle run writes `$env:LOCALAPPDATA\TerraformGraph\logs\harvest-<yyyyMMdd-HHmmss>.log` (UTC): a start line, one line per provider (address, version, status, pages, elapsed, error), one per 429 and per wait, and an end line with the rate-limit totals. The path is printed at the end and returned as `LogPath`.
+
+The registry sits behind a rate limit that answers a sustained run with 429 for several minutes (about 9 on 2026-10-07), with no Retry-After. The first 429 stops every worker, waits 30 seconds (then 60, 120, 240 and 300 on repeated 429s, or the Retry-After when one is sent, at most 600), and resumes with one worker, adding one per 25 successful requests; the throttle carries over to the next provider and the next command in the same session.
 
 The bundled set, harvested on 2026-10-07 with `Invoke-Build HarvestBundleDocs`: 36 providers, 14,686 pages, 3 unmatched. The largest were awscc 1.104.0 (4,521 pages), aws 6.67.0 (2,414), google and google-beta 8.6.0 (1,685 each), azurerm 5.8.0 (1,518) and ibm 2.6.2 (1,445). The first run (12 min 28 s) got 3,374 pages from 19 providers. The registry started answering 429 just after aws, and 17 providers failed, because the backoff then was two retries at 1 and 2 seconds. The second run, `-Resume` with the backoff above, harvested the 17 in 12 min 17 s with no failures.
 
@@ -555,11 +582,12 @@ On the bundled set (2026-10-07): 661 distinct labels in 893 rows. Only 11 of the
 
 ### Freshness gate
 
-`Test-TerraformGraphBundle` checks the bundled data against its sources and returns one row per check: `Item`, `Status` (`Fresh`, `Stale`, `Missing`) and `Detail`, which names the command that fixes it. It is offline unless you pass `-Online`.
+`Test-TerraformGraphBundle` checks the bundled data against its sources and returns one row per check: `Item`, `Status` (`Fresh`, `Stale`, `Missing`), `Detail`, and for every row that is not Fresh two pasteable commands. `InspectAction` shows what would change (a `git diff --no-index` of a candidate written under `$env:TEMP\TerraformGraph-inspect`, or the cache's state) without touching the module; `RecommendedAction` makes the change. For the bundled manifest the actions are Invoke-Build tasks (`BuildRegistry`, `BuildSchemaPack -Provider`, `BuildClassifier -Provider`, `HarvestBundleDocs -Resume`); for your own copy they are the commands that rewrite it. The default table shows `Item`, `Status` and `RecommendedAction`. It is offline unless you pass `-Online`.
 
 | Item | Checks |
 |---|---|
 | `registry` | The bundle's `registry.harvestedOn` and provider count against the registry cache it resolves against. |
+| `sources` | The bundle has a `sources` block, and it is what rewriting the bundle from the same caches would write. |
 | `entry <address>` | The entry is in the bundle's provider set, and its version is that cache's latest. Every provider in the set has an entry. |
 | `docs <address>` | `docsVersion` is cached, equals the entry version, and `harvestedOn` matches the cached file. |
 | `schema <address>`, `classifier <address>` | When the entry records them: cached or bundled, and at the entry version. |
@@ -569,12 +597,31 @@ On the bundled set (2026-10-07): 661 distinct labels in 893 rows. Only 11 of the
 
 ```powershell
 Test-TerraformGraphBundle | Where-Object Status -ne Fresh
+Test-TerraformGraphBundle | Where-Object Status -ne Fresh | Format-List Item, Detail, InspectAction, RecommendedAction
 pwsh -NoProfile -Command "Import-Module TerraformGraph; Test-TerraformGraphBundle -Strict | Out-Null"   # exit 1 when anything is Stale or Missing
 ```
 
-`-Strict` writes every row, then throws `BundleNotFresh`. The release build runs it as `Invoke-Build CheckBundle` before a release is created.
+A bundle for `hashicorp/null`, written against a `registry.json` beside it that has since been refreshed (`-DistPath` pointed at a folder with no packs):
 
-On the shipped data after the 0.13.0 harvest and `BuildClassifier`, with `dist\schema-packs` from `BuildSchemaPack` present, all 88 checks are Fresh.
+```
+Item                                                          Status RecommendedAction
+----                                                          ------ -----------------
+registry                                                      Stale  New-TerraformGraphBundle -Tier @() -Provider 'registry.terraform.io/hashicorp/null' -Exclude @() -OutputPath
+                                                                     'C:\Users\jlbal\AppData\Local\Temp\tg-stale-446215794\bundle.json'
+sources                                                       Stale  New-TerraformGraphBundle -Tier @() -Provider 'registry.terraform.io/hashicorp/null' -Exclude @() -OutputPath
+                                                                     'C:\Users\jlbal\AppData\Local\Temp\tg-stale-446215794\bundle.json'
+entry registry.terraform.io/hashicorp/null                    Fresh
+docs registry.terraform.io/hashicorp/null                     Fresh
+mapVersion registry.terraform.io/hashicorp/azurerm 5.8.0      Fresh
+mapVersion registry.terraform.io/microsoft/azuredevops 1.16.0 Fresh
+mapVersion registry.terraform.io/vmware/vsphere 2.17.1        Fresh
+```
+
+Run the `InspectAction` first, read the diff, then run the `RecommendedAction` if you want the change. Data you harvest lands in your user caches; the module's own files change only through the Invoke-Build tasks.
+
+`-Strict` writes every row, then throws `BundleNotFresh`, whose message lists each row with its fix. The release build runs it as `Invoke-Build CheckBundle` before a release is created; that task prints each row's inspect and fix commands.
+
+On the shipped 0.14.0 data (2026-10-07, after `Invoke-Build HarvestBundleDocs -Resume` added `sources`), with `dist\schema-packs` from `BuildSchemaPack` present, all 89 checks are Fresh.
 ## Classifiers: what ships / how to cut your own
 
 A provider schema is flat: azurerm alone has 1,502 resource and data source types. Classifier drawers are an optional overlay that groups types into drawers (network, compute, storage, database, identity, security, ...) so a view can collapse to twenty-one rows. They never change a node's Id, the node count or the edges, and every placement can be traced to a map row with a reason.
@@ -627,7 +674,7 @@ On a schema graph, Block and Attribute nodes take the drawer of the resource or 
 
 ### How to cut your own
 
-Classifiers are looked up in this order: `-ClassifierPath` (a file or a folder), then `$env:LOCALAPPDATA\TerraformGraph\classifiers`, then the bundled folder. The first that holds a provider wins, even over a newer bundled version.
+Classifiers are looked up in this order: `-ClassifierPath` (a file or a folder), then `$env:LOCALAPPDATA\TerraformGraph\classifiers`, then the bundled folder. The first that holds a provider picks the version, even over a newer bundled version. When more than one folder holds that same version, a file from `-ClassifierPath` wins; otherwise the one built from the current `map.json` (its `mapVersion`) wins, then the newer `generatedOn`, and a warning names the file left out and how to remove or promote it. `Get-TerraformClassifier -Shadowed` lists those collisions (ProviderAddress, Version, Location, Reason; Path and ShadowedPath in the object); on a clean install it returns nothing.
 
 ```powershell
 # Any provider whose schema and docs are cached (packs, -SaveToCache, Update-TerraformProviderDocCache).
@@ -643,6 +690,8 @@ ConvertTo-TerraformSchemaGraph -Provider azurerm -ClassifierPath .\my-classifier
 `New-TerraformClassifier` checks the map first. A row with an empty reason, a drawer not in `drawers.json` (taken from beside the map, else the bundled one), a row targeting `unclassified`, a `source` other than `subcategory` or `prefix`, a `*` prefix row, or a repeated provider, source and subcategory stops it before anything is read. A prefix row that matches none of the provider's schema types stops it once the schema is read. Output is sorted by type, then kind. When a rerun produces the same content, the file and its `generatedOn` are left alone, so reruns are byte-identical. `mapVersion` is a hash of the map's rows. `-ClassifierPath` implies `-Classify`.
 
 To change the shipped classifiers: read `DECISIONS.md`, append an entry for each judgement, edit `map.json` (never without a reason), then run `Invoke-Build BuildClassifier` (default azurerm, azuredevops, vsphere at their latest version in the registry cache, from your local caches, no network). It prints the findings per provider. Stage `src/TerraformGraph/classifiers/`. Pester fails if a bundled classifier's `mapVersion` no longer matches `map.json`.
+
+Drawer names are versioned like an API: adding a drawer or map rows is a minor release, renaming or removing a drawer is a major one. Pester ("drawers are semver-safe") compares `drawers.json` with the previous release's and fails a rename or removal unless the module's major version went up.
 
 ## Agent skills
 

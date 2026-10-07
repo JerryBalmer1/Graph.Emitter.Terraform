@@ -2,6 +2,16 @@
 
 Here for the PowerShell module, install steps and examples? Read [README.md](README.md).
 
+## The ontology was already there
+
+If you build ontologies or agent memory, Terraform has probably never been on your list of sources. Look at what is already in place.
+
+Every Terraform provider publishes a typed schema for every version it releases: each resource type, each attribute with its type, whether it is required, optional or computed, and how blocks nest. The registry serves those versions for 428 official and partner providers (registry harvest of 2026-10-07), alongside a documentation page per type, written by the provider's authors and filed under a label they chose. The whole stack pins to that vocabulary: `required_providers` names the provider's address, the lock file pins its exact version and checksums, and `terraform validate` rejects any block that does not fit the schema.
+
+So your infrastructure code is already a set of instances. `resource "azurerm_key_vault" "main"` is one individual of exactly one class, `azurerm_key_vault`, at exactly one schema version, checked against that class by the tool before anything is deployed. The classes, their properties, their versions and their instances exist and are kept correct every day, by the people who ship providers and by the people who run plans.
+
+Nobody built a Terraform ontology because nobody had to: it was already there. What was missing was the join. TerraformGraph adds one Id that names the same thing in your code, in the schema, in the docs and in a reviewable grouping, and a record of where each fact came from and how fresh it is. The rest of this page is that join.
+
 ## What this is
 
 A PowerShell module that turns Terraform into named, typed, joined data an agent can query instead of guess at. Four layers share one key:
@@ -27,10 +37,11 @@ The resource node's `SchemaId` is the schema node's `Id`, which is the doc page'
 Named things, not guesses:
 
 - **Stable Ids.** Schema `<address>/resource/<type>`, `<address>/data/<type>`, `<address>/config/<name>`, `<parent Id>/<block or attribute>`; code `<module>/resource/<type>.<name>`, `<module>/var/<name>`, `<module>/local/<name>`, `<module>/output/<name>`; docs on the schema Id, `<address>/guide/<slug>`, `<address>/unmatched/<category>/<slug>`.
-- **Stable error ids.** Terminating errors carry a `FullyQualifiedErrorId` you can branch on, never a message to parse: `SchemaNotCached`, `ProviderDocNotCached`, `RegistryProviderNotResolved`, `ClassifierMapInvalid`, `ClassifierNotFound`, `BundleInvalid`, `BundleNotFresh`, `HclParseError`, among others. Each message names the command that fixes it.
+- **Stable error ids.** Terminating errors carry a `FullyQualifiedErrorId` you can branch on, never a message to parse: `SchemaNotCached`, `ProviderDocNotCached`, `ProviderDocHarvestFailed`, `RegistryProviderNotResolved`, `ClassifierMapInvalid`, `ClassifierNotFound`, `BundleInvalid`, `BundleNotFresh`, `HclParseError`, among others. Each message names the command that fixes it; Pester keeps the full list of ids with their fixing commands and fails on an id that is not in it.
 - **Exit codes.** Gates are one line: `pwsh -NoProfile -Command "Import-Module TerraformGraph; Test-TerraformGraphBundle -Strict | Out-Null"` exits 1 when anything is stale; a depth or findings check exits with whatever `exit` you give it. PowerShell 7.4+ is required so a failure is terminating and visible.
 - **Findings, not errors.** What the data cannot place is data: a resource whose type is not in the schema (`Reason` `TypeNotInProvider`), an unknown argument (`UnknownAttributes`), a doc page with no schema type (`unmatched`), a type no drawer takes (`NoDocPage`, `NoSubcategory`, `UnmappedSubcategory`). Graphs still build; findings are counted.
-- **Provenance on bundled data.** The registry cache carries `harvestedOn`; schema and docs packs carry sha256 in `manifest.json`; docs carry `harvestedOn` and the `schemaVersion` their Ids were checked against; classifiers carry `docsVersion` and `mapVersion` (a hash of the map rows); `data/bundle.json` records which versions of each were present; `Test-TerraformGraphBundle` says which are Fresh, Stale or Missing.
+- **Provenance on bundled data.** The registry cache carries `harvestedOn`; schema and docs packs carry sha256 in `manifest.json`; docs carry `harvestedOn` and the `schemaVersion` their Ids were checked against; classifiers carry `docsVersion` and `mapVersion` (a hash of the map rows); `data/bundle.json` records which versions of each were present and, in `sources`, the upstream endpoints each kind of data comes from, the pages that document them, the command that pulls it and when it last did; `Test-TerraformGraphBundle` says which are Fresh, Stale or Missing, and every row that is not Fresh carries a command that shows the change (`InspectAction`) and one that makes it (`RecommendedAction`).
+- **Promote or leave.** Harvests write to the user's caches; the module's shipped data changes only through a build task. An agent that finds stale data shows the diff and refreshes it only when its task is about that data.
 - **Nothing hidden on the network.** Reading never downloads. Only `Update-TerraformRegistryCache`, `Update-TerraformProviderDocCache`, the two pack commands, `Get-TerraformProviderSchema` (it runs `terraform init`) and `Test-TerraformGraphBundle -Online` go out, and only when called.
 
 ## Terminology
@@ -43,6 +54,7 @@ Named things, not guesses:
 | finding | `TerraformGraph.ClassifierFinding.Finding`, `TerraformGraph.ResourceNode.Reason`, `TerraformGraph.CachedDoc.UnmatchedCount` | Something the data cannot place, reported as data rather than thrown. |
 | pack | `Get-TerraformSchemaPack`, `Get-TerraformDocPack` | A gzipped schema or docs file for one provider version, attached to a release with its sha256 in `manifest.json`. |
 | bundle | `Get-TerraformGraphBundle`, `TerraformGraph.BundleEntry`, `data/bundle.json` | The provider set the shipped data covers (registry tiers, extra addresses, exclusions) and what was harvested for each. |
+| sources | `Get-TerraformGraphBundle`, `TerraformGraph.BundleSource`, `TerraformGraph.BundleSource.HarvestedBy`, `data/bundle.json` | Where each kind of bundled data (registry, schemas, docs, classifiers, skills; cmdb reserved) is pulled from: upstream URLs, the pages that explain them, the command that pulls it and when it last did. `Get-TerraformGraphBundle -Sources` lists them. |
 | drawer | `TerraformGraph.ClassifiedType.Drawer`, `TerraformGraph.DrawerSummary`, `classifiers/drawers.json` | One of a fixed list of top-level groups (network, compute, storage, ..., unclassified) a type falls into so a view can collapse. |
 | classifier | `New-TerraformClassifier`, `Get-TerraformClassifier`, `TerraformGraph.Classifier` | One provider version's type-to-drawer table, generated from its schema and docs through the map. |
 | map row | `classifiers/map.json`, `classifiers/DECISIONS.md` | One judgement: a provider label (or type prefix) to a drawer, with a one-sentence reason, a date and who added it. |
@@ -64,6 +76,8 @@ Named things, not guesses:
 
 | Planned | What it adds | Target |
 |---|---|---|
-| view | A collapsed graph: drawers as nodes, types and instances folded inside, for diagrams and agent context windows. | 0.14.0 |
-| eras | Provider version spans as first-class nodes, so "which schema era does this repository target" is a query. | 0.15.0 |
-| compare | Two schema versions or two eras side by side: added, removed and changed types and attributes, as findings. | 0.16.0 |
+| view | A collapsed graph: drawers as nodes, types and instances folded inside, for diagrams and agent context windows. | 0.15.0 |
+| compare | Two schema versions side by side: added, removed and changed types and attributes, as findings. | 0.16.0 |
+| eras | Provider version spans as first-class nodes, derived from compares (an era ends where a compare finds a breaking change), so "which schema era does this repository target" is a query. | 0.17.0 |
+
+Shipped in 0.14.0, the release before view: the harvest and sources contract. Registry harvests survive the registry's rate limit and resume from a partial file, `data/bundle.json` names its sources, and every stale bundle check and every terminating error names the command that fixes it.

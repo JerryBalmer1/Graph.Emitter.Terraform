@@ -456,15 +456,18 @@ task BuildClassifier RemoveModule, ImportModule, {
 # refreshes the manifest's entries from the caches and the bundled classifiers, and writes
 # the subcategory survey to dist\survey\subcategories.json. A provider that fails is a
 # warning and a Failed row, never a stop. -Resume skips providers already cached at their
-# latest version.
+# latest version and continues a provider from its <version>.partial.json. The run writes
+# $env:LOCALAPPDATA\TerraformGraph\logs\harvest-<timestamp>.log and prints its path.
 task HarvestBundleDocs RemoveModule, ImportModule, {
     $bundlePath = Join-Path $PSScriptRoot 'src\TerraformGraph\data\bundle.json'
     $summary = Update-TerraformProviderDocCache -BundlePath $bundlePath -Resume:$Resume -ErrorAction Stop
     $summary.Providers |
         Format-Table ProviderAddress, Version, Status, DocCount, UnmatchedCount, SchemaVersion, @{ Name = 'Elapsed'; Expression = { $_.Elapsed.ToString('hh\:mm\:ss') } } -AutoSize |
         Out-String -Width 250 | Write-Host
-    Write-Host ("Providers {0}, pages {1:N0}, unmatched {2}, failures {3}, elapsed {4:hh\:mm\:ss}" -f
-        $summary.ProviderCount, $summary.PageCount, $summary.UnmatchedCount, $summary.FailureCount, $summary.Elapsed)
+    Write-Host ("Providers {0}, pages {1:N0}, unmatched {2}, failures {3}, rate-limit hits {4} ({5} s blocked), partial resumes {6}, elapsed {7:hh\:mm\:ss}" -f
+        $summary.ProviderCount, $summary.PageCount, $summary.UnmatchedCount, $summary.FailureCount,
+        $summary.RateLimitHits, $summary.SecondsBlocked, $summary.PartialResumes, $summary.Elapsed)
+    Write-Host "Log: $($summary.LogPath)"
     foreach ($failure in $summary.Failures) {
         Write-Host "FAILED $($failure.ProviderAddress) $($failure.Version): $($failure.Error)" -ForegroundColor Yellow
     }
@@ -493,7 +496,11 @@ task CheckBundle RemoveModule, ImportModule, {
     Test-TerraformGraphBundle -BundlePath $bundlePath -DistPath (Join-Path $PSScriptRoot 'dist\schema-packs') -Online:$Online -Strict -ErrorAction Stop |
         ForEach-Object {
             $counts[$_.Status]++
-            if ($_.Status -ne 'Fresh') { Write-Host "$($_.Status.PadRight(7)) $($_.Item): $($_.Detail)" -ForegroundColor Yellow }
+            if ($_.Status -ne 'Fresh') {
+                Write-Host "$($_.Status.PadRight(7)) $($_.Item): $($_.Detail)" -ForegroundColor Yellow
+                Write-Host "        inspect: $($_.InspectAction)"
+                Write-Host "        fix:     $($_.RecommendedAction)"
+            }
         }
     Write-Host "Bundle is fresh: $($counts.Fresh) checks." -ForegroundColor Green
 }

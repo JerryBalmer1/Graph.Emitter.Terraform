@@ -87,7 +87,7 @@ Describe "TerraformGraph" {
             $astErrors.Count | Should -Be 1
             $astErrors[0].FullyQualifiedErrorId | Should -Be 'HclParseError,Get-TerraformAST'
             $astErrors[0].Exception.Message |
-                Should -BeLike "Error parsing HCL file: $badFile`:1,31-32: Unclosed configuration block; There is no closing brace for this block before the end of the file.*($badFile)"
+                Should -BeLike "Error parsing HCL file: $badFile`:1,31-32: Unclosed configuration block; There is no closing brace for this block before the end of the file.*($badFile) Fix the file, then rerun Get-TerraformAST -FilePath '$badFile'*"
         }
 
         It "writes one parse error per bad file and no output" {
@@ -715,7 +715,7 @@ Describe "TerraformGraph" {
 
         It "throws for a -Provider that is not in the document" {
             { $SchemaDoc | ConvertTo-TerraformSchemaGraph -Provider 'hashicorp/null' -ErrorAction Stop } |
-                Should -Throw "Provider 'registry.terraform.io/hashicorp/null' is not in provider_schemas. Available: terraform.io/builtin/terraform."
+                Should -Throw "Provider 'registry.terraform.io/hashicorp/null' is not in provider_schemas. Available: terraform.io/builtin/terraform. Fetch it with Get-TerraformProviderSchema -Provider registry.terraform.io/hashicorp/null -SaveToCache*"
         }
 
         It "adds Function nodes with -IncludeFunctions" {
@@ -1089,7 +1089,7 @@ locals {
 
         It "throws for an unknown Id and names the same-named nodes" {
             { $TraceGraph | Get-TerraformVariableTrace -Id 'module.network.module.endpoint/var/aws_region' -ErrorAction Stop } |
-                Should -Throw "Node 'module.network.module.endpoint/var/aws_region' is not in the variable graph. Nodes named 'aws_region': root/var/aws_region, module.network/var/aws_region."
+                Should -Throw "Node 'module.network.module.endpoint/var/aws_region' is not in the variable graph. Nodes named 'aws_region': root/var/aws_region, module.network/var/aws_region. List every Id with*"
         }
 
         It "terminates on locals that reference each other and returns both" {
@@ -1538,7 +1538,7 @@ Describe "Registry" {
 
     It "throws for an ambiguous pattern and lists every match, official first" {
         { InModuleScope TerraformGraph { Resolve-TerraformRegistryProvider -Name 'aws*' } } |
-            Should -Throw "'aws*' matches 3 providers: hashicorp/aws, hashicorp/awscc, aws-ia/awsx. Specify one."
+            Should -Throw "'aws*' matches 3 providers: hashicorp/aws, hashicorp/awscc, aws-ia/awsx. Specify one; Get-TerraformRegistryProvider -Name 'aws*' lists them."
     }
 
     It "throws for a pattern with no match and names the harvest date" {
@@ -1549,7 +1549,7 @@ Describe "Registry" {
     It "stops Get-TerraformProviderSchema -Provider 'aws*' with the ambiguous message before running terraform" {
         Mock -ModuleName TerraformGraph Invoke-TerraformCli { throw 'terraform must not run' }
         { Get-TerraformProviderSchema -Provider 'aws*' -WorkingDirectory (Join-Path $TestDrive 'never') -ErrorAction Stop } |
-            Should -Throw "'aws*' matches 3 providers: hashicorp/aws, hashicorp/awscc, aws-ia/awsx. Specify one."
+            Should -Throw "'aws*' matches 3 providers: hashicorp/aws, hashicorp/awscc, aws-ia/awsx. Specify one; Get-TerraformRegistryProvider -Name 'aws*' lists them."
         Should -Invoke -ModuleName TerraformGraph Invoke-TerraformCli -Times 0 -Exactly
         Test-Path -LiteralPath (Join-Path $TestDrive 'never') | Should -BeFalse
     }
@@ -1706,7 +1706,7 @@ Describe "Schema cache and packs" {
         $manifest.packs[0].sha256 = '0' * 64
         $manifest | ConvertTo-TerraformJson | Set-Content -LiteralPath (Join-Path $bad 'manifest.json')
 
-        { Get-TerraformSchemaPack -Provider null -Source $bad -ErrorAction Stop } | Should -Throw '*sha256 mismatch*Nothing was written to the cache.'
+        { Get-TerraformSchemaPack -Provider null -Source $bad -ErrorAction Stop } | Should -Throw '*sha256 mismatch*Nothing was written to the cache. Rerun Get-TerraformSchemaPack -Provider registry.terraform.io/hashicorp/null*'
         @(Get-ChildItem -LiteralPath $CacheRoot -Recurse -File -Force -ErrorAction SilentlyContinue).Count | Should -Be 0
     }
 
@@ -2539,6 +2539,8 @@ Describe "Bundle" {
                     Docs            = $script:TerraformDocCacheRoot
                     ClassifierUser  = $script:TerraformClassifierUserRoot
                     ClassifierRoot  = $script:TerraformClassifierBundledRoot
+                    LogRoot         = $script:TerraformGraphLogRoot
+                    ClimbAfter      = $script:TerraformRegistryClimbAfter
                 }
             })
 
@@ -2557,9 +2559,56 @@ Describe "Bundle" {
                 $script:TerraformDocCacheRoot = Join-Path $Root 'docs'
                 $script:TerraformClassifierUserRoot = Join-Path $Root 'classifiers-user'
                 $script:TerraformClassifierBundledRoot = Join-Path $Root 'classifiers'
+                $script:TerraformGraphLogRoot = Join-Path $Root 'logs'
+                $script:TerraformRegistryInvoker = $null
+                Reset-TerraformRegistryThrottle
             }
         }
         Set-Variable -Name UseRoot -Scope Script -Value $useRoot
+
+        # A fake registry.terraform.io behind $script:TerraformRegistryInvoker: aws 5.60.0
+        # (version id 100) and null 3.2.3 (200), each with an overview and five resource
+        # pages. $script:FakeRegistry.Fail429 answers that many requests with 429 first;
+        # ThrowAfterPages makes every page request after that many throw, as a killed run would.
+        $useFakeRegistry = {
+            param([int]$Fail429, [int]$ThrowAfterPages)
+            InModuleScope TerraformGraph -Parameters @{ Fail429 = $Fail429; ThrowAfterPages = $ThrowAfterPages } {
+                param($Fail429, $ThrowAfterPages)
+                $script:FakeRegistry = @{
+                    Calls           = [System.Collections.Generic.List[string]]::new()
+                    Fail429         = $Fail429
+                    ThrowAfterPages = $ThrowAfterPages
+                    Pages           = 0
+                    Versions        = @{ aws = @('5.60.0', '100'); null = @('3.2.3', '200') }
+                }
+                $script:TerraformRegistryInvoker = {
+                    param([string]$Uri)
+                    $fake = $script:FakeRegistry
+                    $fake.Calls.Add($Uri)
+                    if ($fake.Fail429 -gt 0) {
+                        $fake.Fail429--
+                        return @{ StatusCode = 429; Content = ''; RetryAfter = $null }
+                    }
+                    if ($Uri -match '/v2/providers/[^/]+/([^/?]+)\?include=provider-versions$') {
+                        $version = $fake.Versions[$Matches[1]]
+                        return @{ StatusCode = 200; Content = (@{ included = @(@{ type = 'provider-versions'; id = $version[1]; attributes = @{ version = $version[0] } }) } | ConvertTo-Json -Depth 5) }
+                    }
+                    if ($Uri -match '/v2/provider-versions/(\d+)\?include=provider-docs$') {
+                        $id = $Matches[1]
+                        $docs = @(@{ type = 'provider-docs'; id = "$id-0"; attributes = @{ category = 'overview'; language = 'hcl'; slug = 'index'; title = 'overview'; subcategory = $null } })
+                        $docs += foreach ($n in 1..5) { @{ type = 'provider-docs'; id = "$id-$n"; attributes = @{ category = 'resources'; language = 'hcl'; slug = "r$n"; title = "r$n"; subcategory = 'Utility' } } }
+                        return @{ StatusCode = 200; Content = (@{ included = $docs } | ConvertTo-Json -Depth 5) }
+                    }
+                    if ($Uri -match '/v2/provider-docs/([\d-]+)$') {
+                        $fake.Pages++
+                        if ($fake.ThrowAfterPages -and $fake.Pages -gt $fake.ThrowAfterPages) { throw 'simulated kill' }
+                        return @{ StatusCode = 200; Content = (@{ data = @{ attributes = @{ content = "page $($Matches[1])" } } } | ConvertTo-Json -Depth 5) }
+                    }
+                    @{ StatusCode = 404; Content = ''; RetryAfter = $null }
+                }
+            }
+        }
+        Set-Variable -Name UseFakeRegistry -Scope Script -Value $useFakeRegistry
 
         $seedNull = {
             InModuleScope TerraformGraph -Parameters @{ D = $NullDocs } {
@@ -2582,6 +2631,10 @@ Describe "Bundle" {
             $script:TerraformDocCacheRoot = $S.Docs
             $script:TerraformClassifierUserRoot = $S.ClassifierUser
             $script:TerraformClassifierBundledRoot = $S.ClassifierRoot
+            $script:TerraformGraphLogRoot = $S.LogRoot
+            $script:TerraformRegistryClimbAfter = $S.ClimbAfter
+            $script:TerraformRegistryInvoker = $null
+            Reset-TerraformRegistryThrottle
         }
     }
 
@@ -2596,7 +2649,7 @@ Describe "Bundle" {
             (Get-Command $name -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
         }
         (Get-TypeData TerraformGraph.BundleEntry).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('ProviderAddress', 'Version', 'DocsVersion', 'SchemaVersion', 'ClassifierVersion', 'HarvestedOn')
-        (Get-TypeData TerraformGraph.BundleCheck).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('Item', 'Status', 'Detail')
+        (Get-TypeData TerraformGraph.BundleCheck).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('Item', 'Status', 'RecommendedAction')
         $shipped = Get-TerraformGraphBundle -Path (Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'data' 'bundle.json') -Document -ErrorAction Stop
         $shipped.FormatVersion | Should -Be 1
         $shipped.Tiers | Should -Be @('official')
@@ -2628,7 +2681,7 @@ Describe "Bundle" {
         $bytes = [System.IO.File]::ReadAllBytes($path)
         $null = New-TerraformGraphBundle -Tier official -Provider 'acme/w*' -Exclude awscc -OutputPath $path -ErrorAction Stop
         [System.IO.File]::ReadAllBytes($path) | Should -Be $bytes
-        @(([System.IO.File]::ReadAllText($path) | ConvertFrom-TerraformJson -AsHashtable).Keys) | Should -Be @('formatVersion', 'tiers', 'providers', 'exclude', 'registry', 'entries')
+        @(([System.IO.File]::ReadAllText($path) | ConvertFrom-TerraformJson -AsHashtable).Keys) | Should -Be @('formatVersion', 'tiers', 'providers', 'exclude', 'registry', 'sources', 'entries')
 
         { New-TerraformGraphBundle -Tier @() -Provider 'nobody/*' -OutputPath $path -ErrorAction Stop } | Should -Throw "*'nobody/*' matches no provider in the registry cache*"
     }
@@ -2660,10 +2713,15 @@ Describe "Bundle" {
         $rows = @(Test-TerraformGraphBundle -BundlePath $path -DistPath $dist -ErrorAction Stop)
         @($rows | ForEach-Object { "$($_.Item)|$($_.Status)" }) | Should -Be @(
             'registry|Fresh'
+            'sources|Fresh'
             'entry registry.terraform.io/hashicorp/null|Fresh'
             'docs registry.terraform.io/hashicorp/null|Fresh'
         )
         $rows[0].PSObject.TypeNames[0] | Should -Be 'TerraformGraph.BundleCheck'
+        foreach ($row in $rows) {
+            $row.RecommendedAction | Should -BeNullOrEmpty -Because "Fresh row '$($row.Item)' needs no action"
+            $row.InspectAction | Should -BeNullOrEmpty -Because "Fresh row '$($row.Item)' needs no action"
+        }
         { Test-TerraformGraphBundle -BundlePath $path -DistPath $dist -Strict -ErrorAction Stop } | Should -Not -Throw
 
         # A built docs pack that matches, then one whose bytes do not.
@@ -2688,14 +2746,24 @@ Describe "Bundle" {
         $rows = @(Test-TerraformGraphBundle -BundlePath $path -DistPath $dist -ErrorAction Stop)
         @($rows | ForEach-Object { "$($_.Item)|$($_.Status)" }) | Should -Be @(
             'registry|Stale'
+            'sources|Stale'
             'entry registry.terraform.io/hashicorp/null|Stale'
             'docs registry.terraform.io/hashicorp/null|Missing'
         )
-        $rows[1].Detail | Should -BeLike "Version 3.2.3; the registry cache's latest is 3.3.0.*"
+        $rows[2].Detail | Should -BeLike "Version 3.2.3; the registry cache's latest is 3.3.0.*"
+        foreach ($row in $rows) {
+            $row.RecommendedAction | Should -Not -BeNullOrEmpty -Because "'$($row.Item)' is $($row.Status)"
+            $row.InspectAction | Should -Not -BeNullOrEmpty -Because "'$($row.Item)' is $($row.Status)"
+            $row.InspectAction | Should -Not -BeLike '*src\TerraformGraph*-OutputPath*' -Because 'InspectAction never writes to src'
+        }
+        # Not the bundled manifest: the actions write the user's own copy, never Invoke-Build.
+        $rows[0].RecommendedAction | Should -Be "New-TerraformGraphBundle -Tier @() -Provider 'registry.terraform.io/hashicorp/null' -Exclude @() -OutputPath '$path'"
+        $rows[0].InspectAction | Should -BeLike '*-OutputPath "$env:TEMP\TerraformGraph-inspect\bundle.json"; git diff --no-index -- *'
+        $rows[3].RecommendedAction | Should -BeLike 'Update-TerraformProviderDocCache -Provider registry.terraform.io/hashicorp/null -Version 3.2.3; New-TerraformGraphBundle *'
         $failure = $null
         try { Test-TerraformGraphBundle -BundlePath $path -DistPath $dist -Strict -ErrorAction Stop | Out-Null } catch { $failure = $_ }
         $failure.FullyQualifiedErrorId | Should -Be 'BundleNotFresh,Test-TerraformGraphBundle'
-        "$failure" | Should -BeLike '3 of 3 bundle checks are not fresh*registry `[Stale`]*docs registry.terraform.io/hashicorp/null `[Missing`]*'
+        "$failure" | Should -BeLike '4 of 4 bundle checks are not fresh*registry `[Stale`]*Fix: New-TerraformGraphBundle*docs registry.terraform.io/hashicorp/null `[Missing`]*Fix: Update-TerraformProviderDocCache*'
     }
 
     It "checks each bundled classifier's mapVersion against map.json" {
@@ -2709,6 +2777,8 @@ Describe "Bundle" {
         $row.Item | Should -Be 'mapVersion registry.terraform.io/hashicorp/null 3.2.3'
         $row.Status | Should -Be 'Stale'
         $row.Detail | Should -BeLike 'mapVersion 000000000000; map.json is *. Run Invoke-Build BuildClassifier.'
+        $row.RecommendedAction | Should -Be 'Invoke-Build BuildClassifier -Provider registry.terraform.io/hashicorp/null'
+        $row.InspectAction | Should -BeLike "*New-TerraformClassifier -Provider 'registry.terraform.io/hashicorp/null' -Version '3.2.3' -OutputPath `"`$env:TEMP\TerraformGraph-inspect`" -PassThru; git diff --no-index -- '*registry.terraform.io-hashicorp-null.3.2.3.json' *"
     }
 
     It "harvests a bundle provider by provider: a failure is a warning and a Failed row, and -Resume skips cached versions offline" {
@@ -2732,16 +2802,314 @@ Describe "Bundle" {
             'registry.terraform.io/hashicorp/aws|5.60.0|Failed'
             'registry.terraform.io/hashicorp/null|3.2.3|Harvested'
         )
-        $summary.Failures[0].Error | Should -Be 'registry said no'
-        @($warnings | ForEach-Object { "$_" }) | Should -Be @('Docs for registry.terraform.io/hashicorp/aws 5.60.0 failed: registry said no')
+        $summary.Failures[0].Error | Should -BeLike 'registry said no List the versions with Get-TerraformRegistryProvider -Name registry.terraform.io/hashicorp/aws*'
+        $summary.LogPath | Should -BeLike (Join-Path $Root 'logs' 'harvest-*.log')
+        $log = @(Get-Content -LiteralPath $summary.LogPath)
+        $log[0] | Should -BeLike '*Z start bundle *2 providers, throttle 6'
+        @($log | Where-Object { $_ -like '*registry.terraform.io/hashicorp/aws 5.60.0 Failed 0 pages*error: registry said no*' }).Count | Should -Be 1
+        @($log | Where-Object { $_ -like '*registry.terraform.io/hashicorp/null 3.2.3 Harvested 2 pages*' }).Count | Should -Be 1
+        $log[-1] | Should -BeLike '*Z end 2 of 2 providers, 0 rate-limit hits, 0 s blocked*'
+        @($warnings | ForEach-Object { "$_" }) | Should -BeLike 'Docs for registry.terraform.io/hashicorp/aws 5.60.0 failed: registry said no*'
+        $warnings | Should -HaveCount 1
 
         $resumed = Update-TerraformProviderDocCache -BundlePath $path -Resume -WarningAction SilentlyContinue -ErrorAction Stop
         ($resumed.Providers | Where-Object ProviderAddress -like '*/null').Status | Should -Be 'Cached'
         Should -Invoke -ModuleName TerraformGraph Find-TerraformProviderDocVersion -Times 1 -Exactly -ParameterFilter { $Name -eq 'null' }
         Should -Invoke -ModuleName TerraformGraph Get-TerraformProviderDocHarvest -Times 1 -Exactly
 
-        { Update-TerraformProviderDocCache -Provider hashicorp/aws -ErrorAction Stop } | Should -Throw 'registry said no'
+        { Update-TerraformProviderDocCache -Provider hashicorp/aws -ErrorAction Stop } | Should -Throw 'registry said no List the versions with*'
         { Update-TerraformProviderDocCache -Provider hashicorp/null -Resume -Force -ErrorAction Stop } | Should -Throw '*pass one or the other*'
+    }
+
+    It "stops every worker on a 429, waits the ladder, resumes at one worker and climbs, and the next provider inherits the throttle" {
+        $path = Join-Path $Root 'out' 'bundle.json'
+        $null = New-TerraformGraphBundle -Tier @() -Provider hashicorp/null, hashicorp/aws -Exclude @() -OutputPath $path -ErrorAction Stop
+        & $UseFakeRegistry 2 0
+        InModuleScope TerraformGraph { $script:TerraformRegistryClimbAfter = 2 }
+        Mock -ModuleName TerraformGraph Start-Sleep { }
+
+        $summary = Update-TerraformProviderDocCache -BundlePath $path -WarningAction SilentlyContinue -ErrorAction Stop
+        $summary.FailureCount | Should -Be 0
+        $summary.PageCount | Should -Be 12
+        $summary.RateLimitHits | Should -Be 2
+        $summary.SecondsBlocked | Should -Be 90
+        $summary.PartialResumes | Should -Be 0
+        Should -Invoke -ModuleName TerraformGraph Start-Sleep -Times 2 -Exactly
+        Should -Invoke -ModuleName TerraformGraph Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 30000 }
+        Should -Invoke -ModuleName TerraformGraph Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 60000 }
+
+        # Workers per dispatched chunk. aws: its version lookup is refused twice (one worker
+        # each, a wait after each), then succeeds; the listing; then its six pages climb from
+        # one worker by one per two successes: 1, 1, 2, 3. null starts where aws left off (4
+        # workers, not the ThrottleLimit of 6), reaches 6 and leaves the climb.
+        $history = InModuleScope TerraformGraph { @($script:TerraformRegistryThrottle.History) }
+        $history | Should -Be @(1, 1, 1, 1, 1, 1, 2, 3, 1, 1, 4, 6)
+        $log = @(Get-Content -LiteralPath $summary.LogPath)
+        @($log | Where-Object { $_ -like '*Z 429 https://registry.terraform.io/v2/providers/hashicorp/aws?include=provider-versions' }).Count | Should -Be 2
+        @($log | Where-Object { $_ -like '*Z wait 30 s (block 1 in a row), then 1 worker' }).Count | Should -Be 1
+        @($log | Where-Object { $_ -like '*Z wait 60 s (block 2 in a row), then 1 worker' }).Count | Should -Be 1
+        $log[-1] | Should -BeLike '*end 2 of 2 providers, 2 rate-limit hits, 90 s blocked*'
+    }
+
+    It "keeps the pages of a harvest killed after page 3 of 6 in a partial file, and -Resume finishes from it" {
+        & $UseFakeRegistry 0 3
+        $partial = Join-Path $Root 'docs' 'registry.terraform.io-hashicorp-null' '3.2.3.partial.json'
+        $failure = $null
+        try { Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -WarningAction SilentlyContinue -ErrorAction Stop } catch { $failure = $_ }
+        $failure.FullyQualifiedErrorId | Should -Be 'ProviderDocHarvestFailed,Update-TerraformProviderDocCache'
+        "$failure" | Should -BeLike '*simulated kill*The 3 pages fetched are saved in*3.2.3.partial.json for -Resume.*Run Update-TerraformProviderDocCache -Provider registry.terraform.io/hashicorp/null -Version 3.2.3 -Resume to continue.'
+        $saved = Get-Content -LiteralPath $partial -Raw | ConvertFrom-TerraformJson
+        $saved.versionId | Should -Be '200'
+        $saved.pageCount | Should -Be 3
+        @($saved.pages.docId) | Should -Be @('200-0', '200-1', '200-2')
+        Get-TerraformDocCache -Provider null | Should -BeNullOrEmpty -Because 'a partial file is never read as a cache'
+
+        & $UseFakeRegistry 0 0
+        $row = Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -Resume -PassThru -WarningAction SilentlyContinue -ErrorAction Stop
+        $row.Status | Should -Be 'Harvested'
+        $row.DocCount | Should -Be 6
+        $row.ResumedPages | Should -Be 3
+        $pages = InModuleScope TerraformGraph { @($script:FakeRegistry.Calls | Where-Object { $_ -like '*/v2/provider-docs/*' }) }
+        $pages | Should -Be @('https://registry.terraform.io/v2/provider-docs/200-3', 'https://registry.terraform.io/v2/provider-docs/200-4', 'https://registry.terraform.io/v2/provider-docs/200-5')
+        Test-Path -LiteralPath $partial | Should -BeFalse
+        @(Get-TerraformProviderDoc -Provider null | ForEach-Object Content) | Should -Be @('page 200-0', 'page 200-1', 'page 200-2', 'page 200-3', 'page 200-4', 'page 200-5')
+
+        # -Force starts over: a partial file left by another kill is deleted first.
+        & $UseFakeRegistry 0 2
+        { Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -Force -WarningAction SilentlyContinue -ErrorAction Stop } | Should -Throw
+        (Get-Content -LiteralPath $partial -Raw | ConvertFrom-TerraformJson).pageCount | Should -Be 2
+        & $UseFakeRegistry 0 0
+        $row = Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -Force -PassThru -WarningAction SilentlyContinue -ErrorAction Stop
+        $row.Status | Should -Be 'Updated'
+        $row.ResumedPages | Should -Be 0
+        InModuleScope TerraformGraph { @($script:FakeRegistry.Calls | Where-Object { $_ -like '*/v2/provider-docs/*' }).Count } | Should -Be 6
+        Test-Path -LiteralPath $partial | Should -BeFalse
+    }
+
+    It "names the sources of a bundle: written by New-TerraformGraphBundle, shown by -Document and -Sources" {
+        & $SeedNull | Out-Null
+        $path = Join-Path $Root 'out' 'bundle.json'
+        $null = New-TerraformGraphBundle -Tier @() -Provider hashicorp/null -Exclude @() -OutputPath $path -ErrorAction Stop
+        $sources = @(Get-TerraformGraphBundle -Path $path -Sources -ErrorAction Stop)
+        $sources[0].PSObject.TypeNames[0] | Should -Be 'TerraformGraph.BundleSource'
+        (Get-TypeData TerraformGraph.BundleSource).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('Kind', 'HarvestedBy', 'LastPulled', 'Urls')
+        @($sources.Kind) | Should -Be @('registry', 'schemas', 'docs', 'classifiers', 'skills', 'cmdb')
+        @($sources.HarvestedBy) | Should -Be @('Update-TerraformRegistryCache', 'Get-TerraformProviderSchema', 'Update-TerraformProviderDocCache', 'New-TerraformClassifier', 'Install-TerraformGraphSkill', $null)
+        $sources[0].LastPulled | Should -Be '2026-10-01T12:00:00Z'
+        $sources[2].LastPulled | Should -Be '2026-10-07T03:49:24Z'
+        $sources[0].Urls | Should -Contain 'https://registry.terraform.io/v1/providers/{namespace}/{name}/versions'
+        $sources[2].Urls | Should -Contain 'https://registry.terraform.io/v2/provider-docs/{id}'
+        $sources[4].RelatedUrls | Should -Contain 'https://agentskills.io'
+        $sources[5].Urls.Count | Should -Be 0
+        foreach ($source in $sources) {
+            foreach ($url in @($source.Urls) + @($source.RelatedUrls)) { $url | Should -Match '^https://' }
+            foreach ($name in @($source.HarvestedBy | Where-Object { $_ })) { (Get-Command $name).Module.Name | Should -Be 'TerraformGraph' }
+        }
+        (Get-TerraformGraphBundle -Path $path -Document).Sources.Kind | Should -Be @($sources.Kind)
+
+        $shipped = @(Get-TerraformGraphBundle -Path (Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'data' 'bundle.json') -Sources -ErrorAction Stop)
+        @($shipped.Kind) | Should -Be @('registry', 'schemas', 'docs', 'classifiers', 'skills', 'cmdb')
+        $shipped[0].LastPulled | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe "Classifier precedence" {
+
+    BeforeAll {
+        Set-Variable -Name SavedRoots -Scope Script -Value (InModuleScope TerraformGraph {
+                @{ User = $script:TerraformClassifierUserRoot; Bundled = $script:TerraformClassifierBundledRoot }
+            })
+        Set-Variable -Name CurrentMap -Scope Script -Value (InModuleScope TerraformGraph { Get-TerraformClassifierCurrentMapVersion })
+
+        # One classifier file: the head the lookup reads, no types.
+        $write = {
+            param([string]$Folder, [string]$Version, [string]$GeneratedOn, [string]$MapVersion)
+            $null = New-Item -ItemType Directory -Path $Folder -Force
+            $file = Join-Path $Folder "registry.terraform.io-hashicorp-null.$Version.json"
+            "{ `"provider`": `"registry.terraform.io/hashicorp/null`", `"version`": `"$Version`", `"docsVersion`": `"$Version`", `"generatedOn`": `"$GeneratedOn`", `"mapVersion`": `"$MapVersion`", `"source`": `"subcategory`", `"types`": [], `"findings`": [] }" |
+                Set-Content -LiteralPath $file
+            $file
+        }
+        Set-Variable -Name WriteClassifier -Scope Script -Value $write
+    }
+
+    AfterAll {
+        InModuleScope TerraformGraph -Parameters @{ S = $SavedRoots } {
+            param($S)
+            $script:TerraformClassifierUserRoot = $S.User
+            $script:TerraformClassifierBundledRoot = $S.Bundled
+        }
+    }
+
+    BeforeEach {
+        $root = Join-Path $TestDrive "precedence-$([guid]::NewGuid().ToString('n'))"
+        InModuleScope TerraformGraph -Parameters @{ Root = $root } {
+            param($Root)
+            $script:TerraformClassifierUserRoot = Join-Path $Root 'user'
+            $script:TerraformClassifierBundledRoot = Join-Path $Root 'bundled'
+        }
+        Set-Variable -Name User -Scope Script -Value (Join-Path $root 'user')
+        Set-Variable -Name Bundled -Scope Script -Value (Join-Path $root 'bundled')
+    }
+
+    It "uses the bundled classifier over an older-map user classifier of the same version, warns naming the shadowed file, and lists it with -Shadowed" {
+        $old = & $WriteClassifier $User '3.2.3' '2026-10-01T00:00:00Z' '000000000000'
+        $new = & $WriteClassifier $Bundled '3.2.3' '2026-10-07T00:00:00Z' $CurrentMap
+
+        $classifier = Get-TerraformClassifier -Provider null -WarningVariable warnings -WarningAction SilentlyContinue -ErrorAction Stop
+        $classifier.Path | Should -Be $new
+        $warnings | Should -HaveCount 1
+        "$($warnings[0])" | Should -Be "Classifier registry.terraform.io/hashicorp/null 3.2.3: using $new (mapVersion $CurrentMap matches map.json); $old (mapVersion 000000000000, generatedOn 2026-10-01T00:00:00Z) is shadowed. Remove-Item -LiteralPath '$old' removes it."
+
+        $shadow = @(Get-TerraformClassifier -Shadowed -ErrorAction Stop)
+        $shadow | Should -HaveCount 1
+        $shadow[0].PSObject.TypeNames[0] | Should -Be 'TerraformGraph.ClassifierShadow'
+        (Get-TypeData TerraformGraph.ClassifierShadow).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('ProviderAddress', 'Version', 'Location', 'Reason')
+        $shadow[0].ProviderAddress | Should -Be 'registry.terraform.io/hashicorp/null'
+        $shadow[0].Version | Should -Be '3.2.3'
+        $shadow[0].Location | Should -Be 'Bundled'
+        $shadow[0].Path | Should -Be $new
+        $shadow[0].Reason | Should -Be "mapVersion $CurrentMap matches map.json"
+        $shadow[0].ShadowedPath | Should -Be @($old)
+        Get-TerraformClassifier -Shadowed -Provider azurerm | Should -BeNullOrEmpty
+    }
+
+    It "uses the newer generatedOn when both match the map, keeps an older user version over a newer bundled one, and lets -ClassifierPath win" {
+        $user = & $WriteClassifier $User '3.2.3' '2026-10-08T00:00:00Z' $CurrentMap
+        $bundledFile = & $WriteClassifier $Bundled '3.2.3' '2026-10-07T00:00:00Z' $CurrentMap
+        (Get-TerraformClassifier -Provider null -WarningAction SilentlyContinue).Path | Should -Be $user
+        (Get-TerraformClassifier -Shadowed).Reason | Should -Be 'newer generatedOn 2026-10-08T00:00:00Z'
+        $null = Get-TerraformClassifier -Provider null -WarningVariable warnings -WarningAction SilentlyContinue
+        "$($warnings[0])" | Should -BeLike "*$bundledFile*is shadowed. Invoke-Build BuildClassifier -Provider registry.terraform.io/hashicorp/null promotes the newer one into the module."
+
+        # DECISIONS 4 still holds across versions: the user folder holds null, so its 3.2.3
+        # is used over a bundled 3.3.0, with no warning (different versions do not shadow).
+        $null = & $WriteClassifier $Bundled '3.3.0' '2026-10-09T00:00:00Z' $CurrentMap
+        (Get-TerraformClassifier -Provider null -WarningAction SilentlyContinue).Version | Should -Be '3.2.3'
+
+        $explicit = & $WriteClassifier (Join-Path $TestDrive "explicit-$([guid]::NewGuid().ToString('n'))") '3.2.3' '2020-01-01T00:00:00Z' '000000000000'
+        (Get-TerraformClassifier -Provider null -ClassifierPath $explicit -WarningAction SilentlyContinue).Path | Should -Be $explicit
+        $shadow = @(Get-TerraformClassifier -Shadowed -ClassifierPath $explicit -Version 3.2.3)
+        $shadow[0].Location | Should -Be 'ClassifierPath'
+        $shadow[0].Reason | Should -Be '-ClassifierPath always wins'
+        $shadow[0].ShadowedPath | Should -HaveCount 2
+    }
+}
+
+Describe "Contracts" {
+
+    It "names a documented fixing command for every terminating error id in the psm1" {
+        # Maintained list: every FullyQualifiedErrorId the module can throw, with the command
+        # that fixes it. A new error id fails this test until it is added here, and its
+        # message must name the same command.
+        $documented = [ordered]@{
+            HclParseError                 = "Get-TerraformAST -FilePath <file>, after fixing the syntax (terraform validate reports the same error)"
+            TerraformJsonSerializeFailed  = 'ConvertTo-TerraformJson -Depth <larger>, or break the circular reference'
+            TerraformJsonDeserializeFailed = 'ConvertFrom-TerraformJson -Depth <larger>, or -AsHashtable for keys that differ only by case'
+            RegistryProviderNotResolved   = 'Update-TerraformRegistryCache when nothing matches; Get-TerraformRegistryProvider -Name <pattern> to pick one of several'
+            SchemaProviderWildcard        = 'ConvertTo-TerraformSchemaGraph -Provider <pattern>, without -Schema'
+            SchemaMissingProviderSchemas  = 'Get-TerraformProviderSchema -Path <dir> | ConvertTo-TerraformSchemaGraph'
+            SchemaProviderNotFound        = 'Get-TerraformProviderSchema -Provider <address> -SaveToCache'
+            SchemaNotCached               = 'Get-TerraformSchemaPack -Provider <address>, or Get-TerraformProviderSchema -Provider <address> -SaveToCache'
+            VariableNodeNotFound          = 'Get-TerraformVariableTrace -VariableGraph $graph -Id <an Id from $graph.Nodes.Id>'
+            RegistryHarvestFailed         = 'Update-TerraformRegistryCache, after 10 minutes when the cause was a 429'
+            SchemaPackSourceNotFound      = 'Get-TerraformSchemaPack -Provider <name>, without -Source or with a folder holding manifest.json'
+            DocPackSourceNotFound         = 'Get-TerraformDocPack -Provider <name>, without -Source or with a folder holding manifest.json'
+            SchemaPackManifestUnavailable = 'Get-TerraformSchemaPack -Source <url>, with $env:GH_TOKEN set for a private repository'
+            DocPackManifestUnavailable    = 'Get-TerraformDocPack -Source <url>, with $env:GH_TOKEN set for a private repository'
+            SchemaPackNotFound            = 'Get-TerraformProviderSchema -Provider <address> -SaveToCache'
+            DocPackNotFound               = 'Update-TerraformProviderDocCache -Provider <address>'
+            SchemaPackInvalidManifest     = 'Invoke-Build BuildSchemaPack'
+            DocPackInvalidManifest        = 'Invoke-Build BuildSchemaPack'
+            SchemaPackDownloadFailed      = 'Get-TerraformSchemaPack -Provider <address>, with $env:GH_TOKEN set for a private repository'
+            DocPackDownloadFailed         = 'Get-TerraformDocPack -Provider <address>, with $env:GH_TOKEN set for a private repository'
+            SchemaPackHashMismatch        = 'Get-TerraformSchemaPack -Provider <address>; Invoke-Build BuildSchemaPack if it repeats'
+            DocPackHashMismatch           = 'Get-TerraformDocPack -Provider <address>; Invoke-Build BuildSchemaPack if it repeats'
+            ProviderDocNotOnRegistry      = 'Update-TerraformProviderDocCache -Provider <registry namespace/name>'
+            ProviderDocHarvestFailed      = 'Update-TerraformProviderDocCache -Provider <address> -Version <version> -Resume'
+            ResumeWithForce               = 'Update-TerraformProviderDocCache -Provider <address> -Resume'
+            BundleInvalid                 = 'New-TerraformGraphBundle -OutputPath <path>'
+            ProviderDocNotCached          = 'Get-TerraformDocPack -Provider <name>, or Update-TerraformProviderDocCache -Provider <name>'
+            ClassifierMapInvalid          = 'New-TerraformClassifier -Provider <address> after fixing the rows; Invoke-Build BuildClassifier for the bundled map'
+            ClassifierNotFound            = 'New-TerraformClassifier -Provider <name>'
+            BundleNotFound                = 'New-TerraformGraphBundle -OutputPath <path>'
+            RegistryCacheNotFound         = 'Update-TerraformRegistryCache'
+            BundleNotFresh                = "Test-TerraformGraphBundle | Format-List Item, InspectAction, RecommendedAction, then each row's RecommendedAction"
+            SkillPathNotFound             = 'New-Item -ItemType Directory -Path <path>, then Install-TerraformGraphSkill -Path <path>'
+        }
+
+        $psm1 = Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'TerraformGraph.psm1'
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($psm1, [ref]$null, [ref]$null)
+        $found = [System.Collections.Generic.SortedSet[string]]::new([System.StringComparer]::Ordinal)
+        # [ErrorRecord]::new(exception, '<id>', ...): the id is the second argument. Pass-through
+        # sites ($ErrorId, $_.FullyQualifiedErrorId) rethrow an id raised elsewhere.
+        $sites = $ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
+                $node.Member.Extent.Text -eq 'new' -and $node.Expression.Extent.Text -match 'ErrorRecord\]$'
+            }, $true)
+        foreach ($site in $sites) {
+            $argument = $site.Arguments[1]
+            if ($argument -is [System.Management.Automation.Language.StringConstantExpressionAst]) { $null = $found.Add($argument.Value) }
+            elseif ($argument -is [System.Management.Automation.Language.ExpandableStringExpressionAst] -and $argument.Value -match '^\$\(\$errorPrefix\)(\w+)$') {
+                foreach ($prefix in 'SchemaPack', 'DocPack') { $null = $found.Add("$prefix$($Matches[1])") }
+            }
+            elseif ($argument.Extent.Text -notin '$ErrorId', '$_.FullyQualifiedErrorId') {
+                throw "Unrecognised error id expression '$($argument.Extent.Text)' at line $($argument.Extent.StartLineNumber)."
+            }
+        }
+        # throw (& $fail <exception> '<id>' ...): Invoke-TerraformProviderDocUpdate's errors.
+        $fails = $ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.CommandAst] -and $node.CommandElements[0].Extent.Text -eq '$fail'
+            }, $true)
+        foreach ($site in $fails) { $null = $found.Add($site.CommandElements[2].Value) }
+
+        $undocumented = @($found | Where-Object { -not $documented.Contains($_) })
+        $undocumented | Should -BeNullOrEmpty -Because 'every error id needs an entry with its RecommendedAction in this test'
+        $gone = @($documented.Keys | Where-Object { -not $found.Contains($_) })
+        $gone | Should -BeNullOrEmpty -Because 'the list holds only ids the psm1 still throws'
+        $exported = @((Get-Module TerraformGraph).ExportedFunctions.Keys)
+        foreach ($id in $documented.Keys) {
+            $command = ($documented[$id] -split '\s+')[0].TrimEnd(',', ';')
+            ($command -in $exported -or $command -in 'Invoke-Build', 'New-Item') | Should -BeTrue -Because "the action for $id must start with a command ($command)"
+        }
+    }
+
+    It "drawers are semver-safe" {
+        # Renaming or removing a drawer breaks anyone filtering on its name, so it needs a new
+        # major version; adding one is minor (DECISIONS 47). The previous release's drawers come
+        # from git (the newest v<x.y.z> tag below the psd1 version), else the fixture.
+        # $env:TERRAFORMGRAPH_DRAWERS_PATH points the test at another drawers.json
+        # (manual-check-list 16.5).
+        $repoRoot = Split-Path $PSScriptRoot -Parent
+        $manifest = Import-PowerShellDataFile -Path (Join-Path $repoRoot 'src' 'TerraformGraph' 'TerraformGraph.psd1')
+        $current = [version]$manifest.ModuleVersion
+        $currentPath = if ($env:TERRAFORMGRAPH_DRAWERS_PATH) { $env:TERRAFORMGRAPH_DRAWERS_PATH } else { Join-Path $repoRoot 'src' 'TerraformGraph' 'classifiers' 'drawers.json' }
+
+        $previous = $null
+        $previousText = $null
+        if (Get-Command git -ErrorAction SilentlyContinue) {
+            $tags = @(git -C $repoRoot tag --list 'v*' 2>$null | Where-Object { $_ -match '^v(\d+\.\d+\.\d+)$' } | ForEach-Object { [version]$_.Substring(1) } | Where-Object { $_ -lt $current } | Sort-Object)
+            if ($tags.Count) {
+                $previous = $tags[-1]
+                $previousText = (git -C $repoRoot show "v$($previous):src/TerraformGraph/classifiers/drawers.json" 2>$null) -join "`n"
+                if ($LASTEXITCODE -ne 0) { $previousText = $null }
+            }
+        }
+        if (-not $previousText) {
+            $fixture = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'fixtures' 'classifiers') -Filter 'drawers.*.json' | Sort-Object { [version]($_.BaseName -replace '^drawers\.') } | Select-Object -Last 1
+            $previous = [version]($fixture.BaseName -replace '^drawers\.')
+            $previousText = Get-Content -LiteralPath $fixture.FullName -Raw
+        }
+
+        $before = @(($previousText | ConvertFrom-Json).drawers.name)
+        $after = @((Get-Content -LiteralPath $currentPath -Raw | ConvertFrom-Json).drawers.name)
+        $removed = @($before | Where-Object { $after -cnotcontains $_ })
+        if ($current.Major -le $previous.Major) {
+            $removed | Should -BeNullOrEmpty -Because "drawers $($removed -join ', ') of $previous are renamed or removed in $current, which needs a major version (ModuleVersion $($previous.Major + 1).0.0)"
+        }
+        $after[-1] | Should -Be 'unclassified'
     }
 }
 
@@ -2837,7 +3205,7 @@ Describe "Ontology" {
         $text = Get-Content -LiteralPath (Join-Path $repoRoot 'ONTOLOGY.md') -Raw
         $section = [regex]::Match($text, '(?ms)^## Terminology\s*$(.*?)(?=^## )').Groups[1].Value
         $rows = @([regex]::Matches($section, '(?m)^\|(?!\s*-)(?!\s*Term\s*\|)\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|') | ForEach-Object { [pscustomobject]@{ Term = $_.Groups[1].Value; Names = $_.Groups[2].Value } })
-        @($rows.Term) | Should -Be @('Id', 'node', 'edge', 'finding', 'pack', 'bundle', 'drawer', 'classifier', 'map row', 'source', 'era')
+        @($rows.Term) | Should -Be @('Id', 'node', 'edge', 'finding', 'pack', 'bundle', 'sources', 'drawer', 'classifier', 'map row', 'source', 'era')
 
         # PSTypeName -> property names, from the hashtable literals that build each typed object.
         $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $moduleRoot 'TerraformGraph.psm1'), [ref]$null, [ref]$null)

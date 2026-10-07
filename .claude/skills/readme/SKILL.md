@@ -32,9 +32,17 @@ If the task touches none of these, leave the file alone.
 1. Read the psd1 `FunctionsToExport` and the parameter blocks of whatever changed.
 2. Edit the matching README section. Run every example you add or change in a fresh `pwsh -NoProfile` process and paste only output you saw.
 3. Check line 1 and that `ontolog` appears nowhere else: `Select-String -Path README.md -Pattern 'ontolog' | Select-Object LineNumber`.
-4. Run `Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json` and read the rows that are not Fresh. If the README quotes bundled data that is stale, say so in your report instead of quoting it as current.
+4. Run `Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json` and read the rows that are not Fresh. If the README quotes bundled data that is stale, say so in your report instead of quoting it as current. Follow "Promote or leave" below for each such row.
 5. Stage README.md. Do not commit.
 6. In your report, list the README sections you changed, one line each, and the Test-TerraformGraphBundle counts (Fresh, Stale, Missing).
+
+## Promote or leave
+
+Harvests and `New-*` commands write to the user caches under `$env:LOCALAPPDATA\TerraformGraph` (development); `src/` is production. For every Stale or Missing row from Test-TerraformGraphBundle:
+- Run its `InspectAction` and put the output (the diff, or the cache state) in your report.
+- Run its `RecommendedAction` only if your task is about that data. Otherwise report the row and leave it; a README edit is not a reason to refresh data.
+- Nothing moves into `src/` except through an Invoke-Build task, and you commit nothing.
+- Give the human both commands in the report, pasteable.
 
 ## Do not
 

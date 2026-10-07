@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.13.0
+Module version: 0.14.0
 Last updated: 2026-10-07
 
 ## 0 Setup
@@ -17,7 +17,7 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 (Get-Command -Module TerraformGraph).Name
 ```
 
-Expect: `0.13.0`, then twenty-six names: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformClassifier, Get-TerraformClassifierFinding, Get-TerraformDocCache, Get-TerraformDocPack, Get-TerraformGraphBundle, Get-TerraformModuleGraph, Get-TerraformProviderDoc, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformSubcategorySurvey, Get-TerraformVariableTrace, Install-TerraformGraphSkill, New-TerraformClassifier, New-TerraformGraphBundle, Test-TerraformGraphBundle, Test-TerraformGraphSkill, Update-TerraformProviderDocCache, Update-TerraformRegistryCache.
+Expect: `0.14.0`, then twenty-six names (none added in 0.14.0): ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformClassifier, Get-TerraformClassifierFinding, Get-TerraformDocCache, Get-TerraformDocPack, Get-TerraformGraphBundle, Get-TerraformModuleGraph, Get-TerraformProviderDoc, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformSubcategorySurvey, Get-TerraformVariableTrace, Install-TerraformGraphSkill, New-TerraformClassifier, New-TerraformGraphBundle, Test-TerraformGraphBundle, Test-TerraformGraphSkill, Update-TerraformProviderDocCache, Update-TerraformRegistryCache.
 
 Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph", "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from TerraformGraph", "exports the four docs commands from TerraformGraph", "exports the three classifier commands from TerraformGraph", "exports the bundle commands and ships a bundled manifest with the official tier and two extras"
 
@@ -1813,7 +1813,7 @@ pwsh -NoProfile -Command "Import-Module .\src\TerraformGraph\TerraformGraph.psd1
 Remove-Item $stale
 ```
 
-Expect: `88 Fresh` (no Stale or Missing, no error). Then seven azuredevops rows, all Fresh: entry, docs (183 pages), schema, classifier, mapVersion, pack schema and pack docs. Then the -Strict error `1 of 88 bundle checks are not fresh (...tg-bundle-15-6.json): registry [Stale]: The bundle was resolved against a registry cache harvested 2026-10-07T02:55:12Z (427 providers); ...data\registry.json was harvested 2026-10-07T02:55:12Z (428 providers). Rerun New-TerraformGraphBundle ...`, the same error from the child process, and `exit 1`. Without dist\schema-packs there are 82 rows (no pack rows).
+Expect: `89 Fresh` (no Stale or Missing, no error; the 89th is the `sources` row added in 0.14.0). Then seven azuredevops rows, all Fresh, as a table of Item, Status and an empty RecommendedAction: entry, docs, schema, classifier, mapVersion, pack schema and pack docs. Then the -Strict error `1 of 89 bundle checks are not fresh (...tg-bundle-15-6.json): registry [Stale]: The bundle was resolved against a registry cache harvested 2026-10-07T02:55:12Z (427 providers); ...data\registry.json was harvested 2026-10-07T02:55:12Z (428 providers). Rerun New-TerraformGraphBundle ... Fix: New-TerraformGraphBundle -Tier 'official' -Provider 'registry.terraform.io/microsoft/azuredevops','registry.terraform.io/vmware/vsphere' -Exclude @() -OutputPath '...tg-bundle-15-6.json'`, ending `Each row's InspectAction shows the change first; its RecommendedAction makes it.`, the same error from the child process, and `exit 1`. Without dist\schema-packs there are 83 rows (no pack rows).
 
 Pester: "reports Fresh, Stale and Missing rows in Test-TerraformGraphBundle and throws with -Strict", "checks each bundled classifier's mapVersion against map.json"
 
@@ -1829,6 +1829,149 @@ Invoke-Build HarvestBundleDocs -Resume
 git status --short -- src\TerraformGraph\data
 ```
 
-Expect: 36 rows, all `Cached`, the largest awscc 1.104.0 4521, aws 6.67.0 2414, google and google-beta 8.6.0 1685, azurerm 5.8.0 1518 and ibm 2.6.2 1445. Then `Providers 36, pages 14,686, unmatched 3, failures 0, elapsed 00:00:02`, `Refreshed ...data\bundle.json`, `Survey: 36 providers (0 missing), 661 distinct labels, 893 rows, 28 providers with unlabelled pages`, and the top 20 labels, led by nine labels with providerCount 3 (Agent Registry, API Gateway, Base, Cloud IAM, Cloud Platform, Container Registry, License Manager, Service Networking, Storage). About 15 s. git status shows no change to data\ beyond what is already staged. Measured full runs on 2026-10-07: without -Resume, 12 min 28 s, 3,374 pages, 17 providers failed with 429 (backoff before 0.13.0); then -Resume with the 0.13.0 backoff, 12 min 17 s, the 17 harvested, 0 failures.
+Expect: 36 rows, all `Cached`, the largest awscc 1.104.0 4521, aws 6.67.0 2414, google and google-beta 8.6.0 1685, azurerm 5.8.0 1518 and ibm 2.6.2 1445. The task first prints `Harvest log: ...\TerraformGraph\logs\harvest-<yyyyMMdd-HHmmss>.log`. Then `Providers 36, pages 14,686, unmatched 3, failures 0, rate-limit hits 0 (0 s blocked), partial resumes 0, elapsed 00:00:03`, `Log: ...harvest-<timestamp>.log`, `Refreshed ...data\bundle.json`, `Survey: 36 providers (0 missing), 661 distinct labels, 893 rows, 28 providers with unlabelled pages`, and the top 20 labels, led by nine labels with providerCount 3 (Agent Registry, API Gateway, Base, Cloud IAM, Cloud Platform, Container Registry, License Manager, Service Networking, Storage). About 25 s (2026-10-07). git status shows no change to data\ beyond what is already staged: the rewrite is byte-identical, `sources` included. Measured full runs on 2026-10-07: without -Resume, 12 min 28 s, 3,374 pages, 17 providers failed with 429 (backoff before 0.13.0); then -Resume with the 0.13.0 backoff, 12 min 17 s, the 17 harvested, 0 failures.
 
 Pester: none
+
+## 16 Hardening and contracts (0.14.0): harvest resume, shadowed classifiers, RecommendedAction, sources, drawer semver
+
+Cross-cutting checks for 0.14.0. Each block is self-contained; the network is used only by 16.1 (six pages of hashicorp/local).
+
+### 16.1 Kill a docs harvest and resume it
+
+A harvest stopped part-way keeps its pages in `<version>.partial.json`; `-Resume` fetches only the rest and removes the file. Uses local 2.9.0 so the bundled 2.9.1 docs are not touched, and removes 2.9.0 again at the end. Do not run it while another harvest is going.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$folder = Join-Path $env:LOCALAPPDATA 'TerraformGraph\docs\registry.terraform.io-hashicorp-local'
+# 1. Harvest local 2.9.0 and stop it after its first page.
+#    By hand: run  Update-TerraformProviderDocCache -Provider hashicorp/local -Version 2.9.0 -ThrottleLimit 1 -Force -Verbose
+#    and press Ctrl+C right after the first "GET .../v2/provider-docs/..." line. local has six
+#    pages and finishes in about a second, so this block stops it from a second PowerShell
+#    instead: PowerShell.Stop() is the call Ctrl+C makes. (Stop-Job on a Start-Job, or killing
+#    the process, does not run the cleanup that writes the file; only the every-100-pages
+#    checkpoint survives that.)
+$ps = [powershell]::Create().AddScript({
+        Set-Location 'C:\__Code\TerraformGraph'
+        Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+        Update-TerraformProviderDocCache -Provider hashicorp/local -Version 2.9.0 -ThrottleLimit 1 -Force -Verbose
+    })
+$run = $ps.BeginInvoke()
+while (@($ps.Streams.Verbose | Where-Object { "$_" -like 'WebResponse*' }).Count -lt 3 -and -not $run.IsCompleted) { Start-Sleep -Milliseconds 10 }
+$ps.Stop(); $ps.Dispose()
+# 2. The partial file: the pages fetched before the stop, and no 2.9.0 cache file.
+Get-ChildItem -LiteralPath $folder | Format-Table Name, Length
+Get-Content -LiteralPath (Join-Path $folder '2.9.0.partial.json') -Raw | ConvertFrom-TerraformJson | Format-List address, version, versionId, pageCount
+# 3. Resume: only the missing pages are fetched, the cache is written and the partial file is gone.
+Update-TerraformProviderDocCache -Provider hashicorp/local -Version 2.9.0 -Resume -PassThru -WarningAction SilentlyContinue | Format-Table ProviderAddress, Version, Status, DocCount, ResumedPages
+Get-ChildItem -LiteralPath $folder | Format-Table Name, Length
+Remove-Item -LiteralPath (Join-Path $folder '2.9.0.json.gz')
+```
+
+Expect: first `2.5.2.json.gz`, `2.9.0.partial.json` (about 6.7 KB) and `2.9.1.json.gz`, and no `2.9.0.json.gz`. Then the partial file's head: address `registry.terraform.io/hashicorp/local`, version `2.9.0`, versionId `96611`, pageCount `1` (one page was in before the stop; a slower machine may show 2). Then the resumed row `registry.terraform.io/hashicorp/local 2.9.0 Harvested 6 1` (DocCount 6, ResumedPages equal to the pageCount above), and the folder now holds `2.5.2.json.gz`, `2.9.0.json.gz` and `2.9.1.json.gz` with no partial file.
+
+Pester: "keeps the pages of a harvest killed after page 3 of 6 in a partial file, and -Resume finishes from it"
+
+### 16.2 Shadowed classifiers
+
+A stale user copy of a bundled classifier at the same version loses to the bundled one, with a warning, and `-Shadowed` lists the collision. Writes one file to your user classifiers folder and removes it.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+# A stale user copy of the bundled vsphere 2.17.1 classifier: built from an older map, a day earlier.
+$bundled = Join-Path (Split-Path (Get-Module TerraformGraph).Path) 'classifiers\registry.terraform.io-vmware-vsphere.2.17.1.json'
+$userFolder = Join-Path $env:LOCALAPPDATA 'TerraformGraph\classifiers'
+$null = New-Item -ItemType Directory -Path $userFolder -Force
+$stale = Join-Path $userFolder 'registry.terraform.io-vmware-vsphere.2.17.1.json'
+$text = Get-Content -LiteralPath $bundled -Raw
+$text = [regex]::Replace($text, '"mapVersion": "[0-9a-f]+"', '"mapVersion": "000000000000"')
+$text = [regex]::Replace($text, '"generatedOn": "[^"]+"', '"generatedOn": "2026-10-01T00:00:00Z"')
+Set-Content -LiteralPath $stale -Value $text -NoNewline
+Get-TerraformClassifier -Provider vsphere | Format-Table ProviderAddress, Version, TypeCount, Path -Wrap
+Get-TerraformClassifier -Shadowed
+Get-TerraformClassifier -Shadowed | Format-List ShadowedPath
+Remove-Item -LiteralPath $stale
+Get-TerraformClassifier -Shadowed
+'after cleanup: no rows above this line'
+```
+
+Expect: `WARNING: Classifier registry.terraform.io/vmware/vsphere 2.17.1: using ...\src\TerraformGraph\classifiers\registry.terraform.io-vmware-vsphere.2.17.1.json (mapVersion 8edf85177cf6 matches map.json); ...\AppData\Local\TerraformGraph\classifiers\registry.terraform.io-vmware-vsphere.2.17.1.json (mapVersion 000000000000, generatedOn 2026-10-01T00:00:00Z) is shadowed. Remove-Item -LiteralPath '...' removes it.` Then the classifier row (87 types) with the bundled Path. Then one `-Shadowed` row: `registry.terraform.io/vmware/vsphere 2.17.1 Bundled mapVersion 8edf85177cf6 matches map.json`, ShadowedPath the user file, and after the cleanup no rows before the last line.
+
+Pester: "uses the bundled classifier over an older-map user classifier of the same version, warns naming the shadowed file, and lists it with -Shadowed", "uses the newer generatedOn when both match the map, keeps an older user version over a newer bundled one, and lets -ClassifierPath win"
+
+### 16.3 Test-TerraformGraphBundle RecommendedAction on a stale temp bundle
+
+A temp bundle whose registry cache moved on after it was written: Stale rows carry a pasteable InspectAction and RecommendedAction; running them shows the diff, then fixes it.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+# A temp bundle for hashicorp/null resolved against a registry.json beside it; then that
+# registry cache "moves on" (its harvestedOn changes) and the bundle is not refreshed.
+$tmp = Join-Path $env:TEMP 'tg-bundle-16-3'
+Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction Ignore
+$null = New-Item -ItemType Directory -Path $tmp
+Copy-Item -LiteralPath .\src\TerraformGraph\data\registry.json -Destination $tmp
+New-TerraformGraphBundle -Tier @() -Provider hashicorp/null -Exclude @() -OutputPath "$tmp\bundle.json"
+$registry = "$tmp\registry.json"
+(Get-Content -LiteralPath $registry -Raw).Replace('"harvestedOn": "2026-10-07T02:55:12Z"', '"harvestedOn": "2026-10-08T00:00:00Z"') | Set-Content -LiteralPath $registry
+Test-TerraformGraphBundle -BundlePath "$tmp\bundle.json" -DistPath $tmp | Format-Table -Wrap
+$row = Test-TerraformGraphBundle -BundlePath "$tmp\bundle.json" -DistPath $tmp | Where-Object Item -eq 'registry'
+$row | Format-List Item, Status, Detail, InspectAction, RecommendedAction
+Invoke-Expression $row.InspectAction
+Invoke-Expression $row.RecommendedAction
+Test-TerraformGraphBundle -BundlePath "$tmp\bundle.json" -DistPath $tmp | Group-Object Status | Format-Table Count, Name
+Remove-Item -LiteralPath $tmp -Recurse -Force
+```
+
+Expect: a table of Item, Status, RecommendedAction with `registry` and `sources` Stale, both with `New-TerraformGraphBundle -Tier @() -Provider 'registry.terraform.io/hashicorp/null' -Exclude @() -OutputPath '...\tg-bundle-16-3\bundle.json'`, and entry, docs and three mapVersion rows Fresh with no action. Then the registry row in full: Detail `The bundle was resolved against a registry cache harvested 2026-10-07T02:55:12Z (428 providers); ...\tg-bundle-16-3\registry.json was harvested 2026-10-08T00:00:00Z (428 providers). ...`, an InspectAction that copies registry.json into `$env:TEMP\TerraformGraph-inspect`, writes a candidate bundle there and ends `git diff --no-index -- '...\tg-bundle-16-3\bundle.json' "$env:TEMP\TerraformGraph-inspect\bundle.json"`, and the RecommendedAction above. Then the diff: registry `harvestedOn` and the registry source's `lastPulled` change from `2026-10-07T02:55:12Z` to `2026-10-08T00:00:00Z` (two LF/CRLF warnings from git first). Then `7 Fresh`.
+
+Pester: "reports Fresh, Stale and Missing rows in Test-TerraformGraphBundle and throws with -Strict", "checks each bundled classifier's mapVersion against map.json"
+
+### 16.4 Get-TerraformGraphBundle -Sources
+
+Where each kind of bundled data comes from, from the shipped manifest.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Get-TerraformGraphBundle -Sources
+Get-TerraformGraphBundle -Sources | Where-Object Kind -eq docs | Format-List Kind, Urls, RelatedUrls, HarvestedBy, LastPulled
+```
+
+Expect: six rows, Kind, HarvestedBy, LastPulled, Urls: registry `Update-TerraformRegistryCache` 2026-10-07T02:55:12Z; schemas `Get-TerraformProviderSchema` 2026-10-07T03:58:00Z; docs `Update-TerraformProviderDocCache` 2026-10-07T05:19:53Z; classifiers `New-TerraformClassifier` 2026-10-07T05:22:55Z; skills `Install-TerraformGraphSkill` with no LastPulled; cmdb with nothing but its kind and `{}` Urls. Then the docs row in full: Urls `https://registry.terraform.io/v2/provider-versions/{id}?include=provider-docs` and `https://registry.terraform.io/v2/provider-docs/{id}`, RelatedUrls `https://developer.hashicorp.com/terraform/registry/providers/docs`.
+
+Pester: "names the sources of a bundle: written by New-TerraformGraphBundle, shown by -Document and -Sources"
+
+### 16.5 Drawer semver gate
+
+The Pester test "drawers are semver-safe" passes an added drawer and fails a renamed one at 0.14.0. `$env:TERRAFORMGRAPH_DRAWERS_PATH` points the test at a temp copy of drawers.json.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$drawers = Join-Path $env:TEMP 'tg-drawers-16-5.json'
+$json = Get-Content -LiteralPath .\src\TerraformGraph\classifiers\drawers.json -Raw
+# An added drawer (before unclassified): minor, passes.
+$json.Replace('    { "name": "unclassified"', "    { `"name`": `"desktop`", `"label`": `"Desktop`", `"description`": `"Virtual desktops.`" },`n    { `"name`": `"unclassified`"") | Set-Content -LiteralPath $drawers
+$env:TERRAFORMGRAPH_DRAWERS_PATH = $drawers
+(Invoke-Pester -Path .\tests -FullNameFilter 'Contracts.drawers are semver-safe' -PassThru -Output None) | Format-Table PassedCount, FailedCount
+# A renamed drawer (devops -> developer): major, fails at 0.14.0.
+$json.Replace('"name": "devops"', '"name": "developer"') | Set-Content -LiteralPath $drawers
+$result = Invoke-Pester -Path .\tests -FullNameFilter 'Contracts.drawers are semver-safe' -PassThru -Output None
+$result | Format-Table PassedCount, FailedCount
+$result.Failed[0].ErrorRecord[0].Exception.Message
+Remove-Item Env:\TERRAFORMGRAPH_DRAWERS_PATH
+Remove-Item -LiteralPath $drawers
+```
+
+Expect: `1 0` (passed, failed) for the added drawer, then `0 1` for the rename and the message `Expected $null or empty, because drawers devops of 0.13.0 are renamed or removed in 0.14.0, which needs a major version (ModuleVersion 1.0.0), but got 'devops'.`
+
+Pester: "drawers are semver-safe"

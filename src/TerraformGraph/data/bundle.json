@@ -12,6 +12,76 @@
     "harvestedOn": "2026-10-07T02:55:12Z",
     "providerCount": 428
   },
+  "sources": [
+    {
+      "kind": "registry",
+      "urls": [
+        "https://registry.terraform.io/v2/providers?filter[tier]=official,partner&page[size]=100",
+        "https://registry.terraform.io/v1/providers/{namespace}/{name}/versions",
+        "https://registry.terraform.io/v2/providers/{namespace}/{name}?include=provider-versions"
+      ],
+      "relatedUrls": [
+        "https://developer.hashicorp.com/terraform/internals/provider-registry-protocol",
+        "https://developer.hashicorp.com/terraform/registry/providers"
+      ],
+      "harvestedBy": "Update-TerraformRegistryCache",
+      "lastPulled": "2026-10-07T02:55:12Z"
+    },
+    {
+      "kind": "schemas",
+      "urls": [
+        "https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download/manifest.json"
+      ],
+      "relatedUrls": [
+        "https://developer.hashicorp.com/terraform/cli/commands/providers/schema",
+        "https://developer.hashicorp.com/terraform/cli/commands/init"
+      ],
+      "harvestedBy": "Get-TerraformProviderSchema",
+      "lastPulled": "2026-10-07T03:58:00Z"
+    },
+    {
+      "kind": "docs",
+      "urls": [
+        "https://registry.terraform.io/v2/provider-versions/{id}?include=provider-docs",
+        "https://registry.terraform.io/v2/provider-docs/{id}"
+      ],
+      "relatedUrls": [
+        "https://developer.hashicorp.com/terraform/registry/providers/docs"
+      ],
+      "harvestedBy": "Update-TerraformProviderDocCache",
+      "lastPulled": "2026-10-07T05:19:53Z"
+    },
+    {
+      "kind": "classifiers",
+      "urls": [
+        "https://github.com/JerryBalmer1/TerraformGraph/tree/main/src/TerraformGraph/classifiers"
+      ],
+      "relatedUrls": [
+        "https://github.com/JerryBalmer1/TerraformGraph/blob/main/src/TerraformGraph/classifiers/DECISIONS.md"
+      ],
+      "harvestedBy": "New-TerraformClassifier",
+      "lastPulled": "2026-10-07T05:22:55Z"
+    },
+    {
+      "kind": "skills",
+      "urls": [
+        "https://github.com/JerryBalmer1/TerraformGraph/tree/main/src/TerraformGraph/skills"
+      ],
+      "relatedUrls": [
+        "https://agentskills.io",
+        "https://agentskills.io/specification"
+      ],
+      "harvestedBy": "Install-TerraformGraphSkill",
+      "lastPulled": null
+    },
+    {
+      "kind": "cmdb",
+      "urls": [],
+      "relatedUrls": [],
+      "harvestedBy": null,
+      "lastPulled": null
+    }
+  ],
   "entries": [
     {
       "provider": "registry.terraform.io/ansible/aap",
