@@ -76,7 +76,7 @@ Rules:
 
 1. Read manual-check-list.md and the current psd1 FunctionsToExport.
 2. For each function you added or changed, read its parameter block and help examples from the file named for it. Function code is one function per file, named for the function: `src/TerraformGraph/Public/<Verb-Noun>.ps1` for an exported command, `src/TerraformGraph/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `TerraformGraph.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships.
-3. Add or edit items. Run every block you add or edit in a fresh process (`pwsh -NoProfile -File` on a temp script, or `pwsh -NoProfile -Command`) and confirm the output matches Expect before writing it down. Fix the Expect line, not the output. Running it that way does not catch a block that is silent when pasted into a console (see the `pwsh -Command { ... }` rule above), so check the block against that rule too.
+3. Add or edit items. Run every block you add or edit exactly as written: save it to a temp `.ps1` under `$env:TEMP` and run `pwsh -NoProfile -File` on it, so it runs in a fresh process, prints to the console and returns a real exit code; remove the temp file afterwards. Confirm the output matches Expect before writing it down. Fix the Expect line, not the output. Running it that way does not catch a block that is silent when pasted into a console (see the `pwsh -Command { ... }` rule above), so check the block against that rule too.
 4. Update Module version and Last updated at the top.
 5. Stage the file. Do not commit.
 6. In your task report, list the item numbers added, changed, or marked removed, one line each.

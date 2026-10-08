@@ -30,7 +30,7 @@ dist/survey/            subcategories.json from Invoke-Build HarvestBundleDocs (
 dist/module/            The publishable module tree from Invoke-Build AssembleModule (gitignored)
 LICENSE, NOTICE         Apache License 2.0; shipped in the module tree
 CHANGELOG.md            Full release history (the psd1 ReleaseNotes holds the current version only)
-README.md               Sysadmin door; line 1 is the only ontology mention (repo skill readme)
+README.md               Sysadmin door; line 1 is the `>` banner linking ONTOLOGY.md, further mentions allowed, Pester checks only the two banners (DECISIONS 52; repo skill readme)
 ONTOLOGY.md             Agent/ontology door; banner, then backlink to README (repo skill ontology-doc)
 .claude/skills/terraformgraph/  Generated copy of the skill (Install-TerraformGraphSkill)
 .claude/skills/readme, ontology-doc, manual-check-list  Repo-development skills (not shipped)
