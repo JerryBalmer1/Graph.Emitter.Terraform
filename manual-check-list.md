@@ -1,6 +1,6 @@
 # TerraformGraph manual check list
 
-Module version: 0.15.0
+Module version: 0.16.0
 Last updated: 2026-10-07
 
 ## 0 Setup
@@ -607,7 +607,7 @@ Pester: "throws terraform's stderr for a nonexistent provider and cleans up"
 
 ### 5.1 -Path (direct calls only)
 
-Root and its direct module calls; children are resolved but not parsed. Shows both default displays.
+Root and its direct module calls; children are resolved but not parsed. Shows the three default displays: graph, node table and edge table.
 
 ```powershell
 Set-Location 'C:\__Code\TerraformGraph'
@@ -616,9 +616,10 @@ Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra
 $graph | Format-Table
 $graph.Nodes | Format-Table
+$graph.Edges | Format-Table
 ```
 
-Expect: graph row `C:\__Code\TerraformGraph\infra  Call  2  1  0`; nodes `root` (Root, Depth 0) and `module.network` (Local, Depth 1, Dir ...\infra\modules\network), both Resolved True.
+Expect: graph row `C:\__Code\TerraformGraph\infra  Call  2  1  0`; node table headed `Id  Kind  SourceKind  Depth  Resolved  Dir` with `root` (Module, Root, Depth 0) and `module.network` (Module, Local, Depth 1, Dir ...\infra\modules\network), both Resolved True; edge table headed `From  To  Kind  Call  File  Line` with one row `root  module.network  Calls  module.network  main.tf  38`.
 
 Pester: "stops at direct children without -Recurse", "sets the default display properties"
 
@@ -632,30 +633,30 @@ Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
 Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra -Recurse
 $graph | Format-Table
-$graph.Nodes | Format-Table ModuleAddress, Depth, ParentKey, Resolved, @{ n = 'Blocks'; e = { @($_.Blocks).Count } }
+$graph.Nodes | Format-Table Id, Kind, Depth, ParentKey, Resolved, @{ n = 'Blocks'; e = { @($_.Blocks).Count } }
 $graph.Edges | Format-Table
 ```
 
-Expect: NodeCount 3, EdgeCount 2, UnresolvedCount 0; Blocks 18, 9, 4; `module.network.module.endpoint` has Depth 2 and ParentKey `network`; edges at Line 38 (root to module.network) and Line 17 (module.network to the endpoint).
+Expect: NodeCount 3, EdgeCount 2, UnresolvedCount 0; Ids `root`, `module.network`, `module.network.module.endpoint`, all Kind `Module`; Blocks 18, 9, 4; `module.network.module.endpoint` has Depth 2 and ParentKey `network`; edges Kind `Calls` in `main.tf` at Line 38 (root to module.network) and Line 17 (module.network to the endpoint).
 
 Pester: "follows nested calls with -Recurse", "links edges by Id and records the module block line"
 
 ### 5.3 -GroupBy Source
 
-Node Ids and edge From/To are source strings; ModuleAddress is unchanged.
+One node per module source, Id `source:` plus the source relative to the root module; Callers names the calls each node stands for, and ModuleAddress is unchanged.
 
 ```powershell
 Set-Location 'C:\__Code\TerraformGraph'
 Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
 Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra -Recurse -GroupBy Source
-$graph.Nodes | Format-Table Id, ModuleAddress
+$graph.Nodes | Format-Table Id, ModuleAddress, Callers
 $graph.Edges | Format-Table
 ```
 
-Expect: Ids `root`, `./modules/network`, `./modules/endpoint`; edges `root` to `./modules/network` (Line 38) and `./modules/network` to `./modules/endpoint` (Line 17).
+Expect: Ids `root`, `source:./modules/network`, `source:./modules/network/modules/endpoint` (the endpoint's `./modules/endpoint` resolved from the network module and written relative to infra), with Callers `{}`, `{module.network}`, `{module.network.module.endpoint}`; edges `root` to `source:./modules/network` (Calls, main.tf, Line 38) and `source:./modules/network` to `source:./modules/network/modules/endpoint` (Calls, main.tf, Line 17).
 
-Pester: "uses Source as Id with -GroupBy Source and ModuleAddress with -GroupBy Call"
+Pester: "uses source: and the root-relative source as Id with -GroupBy Source and ModuleAddress with -GroupBy Call"
 
 ### 5.4 Unresolved: LocalPathMissing
 
@@ -671,13 +672,14 @@ try {
     $graph = Get-TerraformModuleGraph -Path $dir
     $graph | Format-Table
     $graph.Unresolved | Format-Table ModuleAddress, Source, SourceKind, Resolved, Reason
+    "Findings: $($graph.Findings.Id -join ', ')"
 }
 finally {
     Remove-Item -LiteralPath $dir -Recurse -Force
 }
 ```
 
-Expect: UnresolvedCount 1; `module.gone  ./does-not-exist  Local  False  LocalPathMissing`.
+Expect: UnresolvedCount 1; `module.gone  ./does-not-exist  Local  False  LocalPathMissing`; then `Findings: module.gone` (Findings is the same list as Unresolved).
 
 Pester: "marks a missing local source as LocalPathMissing"
 
@@ -745,6 +747,35 @@ Get-TerraformModuleGraph -Path .\does-not-exist-dir
 Expect: `Cannot validate argument on parameter 'Path'. Path '.\does-not-exist-dir' is not an existing directory.`
 
 Pester: "rejects a missing directory" (Get-TerraformModuleGraph context)
+
+### 5.8 -GroupBy Source with one source called twice
+
+Two calls to the same local source, written two ways, collapse into one node; Ids stay unique under both modes, and edges stay one per call.
+
+```powershell
+Set-Location 'C:\__Code\TerraformGraph'
+Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+$dir = Join-Path $env:TEMP 'tg-check-duplicate-source'
+New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value "module `"a`" {`n  source = `"./shared`"`n}`nmodule `"b`" {`n  source = `"./shared/`"`n}" -Force | Out-Null
+New-Item -ItemType File -Path (Join-Path $dir 'shared\main.tf') -Value 'module "leaf" { source = "./leaf" }' -Force | Out-Null
+New-Item -ItemType File -Path (Join-Path $dir 'shared\leaf\main.tf') -Value 'locals {}' -Force | Out-Null
+try {
+    foreach ($groupBy in 'Call', 'Source') {
+        $graph = Get-TerraformModuleGraph -Path $dir -Recurse -GroupBy $groupBy
+        "$groupBy`: $($graph.NodeCount) nodes, $(@($graph.Nodes.Id | Sort-Object -Unique -CaseSensitive).Count) unique Ids, $($graph.EdgeCount) edges"
+    }
+    $graph.Nodes | Format-Table Id, Kind, Resolved, Callers
+    $graph.Edges | Format-Table
+}
+finally {
+    Remove-Item -LiteralPath $dir -Recurse -Force
+}
+```
+
+Expect: `Call: 5 nodes, 5 unique Ids, 4 edges`, then `Source: 3 nodes, 3 unique Ids, 4 edges`; Source nodes `root` (Callers `{}`), `source:./shared` (Callers `{module.a, module.b}`) and `source:./shared/leaf` (Callers `{module.a.module.leaf, module.b.module.leaf}`), all Kind `Module` and Resolved True; four `Calls` edges, two from `root` to `source:./shared` (Lines 1 and 4) and two from `source:./shared` to `source:./shared/leaf`, told apart by Call.
+
+Pester: "keeps Ids unique under both -GroupBy modes when one source is called twice", "collapses calls to one source into one node with Callers under -GroupBy Source"
 
 ## 6 ConvertTo-TerraformSchemaGraph
 

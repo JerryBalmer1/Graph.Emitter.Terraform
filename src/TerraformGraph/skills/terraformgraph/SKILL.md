@@ -121,7 +121,7 @@ When the task is to change TerraformGraph itself (a clone of its repository): Fu
 
 | Graph | Kind | Id |
 |---|---|---|
-| Module | ModuleNode | ModuleAddress (`-GroupBy Call`) or source string (`-GroupBy Source`); the root is `root` |
+| Module | Module | ModuleAddress (`-GroupBy Call`, one node per call) or `source:<normalised source>` (`-GroupBy Source`, one node per source, `Callers` lists the calls); the root is `root`. Build variable and resource graphs from a Call graph |
 | Variable | Variable | `<module>/var/<name>` |
 | Variable | Local | `<module>/local/<name>` |
 | Variable | Output | `<module>/output/<name>` |

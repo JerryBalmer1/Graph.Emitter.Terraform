@@ -651,12 +651,79 @@ Describe "TerraformGraph" {
             $edge.Line | Should -Be $line
         }
 
-        It "uses Source as Id with -GroupBy Source and ModuleAddress with -GroupBy Call" {
+        It "uses source: and the root-relative source as Id with -GroupBy Source and ModuleAddress with -GroupBy Call" {
             $bySource = $SourceGraph.Nodes | Where-Object Name -eq 'endpoint'
-            $bySource.Id | Should -Be $bySource.Source
+            $bySource.Source | Should -Be './modules/endpoint'
+            $bySource.Id | Should -Be 'source:./modules/network/modules/endpoint'
+            ($SourceGraph.Nodes | Where-Object Key -eq '').Id | Should -Be 'root'
             $byCall = $RecursiveGraph.Nodes | Where-Object Name -eq 'endpoint'
             $RecursiveGraph.GroupBy | Should -Be 'Call'
             $byCall.Id | Should -Be $byCall.ModuleAddress
+        }
+
+        It "gives every ModuleNode Kind Module and a non-empty Id under both -GroupBy modes" {
+            foreach ($graph in $FlatGraph, $RecursiveGraph, $SourceGraph, (Get-TerraformModuleGraph -Path $DiamondRoot -Recurse -GroupBy Source -ErrorAction Stop)) {
+                foreach ($node in $graph.Nodes) {
+                    $node.Kind | Should -BeExactly 'Module'
+                    $node.Id | Should -Not -BeNullOrEmpty
+                }
+            }
+        }
+
+        It "keeps Ids unique under both -GroupBy modes when one source is called twice" {
+            foreach ($groupBy in 'Call', 'Source') {
+                $graph = Get-TerraformModuleGraph -Path $DiamondRoot -Recurse -GroupBy $groupBy -ErrorAction Stop
+                $ids = @($graph.Nodes.Id)
+                @($ids | Sort-Object -Unique -CaseSensitive).Count | Should -Be $ids.Count -Because "-GroupBy $groupBy Ids are $($ids -join ', ')"
+                foreach ($edge in $graph.Edges) {
+                    $ids | Should -Contain $edge.From
+                    $ids | Should -Contain $edge.To
+                }
+            }
+        }
+
+        It "collapses calls to one source into one node with Callers under -GroupBy Source" {
+            $graph = Get-TerraformModuleGraph -Path $DiamondRoot -Recurse -GroupBy Source -ErrorAction Stop
+            @($graph.Nodes.Id) | Should -Be @('root', 'source:./shared', 'source:./shared/leaf')
+            ($graph.Nodes | Where-Object Id -eq 'source:./shared').Callers | Should -Be @('module.a', 'module.b')
+            ($graph.Nodes | Where-Object Id -eq 'source:./shared/leaf').Callers | Should -Be @('module.a.module.leaf', 'module.b.module.leaf')
+            @($graph.Edges).Count | Should -Be 4
+            @($graph.Edges.Call) | Should -Be @('module.a', 'module.b', 'module.a.module.leaf', 'module.b.module.leaf')
+            $byCall = Get-TerraformModuleGraph -Path $DiamondRoot -Recurse -ErrorAction Stop
+            ($byCall.Nodes | Where-Object Key -eq 'a').Callers | Should -Be @('module.a')
+            ($byCall.Nodes | Where-Object Key -eq '').Callers | Should -BeNullOrEmpty
+        }
+
+        It "gives a non-literal source its own source:<ModuleAddress> node, unresolved, under -GroupBy Source" {
+            $dir = Join-Path $TestDrive 'nonliteral'
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -Path (Join-Path $dir 'main.tf') -Value "module `"p`" {`n  source = var.x`n}`nmodule `"q`" {`n  source = var.x`n}" -Encoding utf8NoBOM
+            $graph = Get-TerraformModuleGraph -Path $dir -GroupBy Source -ErrorAction Stop
+            $p = $graph.Nodes | Where-Object Name -eq 'p'
+            $p.Id | Should -Be 'source:module.p'
+            $p.Resolved | Should -BeFalse
+            $p.Reason | Should -Be 'NonLiteralSource'
+            ($graph.Nodes | Where-Object Name -eq 'q').Id | Should -Be 'source:module.q'
+            @($graph.Findings.Id) | Should -Be @('source:module.p', 'source:module.q')
+        }
+
+        It "gives every ModuleEdge Kind Calls and the module block's bare File" {
+            foreach ($graph in $RecursiveGraph, $SourceGraph) {
+                foreach ($edge in $graph.Edges) {
+                    $edge.Kind | Should -BeExactly 'Calls'
+                    $edge.File | Should -Be 'main.tf'
+                }
+            }
+        }
+
+        It "orders ModuleNode properties Id, Kind first and ModuleEdge properties From, To, Kind first" {
+            foreach ($node in $RecursiveGraph.Nodes) {
+                $node.PSObject.Properties.Name |
+                    Should -Be @('Id', 'Kind', 'Name', 'Key', 'ModuleAddress', 'Source', 'SourceKind', 'Dir', 'Resolved', 'Reason', 'ParentKey', 'Depth', 'Block', 'Blocks', 'Callers')
+            }
+            foreach ($edge in $RecursiveGraph.Edges) {
+                $edge.PSObject.Properties.Name | Should -Be @('From', 'To', 'Kind', 'Call', 'Label', 'File', 'Line')
+            }
         }
 
         It "marks a missing local source as LocalPathMissing" {
@@ -665,6 +732,7 @@ Describe "TerraformGraph" {
             $gone.Resolved | Should -BeFalse
             $gone.Reason | Should -Be 'LocalPathMissing'
             $graph.Unresolved.ModuleAddress | Should -Contain 'module.gone'
+            @($graph.Findings.Id) | Should -Be @($graph.Unresolved.Id)
         }
 
         It "walks a module called from two places once per call" {
@@ -703,7 +771,13 @@ Describe "TerraformGraph" {
 
         It "sets the default display properties" {
             (Get-TypeData TerraformGraph.ModuleNode).DefaultDisplayPropertySet.ReferencedProperties |
-                Should -Be @('ModuleAddress', 'SourceKind', 'Depth', 'Resolved', 'Dir')
+                Should -Be @('Id', 'Kind', 'SourceKind', 'Depth', 'Resolved', 'Dir')
+            (Get-TypeData TerraformGraph.ModuleEdge).DefaultDisplayPropertySet.ReferencedProperties |
+                Should -Be @('From', 'To', 'Kind', 'Call', 'File', 'Line')
+            (Get-FormatData TerraformGraph.ModuleNode).FormatViewDefinition[0].Control.Headers.Label |
+                Should -Be @('Id', 'Kind', 'SourceKind', 'Depth', 'Resolved', 'Dir')
+            (Get-FormatData TerraformGraph.ModuleEdge).FormatViewDefinition[0].Control.Headers.Label |
+                Should -Be @('From', 'To', 'Kind', 'Call', 'File', 'Line')
             (Get-TypeData TerraformGraph.ModuleGraph).DefaultDisplayPropertySet.ReferencedProperties |
                 Should -Be @('Root', 'GroupBy', 'NodeCount', 'EdgeCount', 'UnresolvedCount')
             $RecursiveGraph.NodeCount | Should -Be 3

@@ -21,12 +21,16 @@ function Get-TerraformModuleGraph {
 
         Calls that cannot be resolved stay in the graph with Resolved $false and a Reason:
         NonLiteralSource, LocalPathMissing or NotInitialized. They are also listed in
-        Unresolved. A call whose Dir is already one of its own ancestors (root -> ... ->
-        parent) keeps Resolved $true and its Dir, gets Reason Cycle and Blocks $null, and
-        is not followed.
+        Unresolved and Findings (the same list). A call whose Dir is already one of its
+        own ancestors (root -> ... -> parent) keeps Resolved $true and its Dir, gets Reason
+        Cycle and Blocks $null, and is not followed.
 
         Every node keeps Block, the module block from its parent's AST, so module
         arguments are available for later variable tracing.
+
+        Every node has Id first and Kind ('Module') second; every edge has From, To and
+        Kind ('Calls') first, then Call, Label, File (the bare file name of the module
+        block) and Line.
 
     .PARAMETER Path
         Root module directory. Defaults to the current location.
@@ -36,8 +40,23 @@ function Get-TerraformModuleGraph {
 
     .PARAMETER GroupBy
         Call (default) or Source. Sets each node's Id, and so the From and To of each
-        edge: ModuleAddress for Call, the source string for Source. The root's Id
-        is always 'root'. Every other property is populated either way.
+        edge. The root's Id is always 'root', and Ids are unique under both modes.
+
+        Call: one node per module call, Id = ModuleAddress (module.network.module.endpoint).
+
+        Source: one node per module source, Id = 'source:' + the normalised source. A local
+        source is resolved against its caller's directory and written relative to the root
+        with forward slashes (source:./modules/network/modules/endpoint), so two calls that
+        reach the same directory share a node; a registry source is lowercased with any
+        registry.terraform.io/ host dropped; any other source is trimmed. A call whose
+        source is not a literal gets its own node, Id 'source:' + its ModuleAddress, with
+        Resolved $false and Reason NonLiteralSource. Callers lists the ModuleAddress of
+        every call a node stands for; the node keeps the first call's (breadth-first)
+        Key, ModuleAddress, Name, Dir, Block and Blocks, and is Resolved $false, with that
+        call's Reason, if any of its calls is unresolved. Edges stay one per call. Build
+        ConvertTo-TerraformResourceGraph and ConvertTo-TerraformVariableGraph from a Call
+        graph: they read one node per call, so a Source graph gives them only the first
+        call to each source.
 
     .EXAMPLE
         Get-TerraformModuleGraph -Path .\infra
@@ -50,13 +69,17 @@ function Get-TerraformModuleGraph {
         Every module call in the tree, parsed, with Depth and ParentKey.
 
     .EXAMPLE
-        (Get-TerraformModuleGraph -Path .\infra -Recurse -GroupBy Source).Edges
+        (Get-TerraformModuleGraph -Path .\infra -Recurse -GroupBy Source).Nodes |
+            Format-Table Id, Callers
 
-        Edges keyed by source string, so calls to the same module share an Id.
+        One node per module source, with Callers naming the calls it stands for; edges
+        stay one per call.
 
     .OUTPUTS
-        TerraformGraph.ModuleGraph. Default view is Root, GroupBy, NodeCount, EdgeCount,
-        UnresolvedCount. Nodes are TerraformGraph.ModuleNode, edges TerraformGraph.ModuleEdge.
+        TerraformGraph.ModuleGraph with Root, GroupBy, Recurse, Nodes, Edges, Unresolved
+        and Findings. Default view is Root, GroupBy, NodeCount, EdgeCount, UnresolvedCount.
+        Nodes are TerraformGraph.ModuleNode (table Id, Kind, SourceKind, Depth, Resolved,
+        Dir), edges TerraformGraph.ModuleEdge (table From, To, Kind, Call, File, Line).
 
     .NOTES
         .terraform/modules/modules.json is read at most once, and only when the first
@@ -107,11 +130,17 @@ function Get-TerraformModuleGraph {
     # modules.json entries keyed by module Key. Loaded on the first non-local source.
     $manifest = $null
 
+    # -GroupBy Source: the node already emitted for each Id. Later calls to the same
+    # source add to its Callers instead of adding a node.
+    $bySourceId = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+
     $root = [pscustomobject]@{
         PSTypeName    = 'TerraformGraph.ModuleNode'
+        Id            = 'root'
+        Kind          = 'Module'
+        Name          = 'root'
         Key           = ''
         ModuleAddress = 'root'
-        Name          = 'root'
         Source        = $null
         SourceKind    = 'Root'
         Dir           = $rootDir
@@ -119,9 +148,9 @@ function Get-TerraformModuleGraph {
         Reason        = $null
         ParentKey     = $null
         Depth         = 0
-        Id            = 'root'
         Block         = $null
         Blocks        = @(Get-TerraformAST -Path $rootDir)
+        Callers       = @()
     }
     $nodes.Add($root)
     $chains[''] = @($rootDir)
@@ -198,15 +227,36 @@ function Get-TerraformModuleGraph {
             }
 
             $id = $moduleAddress
-            if ($GroupBy -eq 'Source' -and $null -ne $source) {
-                $id = $source
+            if ($GroupBy -eq 'Source') {
+                $normalised = if ($null -eq $source) {
+                    $moduleAddress
+                }
+                elseif ($sourceKind -eq 'Local') {
+                    # Lexical, so a missing directory still gets the same Id as its callers'.
+                    $full = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($parent.Dir, $source)).TrimEnd('\', '/')
+                    $relative = [System.IO.Path]::GetRelativePath($rootDir, $full).Replace('\', '/')
+                    if ($relative -eq '.') { './' }
+                    elseif ($relative -eq '..' -or $relative.StartsWith('../') -or [System.IO.Path]::IsPathRooted($relative)) { $relative }
+                    else { "./$relative" }
+                }
+                elseif ($sourceKind -eq 'Registry') {
+                    $parts = $source.Trim() -split '//', 2
+                    $address = $parts[0].ToLowerInvariant() -replace '^registry\.terraform\.io/', ''
+                    if ($parts.Count -gt 1) { "$address//$($parts[1])" } else { $address }
+                }
+                else {
+                    $source.Trim()
+                }
+                $id = "source:$normalised"
             }
 
             $node = [pscustomobject]@{
                 PSTypeName    = 'TerraformGraph.ModuleNode'
+                Id            = $id
+                Kind          = 'Module'
+                Name          = $label
                 Key           = $key
                 ModuleAddress = $moduleAddress
-                Name          = $label
                 Source        = $source
                 SourceKind    = $sourceKind
                 Dir           = $dir
@@ -214,18 +264,32 @@ function Get-TerraformModuleGraph {
                 Reason        = $reason
                 ParentKey     = if ($parent.Key) { $parent.Key } else { $null }
                 Depth         = $key.Split('.').Count
-                Id            = $id
                 Block         = $block
                 Blocks        = $blocks
+                Callers       = @($moduleAddress)
             }
-            $nodes.Add($node)
+
+            $existing = $null
+            if ($GroupBy -eq 'Source' -and $bySourceId.TryGetValue($id, [ref]$existing)) {
+                $existing.Callers = @($existing.Callers) + $moduleAddress
+                if ($existing.Resolved -and -not $node.Resolved) {
+                    $existing.Resolved = $false
+                    $existing.Reason   = $node.Reason
+                }
+            }
+            else {
+                $bySourceId[$id] = $node
+                $nodes.Add($node)
+            }
 
             $edges.Add([pscustomobject]@{
                 PSTypeName = 'TerraformGraph.ModuleEdge'
                 From       = $parent.Id
                 To         = $id
+                Kind       = 'Calls'
                 Call       = $moduleAddress
                 Label      = $label
+                File       = $block.File
                 Line       = $block.Line
             })
 
@@ -236,6 +300,8 @@ function Get-TerraformModuleGraph {
         }
     }
 
+    # Findings is the same list as Unresolved, under the name ResourceGraph uses.
+    $unresolved = @($nodes | Where-Object { -not $_.Resolved })
     [pscustomobject]@{
         PSTypeName = 'TerraformGraph.ModuleGraph'
         Root       = $rootDir
@@ -243,6 +309,7 @@ function Get-TerraformModuleGraph {
         Recurse    = $Recurse.IsPresent
         Nodes      = $nodes.ToArray()
         Edges      = $edges.ToArray()
-        Unresolved = @($nodes | Where-Object { -not $_.Resolved })
+        Unresolved = $unresolved
+        Findings   = $unresolved
     }
 }

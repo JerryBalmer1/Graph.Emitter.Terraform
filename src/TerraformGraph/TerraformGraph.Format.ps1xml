@@ -5,6 +5,62 @@
 <Configuration>
   <ViewDefinitions>
     <View>
+      <Name>TerraformGraph.ModuleNode</Name>
+      <ViewSelectedBy>
+        <TypeName>TerraformGraph.ModuleNode</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <TableHeaders>
+          <TableColumnHeader><Label>Id</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Kind</Label></TableColumnHeader>
+          <TableColumnHeader><Label>SourceKind</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Depth</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Resolved</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Dir</Label></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>Id</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Kind</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>SourceKind</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Depth</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Resolved</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Dir</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+    <View>
+      <Name>TerraformGraph.ModuleEdge</Name>
+      <ViewSelectedBy>
+        <TypeName>TerraformGraph.ModuleEdge</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <TableHeaders>
+          <TableColumnHeader><Label>From</Label></TableColumnHeader>
+          <TableColumnHeader><Label>To</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Kind</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Call</Label></TableColumnHeader>
+          <TableColumnHeader><Label>File</Label></TableColumnHeader>
+          <TableColumnHeader><Label>Line</Label></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>From</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>To</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Kind</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Call</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>File</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>Line</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+    <View>
       <Name>TerraformGraph.BundleEntry</Name>
       <ViewSelectedBy>
         <TypeName>TerraformGraph.BundleEntry</TypeName>

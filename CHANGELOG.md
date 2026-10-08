@@ -2,6 +2,18 @@
 
 TerraformGraph release notes, newest first. The psd1 `ReleaseNotes` holds only the current version and links here.
 
+## 0.16.0
+
+The module graph contract: every module node and edge carries its Kind, Ids are unique under both `-GroupBy` modes, and edges record their file. A contract change for `-GroupBy Source` Ids.
+
+- `TerraformGraph.ModuleNode` properties are now `Id`, `Kind` (always `Module`), `Name`, `Key`, `ModuleAddress`, `Source`, `SourceKind`, `Dir`, `Resolved`, `Reason`, `ParentKey`, `Depth`, `Block`, `Blocks`, `Callers`. `SourceKind` is unchanged and is not the discriminator.
+- `TerraformGraph.ModuleEdge` properties are now `From`, `To`, `Kind` (always `Calls`), `Call`, `Label`, `File` (the module block's bare file name, as on `ResourceNode`), `Line`.
+- Both have table views led by `Id`, `Kind` and `From`, `To`, `Kind` (TerraformGraph.Format.ps1xml).
+- `-GroupBy Source` (breaking): one node per module source, Id `source:<normalised source>`, with `Callers` listing the ModuleAddress of every call it stands for. A local source is normalised to its directory relative to the root module, a registry source is lowercased without a `registry.terraform.io/` host. A non-literal source is `source:<ModuleAddress>`, Resolved `$false`. Edges stay one per call. Before, two calls to one source were two nodes sharing an Id, and the Id was the bare source string. `-GroupBy Call` Ids are unchanged. Build resource and variable graphs from a Call graph (DECISIONS 53).
+- `TerraformGraph.ModuleGraph` gains `Findings`, the same list as `Unresolved`, under the name `ResourceGraph` uses. `ResourceGraph.Findings` is still a count.
+- docs/graph-shape.md holds the property tables and the Id rules per `-GroupBy` mode. CLAUDE.md states the graph contract: every node has `Id` first and `Kind` second, every edge `From`, `To`, `Kind` in that order (the schema, resource and variable graphs already did).
+- Planned features move one release: view 0.17.0, compare 0.18.0, eras 0.19.0.
+
 ## 0.15.0
 
 The module source split one function per file. No behaviour change: the same 26 commands with the same parameters, parameter sets, aliases, output, error ids and messages.

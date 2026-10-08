@@ -29,7 +29,7 @@ Exit code 0: every module call is at depth 3 or less (the root module is depth 0
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.15.0**. Not yet published to the PowerShell Gallery: install from a clone (see [Install](#install)).
+Source version **0.16.0**. Not yet published to the PowerShell Gallery: install from a clone (see [Install](#install)).
 
 ---
 
@@ -209,7 +209,7 @@ $schema = Get-TerraformProviderSchema -Provider hashicorp/aws -Version '= 5.60.0
 
 ### Module graph (`Get-TerraformModuleGraph`)
 
-Build a graph of module calls from the `module` blocks in a root module (`-Path`, default current location). Each call is a `TerraformGraph.ModuleNode` with `Key`, `ModuleAddress`, `Source`, `SourceKind`, `Dir`, `Depth`, the calling `Block` and, once parsed, its own `Blocks`; each call also gets one `TerraformGraph.ModuleEdge` from its parent.
+Build a graph of module calls from the `module` blocks in a root module (`-Path`, default current location). Each call is a `TerraformGraph.ModuleNode` with `Id` first and `Kind` (`Module`) second, then `Name`, `Key`, `ModuleAddress`, `Source`, `SourceKind`, `Dir`, `Resolved`, `Reason`, `ParentKey`, `Depth`, the calling `Block`, once parsed its own `Blocks`, and `Callers`. Each call also gets one `TerraformGraph.ModuleEdge` from its parent: `From`, `To`, `Kind` (`Calls`), `Call`, `Label`, `File` (the module block's file name) and `Line`. The full property tables are in [docs/graph-shape.md](docs/graph-shape.md).
 
 ```powershell
 # Root and its direct calls; children are resolved but not parsed.
@@ -218,11 +218,11 @@ Get-TerraformModuleGraph -Path .\infra
 # Follow every call down the tree.
 (Get-TerraformModuleGraph -Path .\infra -Recurse).Nodes
 
-# Node and edge Ids are source strings instead of ModuleAddress.
-(Get-TerraformModuleGraph -Path .\infra -Recurse -GroupBy Source).Edges
+# One node per module source; Callers names the calls each one stands for.
+(Get-TerraformModuleGraph -Path .\infra -Recurse -GroupBy Source).Nodes | Format-Table Id, Callers
 ```
 
-`-GroupBy` only decides `Id`, and so the `From`/`To` of each edge: `Call` (default) uses `ModuleAddress` such as `module.network.module.endpoint`, `Source` uses the source string such as `./modules/endpoint`, so calls to the same module share an Id (edges are not deduplicated). Calls that cannot be resolved stay in the graph with `Resolved` `$false` and a `Reason` — `NonLiteralSource`, `LocalPathMissing`, or `NotInitialized` for a registry, git, http, s3 or gcs source with no entry in `.terraform/modules/modules.json` — and are collected in `Unresolved` for a quick check. A call whose directory is already one of its own ancestors keeps `Resolved` `$true` and its `Dir`, gets `Reason` `Cycle`, and is not followed; a module called from two places is otherwise walked once per call. `terraform init` is never run; local sources need no init at all.
+`-GroupBy` decides `Id`, and so the `From`/`To` of each edge; Ids are unique either way and the root is always `root`. `Call` (default) gives one node per call, Id = `ModuleAddress` such as `module.network.module.endpoint`. `Source` gives one node per module source, Id = `source:` plus the normalised source: a local source written relative to the root module (`source:./modules/network/modules/endpoint`, so two calls that reach the same directory share a node), a registry source lowercased without a `registry.terraform.io/` host, anything else trimmed. A non-literal source keeps its own node, `source:<ModuleAddress>`, with `Resolved` `$false`. `Callers` lists every call a Source node stands for; edges stay one per call. Build variable and resource graphs from a `Call` graph: they read one node per call, so a `Source` graph gives them only the first call to each source. Calls that cannot be resolved stay in the graph with `Resolved` `$false` and a `Reason` — `NonLiteralSource`, `LocalPathMissing`, or `NotInitialized` for a registry, git, http, s3 or gcs source with no entry in `.terraform/modules/modules.json` — and are collected in `Unresolved` (and `Findings`, the same list) for a quick check. A call whose directory is already one of its own ancestors keeps `Resolved` `$true` and its `Dir`, gets `Reason` `Cycle`, and is not followed; a module called from two places is otherwise walked once per call. `terraform init` is never run; local sources need no init at all.
 
 ### Schema graph (`ConvertTo-TerraformSchemaGraph`)
 
@@ -246,6 +246,7 @@ $graph.Nodes | Where-Object Kind -eq 'Resource' | Select-Object Path, Id
 
 | Kind | Id |
 |---|---|
+| Module | `ModuleAddress` with `-GroupBy Call` (`root` for the root module), e.g. `module.network.module.endpoint`; `source:<normalised source>` with `-GroupBy Source`, e.g. `source:./modules/network` |
 | Provider | `<address>`, e.g. `registry.terraform.io/hashicorp/aws` |
 | Config | `<address>/config/<name>`: the provider's own configuration attributes and blocks (Kind Attribute or Block), Path `<provider>.<name>`, e.g. `aws.region` |
 | Resource | `<address>/resource/<type>` |
@@ -259,7 +260,7 @@ $graph.Nodes | Where-Object Kind -eq 'Resource' | Select-Object Path, Id
 | Resource instance | `<module>/resource/<type>.<name>`, e.g. `root/resource/null_resource.marker` |
 | DataSource instance | `<module>/data/<type>.<name>`, e.g. `root/data/local_file.readme` |
 
-Variable, Local and Output are `ConvertTo-TerraformVariableGraph` node Ids; the two instance rows are `ConvertTo-TerraformResourceGraph` node Ids; the rest are `ConvertTo-TerraformSchemaGraph` node Ids. A schema Id names a resource *type* under a provider (`<address>/resource/null_resource`), so it appears once per document; a resource graph Id names one *block* in one module (`module.network/resource/null_resource.subnet`) and has no provider in it. Each resource node's `SchemaId` holds the schema Id it joins to.
+Module is the `Get-TerraformModuleGraph` node Id; Variable, Local and Output are `ConvertTo-TerraformVariableGraph` node Ids; the two instance rows are `ConvertTo-TerraformResourceGraph` node Ids; the rest are `ConvertTo-TerraformSchemaGraph` node Ids. A schema Id names a resource *type* under a provider (`<address>/resource/null_resource`), so it appears once per document; a resource graph Id names one *block* in one module (`module.network/resource/null_resource.subnet`) and has no provider in it. Each resource node's `SchemaId` holds the schema Id it joins to.
 
 ### Variable graph (`ConvertTo-TerraformVariableGraph`)
 

@@ -76,7 +76,9 @@ Update-TypeData -TypeName $blockTypeName -MemberType ScriptProperty -MemberName 
 } -Force
 
 # Module graph views. Every property stays on the object; these only pick the table columns.
-Update-TypeData -TypeName 'TerraformGraph.ModuleNode' -DefaultDisplayPropertySet ModuleAddress, SourceKind, Depth, Resolved, Dir -Force
+# ModuleNode and ModuleEdge have more than four columns, so their table views are in TerraformGraph.Format.ps1xml.
+Update-TypeData -TypeName 'TerraformGraph.ModuleNode' -DefaultDisplayPropertySet Id, Kind, SourceKind, Depth, Resolved, Dir -Force
+Update-TypeData -TypeName 'TerraformGraph.ModuleEdge' -DefaultDisplayPropertySet From, To, Kind, Call, File, Line -Force
 
 $moduleGraphTypeName = 'TerraformGraph.ModuleGraph'
 Update-TypeData -TypeName $moduleGraphTypeName -MemberType ScriptProperty -MemberName NodeCount -Value {

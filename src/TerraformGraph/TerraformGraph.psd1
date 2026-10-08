@@ -1,7 +1,7 @@
 @{
 
     RootModule           = 'TerraformGraph.psm1'
-    ModuleVersion        = '0.15.0'
+    ModuleVersion        = '0.16.0'
     GUID                 = '852206b0-33a6-4dc3-91eb-e9fd6166b17d'
     Author               = 'Jerry Balmer'
     CompanyName          = 'Jerry Balmer'
@@ -50,7 +50,7 @@
             Tags                       = @('Terraform', 'HCL', 'Graph', 'AST', 'PowerShell', 'PowerShell74', 'Windows')
             ProjectUri                 = 'https://github.com/JerryBalmer1/TerraformGraph'
             LicenseUri                 = 'https://github.com/JerryBalmer1/TerraformGraph/blob/main/LICENSE'
-            ReleaseNotes               = '0.15.0: The module source is split one function per file (Public/ for the 26 exported commands, Private/ for the helpers); the psm1 is wiring only, and Invoke-Build AssembleModule builds the single psm1 that ships. No behaviour change: the same commands, parameters, output, error ids and messages. Full history: https://github.com/JerryBalmer1/TerraformGraph/blob/main/CHANGELOG.md'
+            ReleaseNotes               = '0.16.0: The module graph contract. TerraformGraph.ModuleNode has Id first and Kind ''Module'' second, plus Callers; TerraformGraph.ModuleEdge has From, To, Kind ''Calls'', Call, Label, File and Line; both have table views. Ids are unique under both -GroupBy modes: Call uses ModuleAddress, Source uses source:<normalised source> with one node per source (Callers lists its calls) and source:<ModuleAddress> for a non-literal source. ModuleGraph gains Findings, the same list as Unresolved. Planned features move one release: view 0.17.0, compare 0.18.0, eras 0.19.0. Full history: https://github.com/JerryBalmer1/TerraformGraph/blob/main/CHANGELOG.md'
             RequireLicenseAcceptance   = $false
             ExternalModuleDependencies = @()
         }
