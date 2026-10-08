@@ -19,7 +19,7 @@ In the same task as any change to:
 
 ## Rules
 
-- First non-blank line: the banner, one `>` line in the same style as README's line 1. Second non-blank line: the backlink to `README.md`. Keep both first; Pester ("keeps the two doors") checks them.
+- Each door opens with a banner pointing at the other. First non-blank line: the banner, one `>` line in the same style as README's line 1. Second non-blank line: the link back to `README.md`. Keep both first; Pester ("keeps the two doors") checks them and nothing else, so further links to README.md, and README mentioning ontology after its line 1, are allowed.
 - Sections stay in this order: The ontology was already there; What this is; Why Terraform is an unusually good ontology source; What agents get; Terminology; Facts and opinions; Not here yet. The first one is written for someone who works on ontologies or agent systems and has never thought of Terraform as a source: the realisation, not a definition.
 - Terminology names match exported names exactly. The "In the module" column holds only backticked names of three kinds: an exported command (`Get-TerraformGraphBundle`), a typed object or one of its properties (`TerraformGraph.ClassifiedType.Drawer`), or a data file path relative to the module or repo root (`classifiers/map.json`). Pester ("resolves every term in ONTOLOGY.md's terminology table") resolves every one and fails on anything else, so rename the table in the same task as the code.
 - The term list is Id, node, edge, finding, pack, bundle, sources, drawer, classifier, map row, source, era, in that order. Adding a term means updating the Pester expectation in the same task.

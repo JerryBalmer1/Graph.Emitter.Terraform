@@ -452,3 +452,11 @@ Read this file before any classifier work. Append an entry for every judgement y
 - Rejected: Changing the default to Repo (a user checking their own bundle copy wants their caches checked); dropping the docs rows (they are the useful part for a user's copy); shipping the 33 providers' docs as packs to make Machine pass anywhere (about 14 MB of docs the release does not need, and a data decision outside this fix).
 - Why: A gate that passes only on one machine is a statement about that machine. What a clean clone holds is what a release ships.
 - Cost if wrong: The release gate no longer notices that the author's docs cache is behind the bundle entries; `Test-TerraformGraphBundle -Scope Machine` still shows it, and HarvestBundleDocs rewrites the entries from the caches anyway. dist/schema-packs is read when present but is not in a clean clone, so pack rows appear only where BuildSchemaPack ran.
+
+## 52. The two doors are banners, not a ban
+
+- Question: Pester "keeps the two doors" failed if `ontolog` appeared anywhere in README.md after line 1, and the readme skill forbade any later mention. Does the split between README.md (sysadmin door) and ONTOLOGY.md (agent and ontology door) need that ban to hold?
+- Call: No. The test checks only the doors: README line 1 is a `>` blockquote linking ONTOLOGY.md, ONTOLOGY.md's first non-blank line is a `>` blockquote and its second links README.md. Each doc opens with a banner pointing at the other; further mentions are allowed. The readme and ontology-doc skills state the same rule. Where the explanation lives does not change: the agent story, terminology and facts and opinions stay in ONTOLOGY.md.
+- Rejected: Keeping the word ban (it fails a README sentence that merely names ONTOLOGY.md where a reader needs it, such as a classifier or Id section, and a word match cannot tell a pointer from a duplicated explanation); dropping the test (the banners are what make each door findable from the other).
+- Why: What the test can check reliably is the two banners. Whether a README paragraph has turned into ontology prose is a review judgement, which the readme skill's "Do not add ontology prose" line keeps.
+- Cost if wrong: Ontology explanation can creep into README.md without a test failing; the readme skill and review are the only guard.

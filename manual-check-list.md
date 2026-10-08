@@ -1951,7 +1951,7 @@ Pester: "names the sources of a bundle: written by New-TerraformGraphBundle, sho
 
 ### 16.5 Drawer semver gate
 
-The Pester test "drawers are semver-safe" passes an added drawer and fails a renamed one at 0.14.0. `$env:TERRAFORMGRAPH_DRAWERS_PATH` points the test at a temp copy of drawers.json.
+The Pester test "drawers are semver-safe" passes an added drawer and fails a renamed one at 0.15.0. `$env:TERRAFORMGRAPH_DRAWERS_PATH` points the test at a temp copy of drawers.json.
 
 ```powershell
 Set-Location 'C:\__Code\TerraformGraph'
@@ -1963,7 +1963,7 @@ $json = Get-Content -LiteralPath .\src\TerraformGraph\classifiers\drawers.json -
 $json.Replace('    { "name": "unclassified"', "    { `"name`": `"desktop`", `"label`": `"Desktop`", `"description`": `"Virtual desktops.`" },`n    { `"name`": `"unclassified`"") | Set-Content -LiteralPath $drawers
 $env:TERRAFORMGRAPH_DRAWERS_PATH = $drawers
 (Invoke-Pester -Path .\tests -FullNameFilter 'Contracts.drawers are semver-safe' -PassThru -Output None) | Format-Table PassedCount, FailedCount
-# A renamed drawer (devops -> developer): major, fails at 0.14.0.
+# A renamed drawer (devops -> developer): major, fails at 0.15.0.
 $json.Replace('"name": "devops"', '"name": "developer"') | Set-Content -LiteralPath $drawers
 $result = Invoke-Pester -Path .\tests -FullNameFilter 'Contracts.drawers are semver-safe' -PassThru -Output None
 $result | Format-Table PassedCount, FailedCount
@@ -1972,7 +1972,7 @@ Remove-Item Env:\TERRAFORMGRAPH_DRAWERS_PATH
 Remove-Item -LiteralPath $drawers
 ```
 
-Expect: `1 0` (passed, failed) for the added drawer, then `0 1` for the rename and the message `Expected $null or empty, because drawers devops of 0.13.0 are renamed or removed in 0.14.0, which needs a major version (ModuleVersion 1.0.0), but got 'devops'.`
+Expect: `1 0` (passed, failed) for the added drawer, then `0 1` for the rename and the message `Expected $null or empty, because drawers devops of 0.14.1 are renamed or removed in 0.15.0, which needs a major version (ModuleVersion 1.0.0), but got 'devops'.` (0.14.1 is the newest tag below the psd1 version; seen on 2026-10-07.)
 
 Pester: "drawers are semver-safe"
 
@@ -2077,7 +2077,7 @@ $list = (Import-PowerShellDataFile "$tree\TerraformGraph.psd1").FileList | Sort-
 $files
 ```
 
-Expect: `Assembled TerraformGraph 0.14.1: 16 files, ...` and `Build succeeded`, then `tree 16 files, FileList 16, identical True`, then the 16 paths: six under classifiers/, data/bundle.json, data/registry.json, lib/TerraformGraph.dll, lib/TerraformGraph.Json.dll, LICENSE, NOTICE, skills/terraformgraph/SKILL.md, TerraformGraph.Format.ps1xml, TerraformGraph.psd1, TerraformGraph.psm1. No .old, .h or .cs file.
+Expect: `Assembled TerraformGraph 0.15.0: 16 files, ...` (14,029,070 bytes on 2026-10-07) and `Build succeeded`, then `tree 16 files, FileList 16, identical True`, then the 16 paths: six under classifiers/, data/bundle.json, data/registry.json, lib/TerraformGraph.dll, lib/TerraformGraph.Json.dll, LICENSE, NOTICE, skills/terraformgraph/SKILL.md, TerraformGraph.Format.ps1xml, TerraformGraph.psd1, TerraformGraph.psm1. No .old, .h or .cs file.
 
 Pester: "lists in the psd1 FileList exactly what tools/Copy-TerraformGraphModule.ps1 assembles", "assembles a tree that holds exactly the FileList and passes Test-ModuleManifest"
 
@@ -2120,7 +2120,7 @@ Unregister-PSResourceRepository -Name TGCheckLocal
 Remove-Item -LiteralPath $repo -Recurse -Force
 ```
 
-Expect: `TerraformGraph.0.14.1.nupkg` of about 3.4 MB (3,442,109 bytes on 2026-10-07), the same 16 paths as 17.5, then `old or h files: 0`. The repository is unregistered and the folder removed at the end.
+Expect: `TerraformGraph.0.15.0.nupkg` of about 3.4 MB (3,446,066 bytes on 2026-10-07), the same 16 paths as 17.5, then `old or h files: 0`. The repository is unregistered and the folder removed at the end.
 
 Pester: none
 
@@ -2139,36 +2139,42 @@ $work = Join-Path $env:TEMP 'tg-check-split'
 Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item .\dist\module\TerraformGraph -Destination (Join-Path $work 'TerraformGraph') -Recurse
 git show v0.14.1:src/TerraformGraph/TerraformGraph.psm1 | Set-Content -LiteralPath (Join-Path $work 'TerraformGraph' 'TerraformGraph.psm1') -Encoding utf8NoBOM
-$surface = {
-    param($Psd1)
-    $env:TERRAFORMGRAPH_SKILL_HINT = '0'
-    $module = Import-Module $Psd1 -PassThru
-    $common = [System.Management.Automation.Cmdlet]::CommonParameters + [System.Management.Automation.Cmdlet]::OptionalCommonParameters
-    foreach ($command in Get-Command -Module TerraformGraph | Sort-Object Name) {
-        foreach ($set in $command.ParameterSets | Sort-Object Name) {
-            foreach ($p in $set.Parameters | Where-Object Name -notin $common | Sort-Object Name) {
-                "$($command.Name) $($set.Name) default=$($set.IsDefault) -$($p.Name) [$($p.ParameterType.Name)] mandatory=$($p.IsMandatory) position=$($p.Position) pipeline=$($p.ValueFromPipeline)/$($p.ValueFromPipelineByPropertyName) aliases=$(@($p.Aliases | Sort-Object) -join ',')"
-            }
-        }
-    }
-    & $module {
-        Get-ChildItem Function: | Where-Object { $_.Module.Name -eq 'TerraformGraph' } | Sort-Object Name | ForEach-Object {
-            $bytes = [Text.Encoding]::UTF8.GetBytes(($_.ScriptBlock.Ast.Extent.Text -replace "`r`n", "`n"))
-            "function $($_.Name) $([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)))"
+$surface = Join-Path $env:TEMP 'tg-check-surface.ps1'
+Set-Content -LiteralPath $surface -Encoding utf8NoBOM -Value @'
+param($Psd1)
+$env:TERRAFORMGRAPH_SKILL_HINT = '0'
+$module = Import-Module $Psd1 -PassThru
+$common = [System.Management.Automation.Cmdlet]::CommonParameters + [System.Management.Automation.Cmdlet]::OptionalCommonParameters
+foreach ($command in Get-Command -Module TerraformGraph | Sort-Object Name) {
+    foreach ($set in $command.ParameterSets | Sort-Object Name) {
+        foreach ($p in $set.Parameters | Where-Object Name -notin $common | Sort-Object Name) {
+            "$($command.Name) $($set.Name) default=$($set.IsDefault) -$($p.Name) [$($p.ParameterType.Name)] mandatory=$($p.IsMandatory) position=$($p.Position) pipeline=$($p.ValueFromPipeline)/$($p.ValueFromPipelineByPropertyName) aliases=$(@($p.Aliases | Sort-Object) -join ',')"
         }
     }
 }
-$v0141 = pwsh -NoProfile -Command $surface -args (Join-Path $work 'TerraformGraph' 'TerraformGraph.psd1')
-$src = pwsh -NoProfile -Command $surface -args (Resolve-Path .\src\TerraformGraph\TerraformGraph.psd1).Path
-$dist = pwsh -NoProfile -Command $surface -args (Resolve-Path .\dist\module\TerraformGraph\TerraformGraph.psd1).Path
-"lines: v0.14.1 $($v0141.Count), src $($src.Count), dist $($dist.Count); functions $(@($src -like 'function *').Count)"
-"v0.14.1 vs src:  $(@(Compare-Object $v0141 $src -SyncWindow 0).Count) differences"
-"v0.14.1 vs dist: $(@(Compare-Object $v0141 $dist -SyncWindow 0).Count) differences"
-"src vs dist:     $(@(Compare-Object $src $dist -SyncWindow 0).Count) differences"
-Remove-Item -LiteralPath $work -Recurse -Force
+& $module {
+    Get-ChildItem Function: | Where-Object { $_.Module.Name -eq 'TerraformGraph' } | Sort-Object Name | ForEach-Object {
+        $bytes = [Text.Encoding]::UTF8.GetBytes(($_.ScriptBlock.Ast.Extent.Text -replace "`r`n", "`n"))
+        "function $($_.Name) $([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)))"
+    }
+}
+'@
+try {
+    $v0141 = pwsh -NoProfile -File $surface (Join-Path $work 'TerraformGraph' 'TerraformGraph.psd1')
+    $src = pwsh -NoProfile -File $surface (Resolve-Path .\src\TerraformGraph\TerraformGraph.psd1).Path
+    $dist = pwsh -NoProfile -File $surface (Resolve-Path .\dist\module\TerraformGraph\TerraformGraph.psd1).Path
+    "lines: v0.14.1 $($v0141.Count), src $($src.Count), dist $($dist.Count); functions $(@($src -like 'function *').Count)"
+    "v0.14.1 vs src:  $(@(Compare-Object $v0141 $src -SyncWindow 0).Count) differences"
+    "v0.14.1 vs dist: $(@(Compare-Object $v0141 $dist -SyncWindow 0).Count) differences"
+    "src vs dist:     $(@(Compare-Object $src $dist -SyncWindow 0).Count) differences"
+}
+finally {
+    Remove-Item -LiteralPath $surface -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $work -Recurse -Force
+}
 ```
 
-Expect: the AssembleModule line (`Assembled TerraformGraph 0.15.0: 16 files, ...`), then `lines: v0.14.1 239, src 239, dist 239; functions 108`, then `0 differences` on all three comparison lines. The full proof of the split (the default test run, the AssembleModule file list and the module-scope variables as well) is in dist\split-proof from the 0.15.0 task; the only differences there are the shipped psm1's size and the six new tests.
+Expect: the AssembleModule line (`Assembled TerraformGraph 0.15.0: 16 files, ...`), then `lines: v0.14.1 239, src 239, dist 239; functions 108`, then `0 differences` on all three comparison lines (seen on 2026-10-07 with the surface script run by `pwsh -File`). The temp script and folder are removed at the end. The full proof of the split (the default test run, the AssembleModule file list and the module-scope variables as well) is in dist\split-proof from the 0.15.0 task; the only differences there are the shipped psm1's size and the six new tests.
 
 Pester: "names a documented fixing command for every terminating error id in the assembled dist psm1", "resolves every term in ONTOLOGY.md's terminology table against the assembled dist psm1"
 
@@ -2219,11 +2225,11 @@ Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
 Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
 Invoke-Build AssembleModule | Out-Null
 $env:TERRAFORMGRAPH_TEST_MANIFEST = (Resolve-Path .\dist\module\TerraformGraph\TerraformGraph.psd1).Path
-pwsh -NoProfile -File .	ests\Invoke-Tests.ps1
+pwsh -NoProfile -File (Resolve-Path ./tests/Invoke-Tests.ps1).Path
 "exit $LASTEXITCODE"
 Remove-Item Env:TERRAFORMGRAPH_TEST_MANIFEST
 ```
 
-Expect: the AssembleModule line, Pester's summary `Tests Passed: 235, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 17`, then `exit 0`.
+Expect: the AssembleModule line (`Assembled TerraformGraph 0.15.0: 16 files, ...`), Pester's summary `Tests Passed: 235, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 17`, then `exit 0`, the child pwsh's own exit code (Invoke-Tests.ps1 exits 1 on any failure; checked on 2026-10-07 by setting `$LASTEXITCODE = 99` before the child call and seeing it become 0).
 
 Pester: none (this runs Pester)
