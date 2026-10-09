@@ -3631,3 +3631,17 @@ Describe "Ontology" {
         $ontology[1] | Should -Match '\]\(README\.md\)'
     }
 }
+
+Describe 'graph-node skill (copied from GraphNode, read-only here)' {
+    It 'front-matter version equals GraphNode''s ModuleVersion' {
+        $graphNodeManifest = 'C:\__Code\Graph.Node\src\GraphNode\GraphNode.psd1'
+        if (-not (Test-Path -LiteralPath $graphNodeManifest)) {
+            Set-ItResult -Skipped -Because "GraphNode is not checked out at $graphNodeManifest"
+            return
+        }
+        $skill = Get-Content -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) '.claude' 'skills' 'graph-node' 'SKILL.md') -Raw
+        $front = [regex]::Match($skill, '\A---\r?\n(.*?)\r?\n---', 'Singleline').Groups[1].Value
+        $version = [regex]::Match($front, '(?m)^version:\s*(\S+)\s*$').Groups[1].Value
+        $version | Should -Be (Import-PowerShellDataFile -Path $graphNodeManifest).ModuleVersion -Because 'the copy in .claude/skills/graph-node must be recopied from GraphNode when GraphNode''s version changes'
+    }
+}
