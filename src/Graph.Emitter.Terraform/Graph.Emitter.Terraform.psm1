@@ -1,10 +1,10 @@
-# TerraformGraph module wiring. Function code lives one function per file, the file named for
+# Graph.Emitter.Terraform module wiring. Function code lives one function per file, the file named for
 # the function: Public/<Verb-Noun>.ps1 for the exported commands, Private/<Verb-Noun>.ps1 for
 # the helpers, Classes/ for any class or enum. To change a function, edit the file named for
 # it, never this one. This file holds only what runs at import: module-scope state, the parser
 # and JSON assembly loads, type data and argument completers, then the dot-source of those
 # folders and the calls that need the functions. Invoke-Build AssembleModule builds the single
-# psm1 that ships (dist/module/TerraformGraph) by splicing the files into the region below.
+# psm1 that ships (dist/module/Graph.Emitter.Terraform) by splicing the files into the region below.
 
 # The HCL parser is a Go c-shared DLL built for Windows x64 only. Anywhere else (or when the
 # DLL was never built) the module still imports: the parser commands throw ParserUnavailable
@@ -15,10 +15,10 @@ $script:TerraformGraphParserUnavailableReason = $null
 $processArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
 if (-not ($IsWindows -and $processArchitecture -eq [System.Runtime.InteropServices.Architecture]::X64)) {
     $platform = "$([System.Runtime.InteropServices.RuntimeInformation]::OSDescription.Trim()) $processArchitecture"
-    $script:TerraformGraphParserUnavailableReason = "TerraformGraph's HCL parser ships for Windows x64 only; $platform detected. Schema, registry, docs, classifier and bundle commands work without it."
+    $script:TerraformGraphParserUnavailableReason = "Graph.Emitter.Terraform's HCL parser ships for Windows x64 only; $platform detected. Schema, registry, docs, classifier and bundle commands work without it."
 }
 elseif (-not (Test-Path -LiteralPath $dllPath -PathType Leaf)) {
-    $script:TerraformGraphParserUnavailableReason = "TerraformGraph's HCL parser is not built: $dllPath does not exist. Build it with Invoke-Build BuildDLL (needs Docker). Schema, registry, docs, classifier and bundle commands work without it."
+    $script:TerraformGraphParserUnavailableReason = "Graph.Emitter.Terraform's HCL parser is not built: $dllPath does not exist. Build it with Invoke-Build BuildDLL (needs Docker). Schema, registry, docs, classifier and bundle commands work without it."
 }
 else {
     # UTF-8 both ways: Go reads the path and returns the JSON as UTF-8 (CharSet.Ansi would
@@ -48,7 +48,7 @@ if (-not ('TerraformGraph.Json' -as [type])) {
             $jsonLoaded = $true
         }
         catch {
-            Write-Verbose "TerraformGraph: $jsonAssembly did not load ($($_.Exception.Message)); compiling TerraformGraph.Json.cs instead."
+            Write-Verbose "Graph.Emitter.Terraform: $jsonAssembly did not load ($($_.Exception.Message)); compiling TerraformGraph.Json.cs instead."
         }
     }
     if (-not $jsonLoaded) {
@@ -76,7 +76,7 @@ Update-TypeData -TypeName $blockTypeName -MemberType ScriptProperty -MemberName 
 } -Force
 
 # Module graph views. Every property stays on the object; these only pick the table columns.
-# ModuleNode and ModuleEdge have more than four columns, so their table views are in TerraformGraph.Format.ps1xml.
+# ModuleNode and ModuleEdge have more than four columns, so their table views are in Graph.Emitter.Terraform.Format.ps1xml.
 Update-TypeData -TypeName 'TerraformGraph.ModuleNode' -DefaultDisplayPropertySet Id, Kind, SourceKind, Depth, Resolved, Dir -Force
 Update-TypeData -TypeName 'TerraformGraph.ModuleEdge' -DefaultDisplayPropertySet From, To, Kind, Call, File, Line -Force
 
@@ -271,7 +271,7 @@ Register-ArgumentCompleter -CommandName Get-TerraformRegistryProvider -Parameter
 # both roots with InModuleScope. Save-TerraformSchemaPackFile is the only pack network call.
 $script:TerraformSchemaCacheRoot = Join-Path ($env:LOCALAPPDATA ?? [Environment]::GetFolderPath('LocalApplicationData')) 'TerraformGraph' 'schemas'
 $script:TerraformDocCacheRoot = Join-Path ($env:LOCALAPPDATA ?? [Environment]::GetFolderPath('LocalApplicationData')) 'TerraformGraph' 'docs'
-$script:TerraformSchemaPackSource = 'https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download'
+$script:TerraformSchemaPackSource = 'https://github.com/JerryBalmer1/Graph.Emitter.Terraform/releases/latest/download'
 
 Update-TypeData -TypeName 'TerraformGraph.SchemaPack' -DefaultDisplayPropertySet ProviderAddress, Version, Status, Bytes -Force
 Update-TypeData -TypeName 'TerraformGraph.DocPack' -DefaultDisplayPropertySet ProviderAddress, Version, Status, Bytes -Force
@@ -375,7 +375,7 @@ $script:TerraformGraphBundleSources = @(
     [ordered]@{
         kind        = 'schemas'
         urls        = @(
-            'https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download/manifest.json'
+            'https://github.com/JerryBalmer1/Graph.Emitter.Terraform/releases/latest/download/manifest.json'
         )
         relatedUrls = @(
             'https://developer.hashicorp.com/terraform/cli/commands/providers/schema'
@@ -397,17 +397,17 @@ $script:TerraformGraphBundleSources = @(
     [ordered]@{
         kind        = 'classifiers'
         urls        = @(
-            'https://github.com/JerryBalmer1/TerraformGraph/tree/main/src/TerraformGraph/classifiers'
+            'https://github.com/JerryBalmer1/Graph.Emitter.Terraform/tree/main/src/Graph.Emitter.Terraform/classifiers'
         )
         relatedUrls = @(
-            'https://github.com/JerryBalmer1/TerraformGraph/blob/main/src/TerraformGraph/classifiers/DECISIONS.md'
+            'https://github.com/JerryBalmer1/Graph.Emitter.Terraform/blob/main/src/Graph.Emitter.Terraform/classifiers/DECISIONS.md'
         )
         harvestedBy = 'New-TerraformClassifier'
     }
     [ordered]@{
         kind        = 'skills'
         urls        = @(
-            'https://github.com/JerryBalmer1/TerraformGraph/tree/main/src/TerraformGraph/skills'
+            'https://github.com/JerryBalmer1/Graph.Emitter.Terraform/tree/main/src/Graph.Emitter.Terraform/skills'
         )
         relatedUrls = @(
             'https://agentskills.io'
@@ -446,7 +446,7 @@ $script:TerraformGraphSkillSource = Join-Path $PSScriptRoot 'skills'
 # Function code: Classes, Private, Public, one function per file. Invoke-Build AssembleModule
 # (tools/Copy-TerraformGraphModule.ps1) replaces this region with the files' contents, in this
 # order, so the shipped psm1 dot-sources nothing.
-#region TerraformGraph source files
+#region Graph.Emitter.Terraform source files
 foreach ($terraformGraphSourceFolder in 'Classes', 'Private', 'Public') {
     $terraformGraphSourceFolder = Join-Path $PSScriptRoot $terraformGraphSourceFolder
     if (-not (Test-Path -LiteralPath $terraformGraphSourceFolder -PathType Container)) { continue }
@@ -455,12 +455,12 @@ foreach ($terraformGraphSourceFolder in 'Classes', 'Private', 'Public') {
     }
 }
 Remove-Variable -Name terraformGraphSourceFolder, terraformGraphSourceFile, foreach -ErrorAction SilentlyContinue
-#endregion TerraformGraph source files
+#endregion Graph.Emitter.Terraform source files
 
 # At import, once the functions exist: the registry rate state starts empty, the psd1 list is
 # exported, and the skill hint prints its one line (or nothing).
 Reset-TerraformRegistryThrottle
 
-Export-ModuleMember -Function (Import-PowerShellDataFile -LiteralPath (Join-Path $PSScriptRoot 'TerraformGraph.psd1')).FunctionsToExport
+Export-ModuleMember -Function (Import-PowerShellDataFile -LiteralPath (Join-Path $PSScriptRoot 'Graph.Emitter.Terraform.psd1')).FunctionsToExport
 
 Show-TerraformGraphSkillHint

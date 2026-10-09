@@ -6,7 +6,7 @@ function Get-TerraformAST {
     .DESCRIPTION
         Get-TerraformAST walks one file or a directory of Terraform configuration and
         returns the HCL blocks produced by HashiCorp HCL v2 (the language library
-        Terraform uses). It is the AST layer of TerraformGraph; the module and provider
+        Terraform uses). It is the AST layer of Graph.Emitter.Terraform; the module and provider
         relationship graph is built on top of these blocks.
 
         Use -FilePath for a single .tf file. Use -Path for a directory. Add -Recurse
@@ -48,7 +48,7 @@ function Get-TerraformAST {
         TerraformGraph.Block
 
     .LINK
-        https://github.com/JerryBalmer1/TerraformGraph
+        https://github.com/JerryBalmer1/Graph.Emitter.Terraform
     #>
     [CmdletBinding(DefaultParameterSetName = 'Directory')]
     param(

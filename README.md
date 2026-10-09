@@ -1,7 +1,7 @@
 > **Built as an ontology layer for AI agents.** If that is why you are here, read [ONTOLOGY.md](ONTOLOGY.md).
 
 <p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&height=220&section=header&color=0:1B1030,45:5C4EE5,100:844FBA&text=TerraformGraph&fontSize=52&fontColor=FFFFFF&fontAlignY=38&desc=Parse%20Terraform%20into%20an%20HCL%20AST%20and%20a%20module%20and%20provider%20graph&descSize=16&descAlignY=62&animation=fadeIn" alt="TerraformGraph" />
+  <img src="https://capsule-render.vercel.app/api?type=waving&height=220&section=header&color=0:1B1030,45:5C4EE5,100:844FBA&text=Graph.Emitter.Terraform&fontSize=52&fontColor=FFFFFF&fontAlignY=38&desc=Parse%20Terraform%20into%20an%20HCL%20AST%20and%20a%20module%20and%20provider%20graph&descSize=16&descAlignY=62&animation=fadeIn" alt="Graph.Emitter.Terraform" />
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@ Parse Terraform configurations into an HCL AST and build graphs of module calls 
 **In CI**, one line fails the build when any module call is nested deeper than 3:
 
 ```powershell
-pwsh -NoProfile -Command "Import-Module TerraformGraph; if ((Get-TerraformModuleGraph -Path . -Recurse).Nodes | Where-Object Depth -gt 3) { exit 1 }"
+pwsh -NoProfile -Command "Import-Module Graph.Emitter.Terraform; if ((Get-TerraformModuleGraph -Path . -Recurse).Nodes | Where-Object Depth -gt 3) { exit 1 }"
 ```
 
 Exit code 0: every module call is at depth 3 or less (the root module is depth 0). Exit code 1: at least one is deeper. A parse error or an unreadable path is a terminating error, which also exits 1. `Get-TerraformModuleGraph` never runs `terraform init`.
@@ -29,7 +29,7 @@ Exit code 0: every module call is at depth 3 or less (the root module is depth 0
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.16.0**. Not yet published to the PowerShell Gallery: install from a clone (see [Install](#install)).
+Source version **0.17.0**. Not yet published to the PowerShell Gallery: install from a clone (see [Install](#install)).
 
 ---
 
@@ -47,7 +47,7 @@ Source version **0.16.0**. Not yet published to the PowerShell Gallery: install 
 
 ## Downloads & Links
 
-- Homepage: https://github.com/JerryBalmer1/TerraformGraph
+- Homepage: https://github.com/JerryBalmer1/Graph.Emitter.Terraform
 - Parser library: https://github.com/hashicorp/hcl
 - Changelog: [CHANGELOG.md](CHANGELOG.md)
 
@@ -58,21 +58,21 @@ Source version **0.16.0**. Not yet published to the PowerShell Gallery: install 
 From a clone, after `Invoke-Build BuildDLL` (see [Build the DLL](#build-the-dll-contributors)):
 
 ```powershell
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1
 ```
 
 <!--
 ### Once on the Gallery
 
-Restore this, and the Gallery badge and link at the top, when TerraformGraph is published:
+Restore this, and the Gallery badge and link at the top, when Graph.Emitter.Terraform is published:
 
 ```powershell
-Install-Module -Name TerraformGraph -Scope CurrentUser
-Import-Module TerraformGraph
+Install-Module -Name Graph.Emitter.Terraform -Scope CurrentUser
+Import-Module Graph.Emitter.Terraform
 ```
 
-<a href="https://www.powershellgallery.com/packages/TerraformGraph"><img src="https://img.shields.io/powershellgallery/v/TerraformGraph?style=for-the-badge&label=Gallery" alt="PowerShell Gallery" /></a>
-- Gallery: https://www.powershellgallery.com/packages/TerraformGraph
+<a href="https://www.powershellgallery.com/packages/Graph.Emitter.Terraform"><img src="https://img.shields.io/powershellgallery/v/Graph.Emitter.Terraform?style=for-the-badge&label=Gallery" alt="PowerShell Gallery" /></a>
+- Gallery: https://www.powershellgallery.com/packages/Graph.Emitter.Terraform
 -->
 
 ## Examples
@@ -138,10 +138,10 @@ Get-TerraformAST -FilePath .\infra\variables.tf |
 Type            : variable
 Labels          : {aws_region}
 Body            : @{Attributes=; Blocks=; SrcRange=; EndRange=}
-TypeRange       : @{Filename=C:\__Code\TerraformGraph\infra\variables.tf; Start=; End=}
-LabelRanges     : {@{Filename=C:\__Code\TerraformGraph\infra\variables.tf; Start=; End=}}
-OpenBraceRange  : @{Filename=C:\__Code\TerraformGraph\infra\variables.tf; Start=; End=}
-CloseBraceRange : @{Filename=C:\__Code\TerraformGraph\infra\variables.tf; Start=; End=}
+TypeRange       : @{Filename=C:\__Code\Graph.Emitter.Terraform\infra\variables.tf; Start=; End=}
+LabelRanges     : {@{Filename=C:\__Code\Graph.Emitter.Terraform\infra\variables.tf; Start=; End=}}
+OpenBraceRange  : @{Filename=C:\__Code\Graph.Emitter.Terraform\infra\variables.tf; Start=; End=}
+CloseBraceRange : @{Filename=C:\__Code\Graph.Emitter.Terraform\infra\variables.tf; Start=; End=}
 Name            : aws_region
 Line            : 1
 Column          : 1
@@ -367,7 +367,7 @@ Tab completion reads the cache only and never touches the network: `Get-Terrafor
 The bundled file is refreshed when cutting a release, not in the default build:
 
 ```powershell
-Invoke-Build BuildRegistry   # writes src/TerraformGraph/data/registry.json, prints ProviderCount, VersionCount, Elapsed
+Invoke-Build BuildRegistry   # writes src/Graph.Emitter.Terraform/data/registry.json, prints ProviderCount, VersionCount, Elapsed
 ```
 
 ## Schema packs
@@ -444,7 +444,7 @@ The vsphere provider moved from `hashicorp/vsphere` (frozen at 2.12.0, April 202
 
 ## Provider docs
 
-The schema says which arguments a resource takes. The registry docs say what they mean, with examples. TerraformGraph keeps the registry's markdown pages in a local cache next to the schemas. Each page is keyed on the Id of the schema node it documents, so docs join to schema graphs and resource graphs with no lookup tables.
+The schema says which arguments a resource takes. The registry docs say what they mean, with examples. Graph.Emitter.Terraform keeps the registry's markdown pages in a local cache next to the schemas. Each page is keyed on the Id of the schema node it documents, so docs join to schema graphs and resource graphs with no lookup tables.
 
 | Page | Doc Id | Joins to |
 |---|---|---|
@@ -543,10 +543,10 @@ The shipped `-Sources`, 0.14.0:
 Kind        HarvestedBy                      LastPulled           Urls
 ----        -----------                      ----------           ----
 registry    Update-TerraformRegistryCache    2026-10-07T02:55:12Z {https://registry.terraform.io/v2/providers?filter[tier]=official,partner&page[size]=100, https://registry.terraform.io/v1/providers/.
-schemas     Get-TerraformProviderSchema      2026-10-07T03:58:00Z {https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download/manifest.json}
+schemas     Get-TerraformProviderSchema      2026-10-07T03:58:00Z {https://github.com/JerryBalmer1/Graph.Emitter.Terraform/releases/latest/download/manifest.json}
 docs        Update-TerraformProviderDocCache 2026-10-07T05:19:53Z {https://registry.terraform.io/v2/provider-versions/{id}?include=provider-docs, https://registry.terraform.io/v2/provider-docs/{id}}
-classifiers New-TerraformClassifier          2026-10-07T05:22:55Z {https://github.com/JerryBalmer1/TerraformGraph/tree/main/src/TerraformGraph/classifiers}
-skills      Install-TerraformGraphSkill                           {https://github.com/JerryBalmer1/TerraformGraph/tree/main/src/TerraformGraph/skills}
+classifiers New-TerraformClassifier          2026-10-07T05:22:55Z {https://github.com/JerryBalmer1/Graph.Emitter.Terraform/tree/main/src/Graph.Emitter.Terraform/classifiers}
+skills      Install-TerraformGraphSkill                           {https://github.com/JerryBalmer1/Graph.Emitter.Terraform/tree/main/src/Graph.Emitter.Terraform/skills}
 cmdb                                                              {}
 ```
 
@@ -615,7 +615,7 @@ On the bundled set (2026-10-07): 661 distinct labels in 893 rows. Only 11 of the
 ```powershell
 Test-TerraformGraphBundle | Where-Object Status -ne Fresh
 Test-TerraformGraphBundle | Where-Object Status -ne Fresh | Format-List Item, Detail, InspectAction, RecommendedAction
-pwsh -NoProfile -Command "Import-Module TerraformGraph; Test-TerraformGraphBundle -Strict | Out-Null"   # exit 1 when anything is Stale or Missing
+pwsh -NoProfile -Command "Import-Module Graph.Emitter.Terraform; Test-TerraformGraphBundle -Strict | Out-Null"   # exit 1 when anything is Stale or Missing
 ```
 
 A bundle for `hashicorp/null`, written against a `registry.json` beside it that has since been refreshed (`-DistPath` pointed at a folder with no packs):
@@ -699,14 +699,14 @@ Classifiers are looked up in this order: `-ClassifierPath` (a file or a folder),
 New-TerraformClassifier -Provider hashicorp/null, hashicorp/local -PassThru    # into the user folder
 
 # Your own opinions: copy map.json, add rows (each with a reason), classify into a folder, point the graphs at it.
-Copy-Item (Join-Path (Split-Path (Get-Module TerraformGraph).Path) 'classifiers\map.json') .\my-map.json
+Copy-Item (Join-Path (Split-Path (Get-Module Graph.Emitter.Terraform).Path) 'classifiers\map.json') .\my-map.json
 New-TerraformClassifier -Provider azurerm -MapPath .\my-map.json -OutputPath .\my-classifiers -PassThru
 ConvertTo-TerraformSchemaGraph -Provider azurerm -ClassifierPath .\my-classifiers | Select-Object -ExpandProperty Drawers
 ```
 
 `New-TerraformClassifier` checks the map first. A row with an empty reason, a drawer not in `drawers.json` (taken from beside the map, else the bundled one), a row targeting `unclassified`, a `source` other than `subcategory` or `prefix`, a `*` prefix row, or a repeated provider, source and subcategory stops it before anything is read. A prefix row that matches none of the provider's schema types stops it once the schema is read. Output is sorted by type, then kind. When a rerun produces the same content, the file and its `generatedOn` are left alone, so reruns are byte-identical. `mapVersion` is a hash of the map's rows. `-ClassifierPath` implies `-Classify`.
 
-To change the shipped classifiers: read `DECISIONS.md`, append an entry for each judgement, edit `map.json` (never without a reason), then run `Invoke-Build BuildClassifier` (default azurerm, azuredevops, vsphere at their latest version in the registry cache, from your local caches, no network). It prints the findings per provider. Stage `src/TerraformGraph/classifiers/`. Pester fails if a bundled classifier's `mapVersion` no longer matches `map.json`.
+To change the shipped classifiers: read `DECISIONS.md`, append an entry for each judgement, edit `map.json` (never without a reason), then run `Invoke-Build BuildClassifier` (default azurerm, azuredevops, vsphere at their latest version in the registry cache, from your local caches, no network). It prints the findings per provider. Stage `src/Graph.Emitter.Terraform/classifiers/`. Pester fails if a bundled classifier's `mapVersion` no longer matches `map.json`.
 
 Drawer names are versioned like an API: adding a drawer or map rows is a minor release, renaming or removing a drawer is a major one. Pester ("drawers are semver-safe") compares `drawers.json` with the previous release's and fails a rename or removal unless the module's major version went up.
 
@@ -733,7 +733,7 @@ Files are copied, not linked. Without `-Force`, an identical file is left alone 
 On import, the module checks the current directory. If an agent tool is detected there without the skill, it prints one line:
 
 ```
-TerraformGraph: detected Claude in this directory. Run Install-TerraformGraphSkill -Tool Claude to give them the TerraformGraph skill.
+Graph.Emitter.Terraform: detected Claude in this directory. Run Install-TerraformGraphSkill -Tool Claude to give them the Graph.Emitter.Terraform skill.
 ```
 
 It is silent when nothing is detected or everything is installed. Set `$env:TERRAFORMGRAPH_SKILL_HINT = '0'` before importing to turn it off.
@@ -756,15 +756,15 @@ If `TerraformGraph.dll` is already loaded in this PowerShell process, Windows wi
 
 ```powershell
 Invoke-Build CheckDependencies
-Invoke-Build BuildDLL         # Docker: golang 1.24 + mingw -> src/TerraformGraph/lib/TerraformGraph.dll (and the generated .h)
+Invoke-Build BuildDLL         # Docker: golang 1.24 + mingw -> src/Graph.Emitter.Terraform/lib/TerraformGraph.dll (and the generated .h)
 Invoke-Build BuildJson        # optional, a .NET 8 SDK: lib/TerraformGraph.Json.dll, so import does not compile C#
 Invoke-Build                  # the default test run, no network: pwsh -NoProfile -File .\tests\Invoke-Tests.ps1
-Invoke-Build AssembleModule   # dist/module/TerraformGraph: exactly the files the psd1 FileList names, with one psm1 built from Private/ and Public/
+Invoke-Build AssembleModule   # dist/module/Graph.Emitter.Terraform: exactly the files the psd1 FileList names, with one psm1 built from Private/ and Public/
 ```
 
-Function code is one function per file, named for the function: `src/TerraformGraph/Public/<Verb-Noun>.ps1` for an exported command, `src/TerraformGraph/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `TerraformGraph.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships.
+Function code is one function per file, named for the function: `src/Graph.Emitter.Terraform/Public/<Verb-Noun>.ps1` for an exported command, `src/Graph.Emitter.Terraform/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `Graph.Emitter.Terraform.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships.
 
-`BuildDLL` cross-compiles `src/go` with `github.com/hashicorp/hcl/v2` and copies `TerraformGraph.dll` into `src/TerraformGraph/lib/`. `pwsh -NoProfile -File .\tests\Invoke-Tests.ps1 -Live` runs the tests that call the registry; never run it while a harvest is going.
+`BuildDLL` cross-compiles `src/go` with `github.com/hashicorp/hcl/v2` and copies `TerraformGraph.dll` into `src/Graph.Emitter.Terraform/lib/`. `pwsh -NoProfile -File .\tests\Invoke-Tests.ps1 -Live` runs the tests that call the registry; never run it while a harvest is going.
 
 ## Disclaimer
 
@@ -772,8 +772,8 @@ This project is independent. It is not affiliated with HashiCorp.
 
 ## License
 
-TerraformGraph is licensed under the [Apache License 2.0](LICENSE).
+Graph.Emitter.Terraform is licensed under the [Apache License 2.0](LICENSE).
 
 <p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&height=120&section=footer&color=0:844FBA,55:5C4EE5,100:1B1030&text=TerraformGraph&fontSize=28&fontColor=FFFFFF&fontAlignY=70&animation=fadeIn" alt="" />
+  <img src="https://capsule-render.vercel.app/api?type=waving&height=120&section=footer&color=0:844FBA,55:5C4EE5,100:1B1030&text=Graph.Emitter.Terraform&fontSize=28&fontColor=FFFFFF&fontAlignY=70&animation=fadeIn" alt="" />
 </p>

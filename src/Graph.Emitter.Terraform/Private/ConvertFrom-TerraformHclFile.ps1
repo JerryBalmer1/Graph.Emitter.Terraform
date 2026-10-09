@@ -39,7 +39,7 @@ function ConvertFrom-TerraformHclFile {
         Get-TerraformAST
 
     .LINK
-        https://github.com/JerryBalmer1/TerraformGraph
+        https://github.com/JerryBalmer1/Graph.Emitter.Terraform
     #>
     [CmdletBinding()]
     param(

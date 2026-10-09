@@ -47,7 +47,7 @@ function Get-TerraformSchemaPack {
     .PARAMETER Source
         Where manifest.json and the pack files are: an http(s) URL, or a local directory
         such as the dist\schema-packs folder Invoke-Build BuildSchemaPack writes. Default:
-        https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download. A
+        https://github.com/JerryBalmer1/Graph.Emitter.Terraform/releases/latest/download. A
         https://github.com/<owner>/<repo>/releases/download/<tag> URL names one release.
 
     .PARAMETER Force

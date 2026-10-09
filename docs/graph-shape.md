@@ -1,6 +1,6 @@
 # Graph shape
 
-The property contract of TerraformGraph's graph objects. Every node has `Id` first and `Kind` second; every edge has `From`, `To` and `Kind` first, in that order. This file covers the module graph (`Get-TerraformModuleGraph`, 0.16.0); the schema, variable and resource graphs are described in their command help and in the canonical Id table in [README.md](../README.md#schema-graph-convertto-terraformschemagraph).
+The property contract of Graph.Emitter.Terraform's graph objects. Every node has `Id` first and `Kind` second; every edge has `From`, `To` and `Kind` first, in that order. This file covers the module graph (`Get-TerraformModuleGraph`, 0.16.0); the schema, variable and resource graphs are described in their command help and in the canonical Id table in [README.md](../README.md#schema-graph-convertto-terraformschemagraph).
 
 ## ModuleGraph
 

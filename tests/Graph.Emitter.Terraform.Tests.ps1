@@ -8,18 +8,18 @@ BeforeDiscovery {
     #                     download). Skipped, not failed, when terraform is not on PATH.
     $HasTerraform = [bool](Get-Command terraform -CommandType Application -ErrorAction SilentlyContinue)
     $RunLive = $env:TERRAFORMGRAPH_LIVE -eq '1'
-    #   RequiresBuild     both DLLs in src/TerraformGraph/lib (Invoke-Build BuildDLL and BuildJson),
+    #   RequiresBuild     both DLLs in src/Graph.Emitter.Terraform/lib (Invoke-Build BuildDLL and BuildJson),
     #                     which a clean clone does not have. Skipped without them.
-    $libFolder = Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'lib'
+    $libFolder = Join-Path $PSScriptRoot '..' 'src' 'Graph.Emitter.Terraform' 'lib'
     $HasModuleBuild = (Test-Path -LiteralPath (Join-Path $libFolder 'TerraformGraph.dll')) -and (Test-Path -LiteralPath (Join-Path $libFolder 'TerraformGraph.Json.dll'))
 }
 
 BeforeAll {
     # Never resolve Get-TerraformAST from an installed copy of the old AST module.
-    Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
+    Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
     # TERRAFORMGRAPH_TEST_MANIFEST runs the suite against another copy of the module, such as
-    # the assembled dist/module/TerraformGraph/TerraformGraph.psd1 (checklist 18.1).
-    Import-Module ($env:TERRAFORMGRAPH_TEST_MANIFEST ? $env:TERRAFORMGRAPH_TEST_MANIFEST : "$PSScriptRoot\..\src\TerraformGraph\TerraformGraph.psd1") -Force
+    # the assembled dist/module/Graph.Emitter.Terraform/Graph.Emitter.Terraform.psd1 (checklist 18.1).
+    Import-Module ($env:TERRAFORMGRAPH_TEST_MANIFEST ? $env:TERRAFORMGRAPH_TEST_MANIFEST : "$PSScriptRoot\..\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1") -Force
 
     # The module's code as tests that read it see it: the wiring psm1, then one file per function
     # under Classes, Private and Public. -Assembled builds the psm1 that ships instead
@@ -29,10 +29,10 @@ BeforeAll {
         $repoRoot = Split-Path $PSScriptRoot -Parent
         if ($Assembled) {
             $null = & (Join-Path $repoRoot 'tools' 'Copy-TerraformGraphModule.ps1') -RepoRoot $repoRoot -OutputPath $Destination
-            return Join-Path $Destination 'TerraformGraph.psm1'
+            return Join-Path $Destination 'Graph.Emitter.Terraform.psm1'
         }
-        $moduleRoot = Join-Path $repoRoot 'src' 'TerraformGraph'
-        Join-Path $moduleRoot 'TerraformGraph.psm1'
+        $moduleRoot = Join-Path $repoRoot 'src' 'Graph.Emitter.Terraform'
+        Join-Path $moduleRoot 'Graph.Emitter.Terraform.psm1'
         foreach ($folder in 'Classes', 'Private', 'Public') {
             $path = Join-Path $moduleRoot $folder
             if (Test-Path -LiteralPath $path -PathType Container) {
@@ -42,7 +42,7 @@ BeforeAll {
     }
 }
 
-Describe "TerraformGraph" {
+Describe "Graph.Emitter.Terraform" {
 
     BeforeAll {
         $repoRoot = Split-Path $PSScriptRoot -Parent
@@ -59,8 +59,8 @@ Describe "TerraformGraph" {
             Get-Command Get-TerraformAST -ErrorAction Stop | Should -Not -BeNullOrEmpty
         }
 
-        It "resolves to the TerraformGraph module" {
-            (Get-Command Get-TerraformAST -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        It "resolves to the Graph.Emitter.Terraform module" {
+            (Get-Command Get-TerraformAST -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
         }
 
         It "parses infra with -Path" {
@@ -160,15 +160,15 @@ Describe "TerraformGraph" {
     Context "parser unavailable" {
 
         BeforeAll {
-            Set-Variable -Name SavedParser -Scope Script -Value (InModuleScope TerraformGraph { $script:TerraformGraphParserAvailable, $script:TerraformGraphParserUnavailableReason })
-            InModuleScope TerraformGraph {
+            Set-Variable -Name SavedParser -Scope Script -Value (InModuleScope Graph.Emitter.Terraform { $script:TerraformGraphParserAvailable, $script:TerraformGraphParserUnavailableReason })
+            InModuleScope Graph.Emitter.Terraform {
                 $script:TerraformGraphParserAvailable = $false
-                $script:TerraformGraphParserUnavailableReason = "TerraformGraph's HCL parser ships for Windows x64 only; Test OS Arm64 detected. Schema, registry, docs, classifier and bundle commands work without it."
+                $script:TerraformGraphParserUnavailableReason = "Graph.Emitter.Terraform's HCL parser ships for Windows x64 only; Test OS Arm64 detected. Schema, registry, docs, classifier and bundle commands work without it."
             }
         }
 
         AfterAll {
-            InModuleScope TerraformGraph -Parameters @{ Saved = $SavedParser } {
+            InModuleScope Graph.Emitter.Terraform -Parameters @{ Saved = $SavedParser } {
                 param($Saved)
                 $script:TerraformGraphParserAvailable = $Saved[0]
                 $script:TerraformGraphParserUnavailableReason = $Saved[1]
@@ -601,8 +601,8 @@ Describe "TerraformGraph" {
             Set-Variable -Name CycleRoot -Value $cycle -Scope Script
         }
 
-        It "is exported from TerraformGraph" {
-            (Get-Command Get-TerraformModuleGraph -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        It "is exported from Graph.Emitter.Terraform" {
+            (Get-Command Get-TerraformModuleGraph -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
         }
 
         It "stops at direct children without -Recurse" {
@@ -805,8 +805,8 @@ Describe "TerraformGraph" {
             Set-Variable -Name SchemaGraph -Value ($schema | ConvertTo-TerraformSchemaGraph -ErrorAction Stop) -Scope Script
         }
 
-        It "is exported from TerraformGraph" {
-            (Get-Command ConvertTo-TerraformSchemaGraph -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        It "is exported from Graph.Emitter.Terraform" {
+            (Get-Command ConvertTo-TerraformSchemaGraph -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
         }
 
         It "lists only the built-in provider" {
@@ -902,7 +902,7 @@ Describe "TerraformGraph" {
         }
 
         It "renders cty type JSON as Terraform type syntax" {
-            InModuleScope TerraformGraph {
+            InModuleScope Graph.Emitter.Terraform {
                 $cases = [ordered]@{
                     '"string"'                                         = 'string'
                     '["list","string"]'                                = 'list(string)'
@@ -920,7 +920,7 @@ Describe "TerraformGraph" {
         }
 
         It "renders a nested_type as its implied type" {
-            InModuleScope TerraformGraph {
+            InModuleScope Graph.Emitter.Terraform {
                 $nested = '{"nesting_mode":"list","attributes":{"x":{"type":"string","required":true},"y":{"type":["list","number"],"optional":true}}}' |
                     ConvertFrom-TerraformJson -AsHashtable
                 $type = ConvertTo-TerraformNestedTypeJson -NestedType $nested
@@ -1030,9 +1030,9 @@ locals {
             Set-Variable -Name RefsTf -Value $refs -Scope Script
         }
 
-        It "exports both variable graph functions from TerraformGraph" {
-            (Get-Command ConvertTo-TerraformVariableGraph -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
-            (Get-Command Get-TerraformVariableTrace -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        It "exports both variable graph functions from Graph.Emitter.Terraform" {
+            (Get-Command ConvertTo-TerraformVariableGraph -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
+            (Get-Command Get-TerraformVariableTrace -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
         }
 
         It "has one node per variable, local and output in root, network and endpoint" {
@@ -1164,7 +1164,7 @@ locals {
 
         It "finds a plain var reference in an infra expression" {
             $expr = ((Get-TerraformAST -FilePath $MainTf | Where-Object Type -eq 'locals').Body.Attributes.enabled.Expr)
-            InModuleScope TerraformGraph -Parameters @{ Expr = $expr } {
+            InModuleScope Graph.Emitter.Terraform -Parameters @{ Expr = $expr } {
                 $refs = @(Get-TerraformExpressionReferences -Expr $Expr)
                 $refs.Count | Should -Be 1
                 $refs[0].Traversal | Should -Be 'var.enable_public_ip'
@@ -1174,7 +1174,7 @@ locals {
 
         It "gives path.module in an infra template a null Root" {
             $expr = ((Get-TerraformAST -FilePath $MainTf | Where-Object Type -eq 'data').Body.Attributes.filename.Expr)
-            InModuleScope TerraformGraph -Parameters @{ Expr = $expr } {
+            InModuleScope Graph.Emitter.Terraform -Parameters @{ Expr = $expr } {
                 $refs = @(Get-TerraformExpressionReferences -Expr $Expr)
                 $refs.Traversal | Should -Be 'path.module'
                 $refs[0].Root | Should -BeNullOrEmpty
@@ -1183,7 +1183,7 @@ locals {
 
         It "strips index suffixes, finds both refs in a function call, and leaves a resource Root null" {
             $attributes = (Get-TerraformAST -FilePath $RefsTf).Body.Attributes
-            InModuleScope TerraformGraph -Parameters @{ A = $attributes } {
+            InModuleScope Graph.Emitter.Terraform -Parameters @{ A = $attributes } {
                 $indexed = @(Get-TerraformExpressionReferences -Expr $A.indexed.Expr)
                 $indexed[0].Traversal | Should -Be 'var.tags["k"]'
                 $indexed[0].Root | Should -Be 'var.tags'
@@ -1309,8 +1309,8 @@ locals {
             Set-Variable -Name SingleNode -Value $single -Scope Script
         }
 
-        It "is exported from TerraformGraph" {
-            (Get-Command ConvertTo-TerraformResourceGraph -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+        It "is exported from Graph.Emitter.Terraform" {
+            (Get-Command ConvertTo-TerraformResourceGraph -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
         }
 
         It "has one node per resource and data block in infra, in module then source order" {
@@ -1467,8 +1467,8 @@ locals {
 Describe "Skills" {
 
     BeforeAll {
-        $moduleBase = (Get-Module TerraformGraph).ModuleBase
-        Set-Variable -Name Psd1 -Scope Script -Value (Join-Path $moduleBase 'TerraformGraph.psd1')
+        $moduleBase = (Get-Module Graph.Emitter.Terraform).ModuleBase
+        Set-Variable -Name Psd1 -Scope Script -Value (Join-Path $moduleBase 'Graph.Emitter.Terraform.psd1')
         Set-Variable -Name BundledSkill -Scope Script -Value (Join-Path $moduleBase 'skills' 'terraformgraph' 'SKILL.md')
         Set-Variable -Name Marker -Scope Script -Value '<!-- terraformgraph-skill -->'
 
@@ -1489,9 +1489,9 @@ Describe "Skills" {
         Set-Variable -Name InstalledSkill -Scope Script -Value (Join-Path $repo '.claude' 'skills' 'terraformgraph' 'SKILL.md')
     }
 
-    It "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph" {
-        (Get-Command Install-TerraformGraphSkill -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
-        (Get-Command Test-TerraformGraphSkill -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+    It "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from Graph.Emitter.Terraform" {
+        (Get-Command Install-TerraformGraphSkill -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
+        (Get-Command Test-TerraformGraphSkill -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
     }
 
     It "installs SKILL.md for Claude identical to the bundled file" {
@@ -1583,7 +1583,7 @@ Describe "Registry" {
         # Point the loader at a bundled and a user path, and forget the parsed cache.
         $usePaths = {
             param([string]$Bundled, [string]$User)
-            InModuleScope TerraformGraph -Parameters @{ Bundled = $Bundled; User = $User } {
+            InModuleScope Graph.Emitter.Terraform -Parameters @{ Bundled = $Bundled; User = $User } {
                 param($Bundled, $User)
                 $script:TerraformRegistryBundledPath = $Bundled
                 $script:TerraformRegistryUserCachePath = $User
@@ -1592,7 +1592,7 @@ Describe "Registry" {
         }
         Set-Variable -Name UsePaths -Scope Script -Value $usePaths
 
-        $saved = InModuleScope TerraformGraph { @{ Bundled = $script:TerraformRegistryBundledPath; User = $script:TerraformRegistryUserCachePath } }
+        $saved = InModuleScope Graph.Emitter.Terraform { @{ Bundled = $script:TerraformRegistryBundledPath; User = $script:TerraformRegistryUserCachePath } }
         Set-Variable -Name SavedPaths -Scope Script -Value $saved
 
         Set-Variable -Name MissingUser -Scope Script -Value (Join-Path $TestDrive 'no-user' 'registry.json')
@@ -1607,9 +1607,9 @@ Describe "Registry" {
         & $UsePaths $Fixture $MissingUser
     }
 
-    It "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph" {
-        (Get-Command Update-TerraformRegistryCache -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
-        (Get-Command Get-TerraformRegistryProvider -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+    It "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from Graph.Emitter.Terraform" {
+        (Get-Command Update-TerraformRegistryCache -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
+        (Get-Command Get-TerraformRegistryProvider -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
     }
 
     It "reads the bundled file when there is no user cache" {
@@ -1665,7 +1665,7 @@ Describe "Registry" {
 
     It "writes versions newest first and a Latest that skips pre-releases" {
         # The harvest is mocked: this checks sorting, Latest and the file written, offline.
-        Mock -ModuleName TerraformGraph Get-TerraformRegistryHarvest {
+        Mock -ModuleName Graph.Emitter.Terraform Get-TerraformRegistryHarvest {
             [pscustomobject]@{
                 Provider = [pscustomobject]@{ Namespace = 'hashicorp'; Name = 'aws'; Tier = 'official'; Description = 'd' }
                 Versions = @(
@@ -1691,25 +1691,25 @@ Describe "Registry" {
     }
 
     It "resolves a wildcard to exactly one provider" {
-        $provider = InModuleScope TerraformGraph { Resolve-TerraformRegistryProvider -Name 'hashicorp/awsc*' }
+        $provider = InModuleScope Graph.Emitter.Terraform { Resolve-TerraformRegistryProvider -Name 'hashicorp/awsc*' }
         $provider.ProviderAddress | Should -Be 'registry.terraform.io/hashicorp/awscc'
     }
 
     It "throws for an ambiguous pattern and lists every match, official first" {
-        { InModuleScope TerraformGraph { Resolve-TerraformRegistryProvider -Name 'aws*' } } |
+        { InModuleScope Graph.Emitter.Terraform { Resolve-TerraformRegistryProvider -Name 'aws*' } } |
             Should -Throw "'aws*' matches 3 providers: hashicorp/aws, hashicorp/awscc, aws-ia/awsx. Specify one; Get-TerraformRegistryProvider -Name 'aws*' lists them."
     }
 
     It "throws for a pattern with no match and names the harvest date" {
-        { InModuleScope TerraformGraph { Resolve-TerraformRegistryProvider -Name 'foo' } } |
+        { InModuleScope Graph.Emitter.Terraform { Resolve-TerraformRegistryProvider -Name 'foo' } } |
             Should -Throw "'foo' matches no provider in the registry cache (harvested 2026-10-01). Run Update-TerraformRegistryCache or pass a full address."
     }
 
     It "stops Get-TerraformProviderSchema -Provider 'aws*' with the ambiguous message before running terraform" {
-        Mock -ModuleName TerraformGraph Invoke-TerraformCli { throw 'terraform must not run' }
+        Mock -ModuleName Graph.Emitter.Terraform Invoke-TerraformCli { throw 'terraform must not run' }
         { Get-TerraformProviderSchema -Provider 'aws*' -WorkingDirectory (Join-Path $TestDrive 'never') -ErrorAction Stop } |
             Should -Throw "'aws*' matches 3 providers: hashicorp/aws, hashicorp/awscc, aws-ia/awsx. Specify one; Get-TerraformRegistryProvider -Name 'aws*' lists them."
-        Should -Invoke -ModuleName TerraformGraph Invoke-TerraformCli -Times 0 -Exactly
+        Should -Invoke -ModuleName Graph.Emitter.Terraform Invoke-TerraformCli -Times 0 -Exactly
         Test-Path -LiteralPath (Join-Path $TestDrive 'never') | Should -BeFalse
     }
 
@@ -1732,7 +1732,7 @@ Describe "Registry" {
 
     It "returns no completions when there is no cache" {
         & $UsePaths (Join-Path $TestDrive 'no-bundled.json') $MissingUser
-        $results = InModuleScope TerraformGraph {
+        $results = InModuleScope Graph.Emitter.Terraform {
             @(& $script:TerraformRegistryProviderCompleter 'Get-TerraformProviderSchema' 'Provider' 'aws' $null @{})
             @(& $script:TerraformRegistryVersionCompleter 'Get-TerraformProviderSchema' 'Version' '' $null @{ Provider = 'hashicorp/aws' })
         }
@@ -1759,13 +1759,13 @@ Describe "Schema cache and packs" -Tag RequiresTerraform -Skip:(-not $HasTerrafo
     BeforeAll {
         $useRoot = {
             param([string]$Root)
-            InModuleScope TerraformGraph -Parameters @{ Root = $Root } {
+            InModuleScope Graph.Emitter.Terraform -Parameters @{ Root = $Root } {
                 param($Root)
                 $script:TerraformSchemaCacheRoot = $Root
             }
         }
         Set-Variable -Name UseRoot -Scope Script -Value $useRoot
-        Set-Variable -Name SavedRoot -Scope Script -Value (InModuleScope TerraformGraph { $script:TerraformSchemaCacheRoot })
+        Set-Variable -Name SavedRoot -Scope Script -Value (InModuleScope Graph.Emitter.Terraform { $script:TerraformSchemaCacheRoot })
         Set-Variable -Name Infra -Scope Script -Value (Join-Path (Split-Path $PSScriptRoot -Parent) 'infra')
 
         $fixtures = Join-Path $PSScriptRoot 'fixtures' 'schemas'
@@ -1788,7 +1788,7 @@ Describe "Schema cache and packs" -Tag RequiresTerraform -Skip:(-not $HasTerrafo
         & $useRoot (Join-Path $TestDrive 'pack-staging')
         $entries = foreach ($address in $documents.Keys) {
             $item = $documents[$address]
-            $cached = InModuleScope TerraformGraph -Parameters @{ A = $address; V = $item.Version; D = $item.Document } {
+            $cached = InModuleScope Graph.Emitter.Terraform -Parameters @{ A = $address; V = $item.Version; D = $item.Document } {
                 param($A, $V, $D)
                 Write-TerraformSchemaCache -Provider $A -Version $V -Document $D
             }
@@ -1819,20 +1819,20 @@ Describe "Schema cache and packs" -Tag RequiresTerraform -Skip:(-not $HasTerrafo
         Set-Variable -Name CacheRoot -Scope Script -Value $root
     }
 
-    It "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from TerraformGraph" {
-        (Get-Command Get-TerraformSchemaPack -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
-        (Get-Command Get-TerraformSchemaCache -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+    It "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from Graph.Emitter.Terraform" {
+        (Get-Command Get-TerraformSchemaPack -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
+        (Get-Command Get-TerraformSchemaCache -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
         @((Get-Command Get-TerraformProviderSchema).Parameters['SaveToCache'].ParameterSets.Keys) | Should -Be @('Provider')
     }
 
     It "writes registry.terraform.io-hashicorp-null/3.2.3.json.gz and reads back byte-identical JSON" {
         $document = $Documents['registry.terraform.io/hashicorp/null'].Document
-        $path = InModuleScope TerraformGraph -Parameters @{ D = $document } {
+        $path = InModuleScope Graph.Emitter.Terraform -Parameters @{ D = $document } {
             param($D)
             Write-TerraformSchemaCache -Provider hashicorp/null -Version 3.2.3 -Document $D
         }
         $path | Should -Be (Join-Path $CacheRoot 'registry.terraform.io-hashicorp-null' '3.2.3.json.gz')
-        $back = InModuleScope TerraformGraph -Parameters @{ P = $path } { param($P) Read-TerraformSchemaCache -Path $P }
+        $back = InModuleScope Graph.Emitter.Terraform -Parameters @{ P = $path } { param($P) Read-TerraformSchemaCache -Path $P }
         ($back | ConvertTo-TerraformJson -Compress) | Should -BeExactly ($document | ConvertTo-TerraformJson -Compress)
         @(Get-ChildItem -LiteralPath (Split-Path $path -Parent) -Force).Name | Should -Be @('3.2.3.json.gz')
     }
@@ -1923,14 +1923,14 @@ Describe "Schema cache and packs" -Tag RequiresTerraform -Skip:(-not $HasTerrafo
     }
 
     It "matches nothing with -AutoSchema and an empty cache, marks every node ProviderNotInSchemaGraph, and never downloads" {
-        Mock -ModuleName TerraformGraph Save-TerraformSchemaPackFile { throw 'must not download' }
-        Mock -ModuleName TerraformGraph Invoke-WebRequest { throw 'must not download' }
+        Mock -ModuleName Graph.Emitter.Terraform Save-TerraformSchemaPackFile { throw 'must not download' }
+        Mock -ModuleName Graph.Emitter.Terraform Invoke-WebRequest { throw 'must not download' }
         $graph = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop | ConvertTo-TerraformResourceGraph -AutoSchema -ErrorAction Stop
         $graph.NodeCount | Should -Be 5
         $graph.MatchedCount | Should -Be 0
         @($graph.Nodes | Where-Object Reason -ne 'ProviderNotInSchemaGraph').Count | Should -Be 0
-        Should -Invoke -ModuleName TerraformGraph Save-TerraformSchemaPackFile -Times 0 -Exactly
-        Should -Invoke -ModuleName TerraformGraph Invoke-WebRequest -Times 0 -Exactly
+        Should -Invoke -ModuleName Graph.Emitter.Terraform Save-TerraformSchemaPackFile -Times 0 -Exactly
+        Should -Invoke -ModuleName Graph.Emitter.Terraform Invoke-WebRequest -Times 0 -Exactly
     }
 
     Context "-SaveToCache (registry)" -Tag Live -Skip:(-not ($RunLive -and $HasTerraform)) {
@@ -1956,14 +1956,14 @@ Describe "Provider docs" {
     BeforeAll {
         $useRoots = {
             param([string]$Root)
-            InModuleScope TerraformGraph -Parameters @{ Root = $Root } {
+            InModuleScope Graph.Emitter.Terraform -Parameters @{ Root = $Root } {
                 param($Root)
                 $script:TerraformSchemaCacheRoot = Join-Path $Root 'schemas'
                 $script:TerraformDocCacheRoot = Join-Path $Root 'docs'
             }
         }
         Set-Variable -Name UseRoots -Scope Script -Value $useRoots
-        Set-Variable -Name SavedRoots -Scope Script -Value (InModuleScope TerraformGraph { @{ Schema = $script:TerraformSchemaCacheRoot; Docs = $script:TerraformDocCacheRoot } })
+        Set-Variable -Name SavedRoots -Scope Script -Value (InModuleScope Graph.Emitter.Terraform { @{ Schema = $script:TerraformSchemaCacheRoot; Docs = $script:TerraformDocCacheRoot } })
         Set-Variable -Name Infra -Scope Script -Value (Join-Path (Split-Path $PSScriptRoot -Parent) 'infra')
 
         $schemaFixtures = Join-Path $PSScriptRoot 'fixtures' 'schemas'
@@ -1979,7 +1979,7 @@ Describe "Provider docs" {
             param([switch]$NoDocs)
             foreach ($address in $Fixtures.Keys) {
                 $item = $Fixtures[$address]
-                InModuleScope TerraformGraph -Parameters @{ A = $address; I = $item; NoDocs = [bool]$NoDocs } {
+                InModuleScope Graph.Emitter.Terraform -Parameters @{ A = $address; I = $item; NoDocs = [bool]$NoDocs } {
                     param($A, $I, $NoDocs)
                     $null = Write-TerraformSchemaCache -Provider $A -Version $I.Version -Document $I.Schema
                     if (-not $NoDocs) { $null = Write-TerraformSchemaCache -Provider $A -Version $I.Version -Document $I.Docs -Kind Docs }
@@ -1994,7 +1994,7 @@ Describe "Provider docs" {
         New-Item -ItemType Directory -Path $packDir | Out-Null
         & $useRoots (Join-Path $TestDrive 'doc-pack-staging')
         $null3 = $fixtures['registry.terraform.io/hashicorp/null']
-        $paths = InModuleScope TerraformGraph -Parameters @{ I = $null3 } {
+        $paths = InModuleScope Graph.Emitter.Terraform -Parameters @{ I = $null3 } {
             param($I)
             @{
                 Schema = Write-TerraformSchemaCache -Provider hashicorp/null -Version $I.Version -Document $I.Schema
@@ -2022,7 +2022,7 @@ Describe "Provider docs" {
     }
 
     AfterAll {
-        InModuleScope TerraformGraph -Parameters @{ S = $SavedRoots } {
+        InModuleScope Graph.Emitter.Terraform -Parameters @{ S = $SavedRoots } {
             param($S)
             $script:TerraformSchemaCacheRoot = $S.Schema
             $script:TerraformDocCacheRoot = $S.Docs
@@ -2038,15 +2038,15 @@ Describe "Provider docs" {
         Set-Variable -Name CacheRoot -Scope Script -Value $root
     }
 
-    It "exports the four docs commands from TerraformGraph" {
+    It "exports the four docs commands from Graph.Emitter.Terraform" {
         foreach ($name in 'Update-TerraformProviderDocCache', 'Get-TerraformProviderDoc', 'Get-TerraformDocPack', 'Get-TerraformDocCache') {
-            (Get-Command $name -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+            (Get-Command $name -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
         }
         (Get-TypeData TerraformGraph.ProviderDoc).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('Id', 'Category', 'Title', 'Subcategory')
     }
 
     It "reconstructs doc Ids for resources, data sources, overview, guides and an unmatched slug" {
-        $results = InModuleScope TerraformGraph {
+        $results = InModuleScope Graph.Emitter.Terraform {
             $address = 'registry.terraform.io/vmware/vsphere'
             $index = [pscustomobject]@{
                 SchemaVersion = '2.17.1'
@@ -2082,7 +2082,7 @@ Describe "Provider docs" {
 
     It "counts unmatched docs in the document and derives the prefix from the cached schema" {
         & $Seed -NoDocs
-        $document = InModuleScope TerraformGraph {
+        $document = InModuleScope Graph.Emitter.Terraform {
             $index = Get-TerraformProviderDocSchemaIndex -Address 'registry.terraform.io/hashicorp/null' -Version '3.2.3'
             $docs = @(
                 [pscustomobject]@{ Category = 'resources'; Title = 'resource'; Subcategory = $null; Slug = 'resource'; Content = 'r' }
@@ -2104,12 +2104,12 @@ Describe "Provider docs" {
 
     It "round-trips the null fixture through the docs cache and lists it with Get-TerraformDocCache" {
         $item = $Fixtures['registry.terraform.io/hashicorp/null']
-        $path = InModuleScope TerraformGraph -Parameters @{ I = $item } {
+        $path = InModuleScope Graph.Emitter.Terraform -Parameters @{ I = $item } {
             param($I)
             Write-TerraformSchemaCache -Provider hashicorp/null -Version 3.2.3 -Document $I.Docs -Kind Docs
         }
         $path | Should -Be (Join-Path $CacheRoot 'docs' 'registry.terraform.io-hashicorp-null' '3.2.3.json.gz')
-        $back = InModuleScope TerraformGraph -Parameters @{ P = $path } { param($P) Read-TerraformSchemaCache -Path $P }
+        $back = InModuleScope Graph.Emitter.Terraform -Parameters @{ P = $path } { param($P) Read-TerraformSchemaCache -Path $P }
         ($back | ConvertTo-TerraformJson -Compress) | Should -BeExactly ($item.Docs | ConvertFrom-TerraformJson -AsHashtable | ConvertTo-TerraformJson -Compress)
 
         $listed = Get-TerraformDocCache -Provider null
@@ -2156,7 +2156,7 @@ Describe "Provider docs" {
             schemaVersion = $null; docCount = 1; unmatchedCount = $null
             docs = [object[]]@([ordered]@{ id = 'registry.terraform.io/hashicorp/null/resource/null_resource'; category = 'resources'; title = 'resource'; subcategory = $null; slug = 'resource'; content = $content })
         }
-        InModuleScope TerraformGraph -Parameters @{ D = $document } {
+        InModuleScope Graph.Emitter.Terraform -Parameters @{ D = $document } {
             param($D)
             $null = Write-TerraformSchemaCache -Provider hashicorp/null -Version 9.9.9 -Document $D -Kind Docs
         }
@@ -2205,8 +2205,8 @@ Describe "Provider docs" {
 
     It "warns once per uncached provider in the pipeline and never downloads" {
         & $Seed -NoDocs
-        Mock -ModuleName TerraformGraph Invoke-WebRequest { throw 'must not download' }
-        Mock -ModuleName TerraformGraph Invoke-RestMethod { throw 'must not download' }
+        Mock -ModuleName Graph.Emitter.Terraform Invoke-WebRequest { throw 'must not download' }
+        Mock -ModuleName Graph.Emitter.Terraform Invoke-RestMethod { throw 'must not download' }
         $graph = Get-TerraformModuleGraph -Path $Infra -Recurse -ErrorAction Stop | ConvertTo-TerraformResourceGraph -AutoSchema -ErrorAction Stop
         $docs = @($graph.Nodes | Get-TerraformProviderDoc -WarningVariable warnings -WarningAction SilentlyContinue)
         $docs.Count | Should -Be 0
@@ -2214,8 +2214,8 @@ Describe "Provider docs" {
             'No cached docs for registry.terraform.io/hashicorp/null. Download a docs pack with Get-TerraformDocPack -Provider hashicorp/null, or harvest them with Update-TerraformProviderDocCache -Provider hashicorp/null.'
             'No cached docs for registry.terraform.io/hashicorp/local. Download a docs pack with Get-TerraformDocPack -Provider hashicorp/local, or harvest them with Update-TerraformProviderDocCache -Provider hashicorp/local.'
         )
-        Should -Invoke -ModuleName TerraformGraph Invoke-WebRequest -Times 0 -Exactly
-        Should -Invoke -ModuleName TerraformGraph Invoke-RestMethod -Times 0 -Exactly
+        Should -Invoke -ModuleName Graph.Emitter.Terraform Invoke-WebRequest -Times 0 -Exactly
+        Should -Invoke -ModuleName Graph.Emitter.Terraform Invoke-RestMethod -Times 0 -Exactly
     }
 
     It "downloads only the docs entry with Get-TerraformDocPack from a manifest with both kinds" {
@@ -2252,7 +2252,7 @@ Describe "Provider docs" {
 
         It "uses the releases API with a Bearer token when GH_TOKEN is set" {
             $env:GH_TOKEN = 'test-token'
-            Mock -ModuleName TerraformGraph Invoke-RestMethod {
+            Mock -ModuleName Graph.Emitter.Terraform Invoke-RestMethod {
                 [pscustomobject]@{
                     tag_name = 'v0.11.0'
                     assets   = @(
@@ -2261,52 +2261,52 @@ Describe "Provider docs" {
                     )
                 }
             }
-            Mock -ModuleName TerraformGraph Invoke-WebRequest {
+            Mock -ModuleName Graph.Emitter.Terraform Invoke-WebRequest {
                 $name = if ($Uri -like '*/assets/1') { 'manifest.json' } else { 'docs.registry.terraform.io-hashicorp-null.3.2.3.json.gz' }
                 Copy-Item -LiteralPath (Join-Path $DocPackDir $name) -Destination $OutFile
             }
 
             $result = Get-TerraformDocPack -Provider null -Source 'https://github.com/o/r/releases/latest/download' -PassThru -ErrorAction Stop
             $result.Status | Should -Be 'Downloaded'
-            Should -Invoke -ModuleName TerraformGraph Invoke-RestMethod -Times 1 -Exactly -ParameterFilter {
+            Should -Invoke -ModuleName Graph.Emitter.Terraform Invoke-RestMethod -Times 1 -Exactly -ParameterFilter {
                 $Uri -eq 'https://api.github.com/repos/o/r/releases/latest' -and $Headers.Authorization -eq 'Bearer test-token'
             }
-            Should -Invoke -ModuleName TerraformGraph Invoke-WebRequest -Times 2 -Exactly -ParameterFilter {
+            Should -Invoke -ModuleName Graph.Emitter.Terraform Invoke-WebRequest -Times 2 -Exactly -ParameterFilter {
                 $Uri -like 'https://api.github.com/repos/o/r/releases/assets/*' -and $Headers.Authorization -eq 'Bearer test-token' -and $Headers.Accept -eq 'application/octet-stream'
             }
         }
 
         It "looks up a tagged release with GITHUB_TOKEN" {
             $env:GITHUB_TOKEN = 'other-token'
-            Mock -ModuleName TerraformGraph Invoke-RestMethod {
+            Mock -ModuleName Graph.Emitter.Terraform Invoke-RestMethod {
                 [pscustomobject]@{ tag_name = 'v0.11.0'; assets = @([pscustomobject]@{ name = 'manifest.json'; url = 'https://api.github.com/repos/o/r/releases/assets/1' }) }
             }
-            Mock -ModuleName TerraformGraph Invoke-WebRequest { Copy-Item -LiteralPath (Join-Path $DocPackDir 'manifest.json') -Destination $OutFile }
+            Mock -ModuleName Graph.Emitter.Terraform Invoke-WebRequest { Copy-Item -LiteralPath (Join-Path $DocPackDir 'manifest.json') -Destination $OutFile }
             { Get-TerraformDocPack -Provider null -Source 'https://github.com/o/r/releases/download/v0.11.0' -ErrorAction Stop } |
                 Should -Throw '*Release v0.11.0 of o/r has no asset named docs.registry.terraform.io-hashicorp-null.3.2.3.json.gz*'
-            Should -Invoke -ModuleName TerraformGraph Invoke-RestMethod -Times 1 -Exactly -ParameterFilter {
+            Should -Invoke -ModuleName Graph.Emitter.Terraform Invoke-RestMethod -Times 1 -Exactly -ParameterFilter {
                 $Uri -eq 'https://api.github.com/repos/o/r/releases/tags/v0.11.0' -and $Headers.Authorization -eq 'Bearer other-token'
             }
         }
 
         It "uses the anonymous download URL when no token is set" {
-            Mock -ModuleName TerraformGraph Invoke-RestMethod { throw 'must not call the API' }
-            Mock -ModuleName TerraformGraph Invoke-WebRequest {
+            Mock -ModuleName Graph.Emitter.Terraform Invoke-RestMethod { throw 'must not call the API' }
+            Mock -ModuleName Graph.Emitter.Terraform Invoke-WebRequest {
                 Copy-Item -LiteralPath (Join-Path $DocPackDir ($Uri -split '/')[-1]) -Destination $OutFile
             }
             $result = Get-TerraformSchemaPack -Provider null -Source 'https://github.com/o/r/releases/latest/download' -PassThru -ErrorAction Stop
             $result.Status | Should -Be 'Downloaded'
-            Should -Invoke -ModuleName TerraformGraph Invoke-RestMethod -Times 0 -Exactly
-            Should -Invoke -ModuleName TerraformGraph Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+            Should -Invoke -ModuleName Graph.Emitter.Terraform Invoke-RestMethod -Times 0 -Exactly
+            Should -Invoke -ModuleName Graph.Emitter.Terraform Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
                 $Uri -eq 'https://github.com/o/r/releases/latest/download/manifest.json' -and -not $Headers
             }
-            Should -Invoke -ModuleName TerraformGraph Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+            Should -Invoke -ModuleName Graph.Emitter.Terraform Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
                 $Uri -eq 'https://github.com/o/r/releases/latest/download/registry.terraform.io-hashicorp-null.3.2.3.json.gz' -and -not $Headers
             }
         }
 
         It "names GH_TOKEN for a private fork on a 404 without a token" {
-            Mock -ModuleName TerraformGraph Invoke-WebRequest {
+            Mock -ModuleName Graph.Emitter.Terraform Invoke-WebRequest {
                 throw [Microsoft.PowerShell.Commands.HttpResponseException]::new('Not Found', [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::NotFound))
             }
             { Get-TerraformSchemaPack -Provider null -Source 'https://github.com/o/r/releases/latest/download' -ErrorAction Stop } |
@@ -2334,11 +2334,11 @@ Describe "Classifiers" {
     BeforeAll {
         $repoRoot = Split-Path $PSScriptRoot -Parent
         Set-Variable -Name Infra -Scope Script -Value (Join-Path $repoRoot 'infra')
-        Set-Variable -Name BundledClassifiers -Scope Script -Value (Join-Path $repoRoot 'src' 'TerraformGraph' 'classifiers')
+        Set-Variable -Name BundledClassifiers -Scope Script -Value (Join-Path $repoRoot 'src' 'Graph.Emitter.Terraform' 'classifiers')
         $fixtureDir = Join-Path $PSScriptRoot 'fixtures' 'classifiers'
         Set-Variable -Name FixtureDir -Scope Script -Value $fixtureDir
         Set-Variable -Name FixtureMap -Scope Script -Value (Join-Path $fixtureDir 'map.json')
-        Set-Variable -Name SavedRoots -Scope Script -Value (InModuleScope TerraformGraph {
+        Set-Variable -Name SavedRoots -Scope Script -Value (InModuleScope Graph.Emitter.Terraform {
                 @{
                     Schema  = $script:TerraformSchemaCacheRoot
                     Docs    = $script:TerraformDocCacheRoot
@@ -2368,7 +2368,7 @@ Describe "Classifiers" {
         # New, empty roots under $Root; the bundled root is empty too unless -Bundled is given.
         $useRoots = {
             param([string]$Root, [string]$Bundled)
-            InModuleScope TerraformGraph -Parameters @{ Root = $Root; Bundled = $Bundled } {
+            InModuleScope Graph.Emitter.Terraform -Parameters @{ Root = $Root; Bundled = $Bundled } {
                 param($Root, $Bundled)
                 $script:TerraformSchemaCacheRoot = Join-Path $Root 'schemas'
                 $script:TerraformDocCacheRoot = Join-Path $Root 'docs'
@@ -2381,7 +2381,7 @@ Describe "Classifiers" {
         $seed = {
             param([switch]$NoDocs)
             foreach ($item in $Fixtures) {
-                InModuleScope TerraformGraph -Parameters @{ I = $item; NoDocs = [bool]$NoDocs } {
+                InModuleScope Graph.Emitter.Terraform -Parameters @{ I = $item; NoDocs = [bool]$NoDocs } {
                     param($I, $NoDocs)
                     $null = Write-TerraformSchemaCache -Provider $I.Address -Version $I.Version -Document $I.Schema
                     if (-not $NoDocs) { $null = Write-TerraformSchemaCache -Provider $I.Address -Version $I.Version -Document $I.Docs -Kind Docs }
@@ -2392,7 +2392,7 @@ Describe "Classifiers" {
     }
 
     AfterAll {
-        InModuleScope TerraformGraph -Parameters @{ S = $SavedRoots } {
+        InModuleScope Graph.Emitter.Terraform -Parameters @{ S = $SavedRoots } {
             param($S)
             $script:TerraformSchemaCacheRoot = $S.Schema
             $script:TerraformDocCacheRoot = $S.Docs
@@ -2408,9 +2408,9 @@ Describe "Classifiers" {
         Set-Variable -Name UserRoot -Scope Script -Value (Join-Path $root 'user')
     }
 
-    It "exports the three classifier commands from TerraformGraph" {
+    It "exports the three classifier commands from Graph.Emitter.Terraform" {
         foreach ($name in 'New-TerraformClassifier', 'Get-TerraformClassifier', 'Get-TerraformClassifierFinding') {
-            (Get-Command $name -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+            (Get-Command $name -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
         }
         (Get-TypeData TerraformGraph.ClassifierFinding).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('Type', 'Kind', 'Subcategory', 'Finding')
         (Get-TypeData TerraformGraph.DrawerSummary).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('Drawer', 'TypeCount', 'InstanceCount')
@@ -2429,7 +2429,7 @@ Describe "Classifiers" {
             $drawer['label'] | Should -Not -BeNullOrEmpty
             $drawer['description'] | Should -Not -BeNullOrEmpty
         }
-        $problems = InModuleScope TerraformGraph -Parameters @{ M = $map; D = [string[]]$names } {
+        $problems = InModuleScope Graph.Emitter.Terraform -Parameters @{ M = $map; D = [string[]]$names } {
             param($M, $D)
             @(Get-TerraformClassifierMapProblem -Map $M -Drawer $D)
         }
@@ -2439,7 +2439,7 @@ Describe "Classifiers" {
 
     It "fails the lint for a row with an empty reason or an unknown drawer, and New-TerraformClassifier refuses that map" {
         $bad = Join-Path $FixtureDir 'bad-map.json'
-        $problems = InModuleScope TerraformGraph -Parameters @{ P = $bad } {
+        $problems = InModuleScope Graph.Emitter.Terraform -Parameters @{ P = $bad } {
             param($P)
             @(Get-TerraformClassifierMapProblem -Map (Read-TerraformClassifierJson -Path $P) -Drawer (Get-TerraformClassifierDrawerName))
         }
@@ -2452,7 +2452,7 @@ Describe "Classifiers" {
     }
 
     It "keeps the bundled classifiers in step with map.json" {
-        $mapVersion = InModuleScope TerraformGraph -Parameters @{ P = (Join-Path $BundledClassifiers 'map.json') } {
+        $mapVersion = InModuleScope Graph.Emitter.Terraform -Parameters @{ P = (Join-Path $BundledClassifiers 'map.json') } {
             param($P)
             (Read-TerraformClassifierMap -Path $P).MapVersion
         }
@@ -2636,7 +2636,7 @@ Describe "Classifiers" {
                     [ordered]@{ provider = 'registry.terraform.io/hashicorp/local'; source = 'prefix'; subcategory = 'file'; drawer = 'compute'; reason = 'r'; addedOn = '2026-10-07'; addedBy = 'agent' }
                 )
             }
-            $problems = InModuleScope TerraformGraph -Parameters @{ M = $map } {
+            $problems = InModuleScope Graph.Emitter.Terraform -Parameters @{ M = $map } {
                 param($M)
                 @(Get-TerraformClassifierMapProblem -Map $M -Drawer (Get-TerraformClassifierDrawerName))
             }
@@ -2669,7 +2669,7 @@ Describe "Classifiers" {
             & $UseRoots $Root $BundledClassifiers
             foreach ($group in @($prefixRows | Group-Object { $_['provider'] })) {
                 $types = [string[]]@((Get-TerraformClassifier -Provider $group.Name -ErrorAction Stop).Types.Type)
-                $problems = InModuleScope TerraformGraph -Parameters @{ P = (Join-Path $BundledClassifiers 'map.json'); A = $group.Name; T = $types } {
+                $problems = InModuleScope Graph.Emitter.Terraform -Parameters @{ P = (Join-Path $BundledClassifiers 'map.json'); A = $group.Name; T = $types } {
                     param($P, $A, $T)
                     @(Get-TerraformClassifierPrefixProblem -Map (Read-TerraformClassifierMap -Path $P) -Address $A -Type $T)
                 }
@@ -2688,7 +2688,7 @@ Describe "Bundle" {
     BeforeAll {
         Set-Variable -Name RegistryFixture -Scope Script -Value (Join-Path $PSScriptRoot 'fixtures' 'registry.sample.json')
         Set-Variable -Name NullDocs -Scope Script -Value ([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot 'fixtures' 'docs' 'null-3.2.3.json')))
-        Set-Variable -Name SavedPaths -Scope Script -Value (InModuleScope TerraformGraph {
+        Set-Variable -Name SavedPaths -Scope Script -Value (InModuleScope Graph.Emitter.Terraform {
                 @{
                     RegistryBundled = $script:TerraformRegistryBundledPath
                     RegistryUser    = $script:TerraformRegistryUserCachePath
@@ -2707,7 +2707,7 @@ Describe "Bundle" {
         # registry, bundle, caches or classifiers until a test writes them.
         $useRoot = {
             param([string]$Root, [string]$Registry)
-            InModuleScope TerraformGraph -Parameters @{ Root = $Root; Registry = $Registry } {
+            InModuleScope Graph.Emitter.Terraform -Parameters @{ Root = $Root; Registry = $Registry } {
                 param($Root, $Registry)
                 $script:TerraformRegistryBundledPath = $Registry
                 $script:TerraformRegistryUserCachePath = Join-Path $Root 'user' 'registry.json'
@@ -2731,7 +2731,7 @@ Describe "Bundle" {
         # ThrowAfterPages makes every page request after that many throw, as a killed run would.
         $useFakeRegistry = {
             param([int]$Fail429, [int]$ThrowAfterPages)
-            InModuleScope TerraformGraph -Parameters @{ Fail429 = $Fail429; ThrowAfterPages = $ThrowAfterPages } {
+            InModuleScope Graph.Emitter.Terraform -Parameters @{ Fail429 = $Fail429; ThrowAfterPages = $ThrowAfterPages } {
                 param($Fail429, $ThrowAfterPages)
                 $script:FakeRegistry = @{
                     Calls           = [System.Collections.Generic.List[string]]::new()
@@ -2770,7 +2770,7 @@ Describe "Bundle" {
         Set-Variable -Name UseFakeRegistry -Scope Script -Value $useFakeRegistry
 
         $seedNull = {
-            InModuleScope TerraformGraph -Parameters @{ D = $NullDocs } {
+            InModuleScope Graph.Emitter.Terraform -Parameters @{ D = $NullDocs } {
                 param($D)
                 Write-TerraformSchemaCache -Provider hashicorp/null -Version 3.2.3 -Document $D -Kind Docs
             }
@@ -2779,7 +2779,7 @@ Describe "Bundle" {
     }
 
     AfterAll {
-        InModuleScope TerraformGraph -Parameters @{ S = $SavedPaths } {
+        InModuleScope Graph.Emitter.Terraform -Parameters @{ S = $SavedPaths } {
             param($S)
             $script:TerraformRegistryBundledPath = $S.RegistryBundled
             $script:TerraformRegistryUserCachePath = $S.RegistryUser
@@ -2805,11 +2805,11 @@ Describe "Bundle" {
 
     It "exports the bundle commands and ships a bundled manifest with the official tier and two extras" {
         foreach ($name in 'Get-TerraformGraphBundle', 'New-TerraformGraphBundle', 'Test-TerraformGraphBundle', 'Get-TerraformSubcategorySurvey') {
-            (Get-Command $name -ErrorAction Stop).Module.Name | Should -Be 'TerraformGraph'
+            (Get-Command $name -ErrorAction Stop).Module.Name | Should -Be 'Graph.Emitter.Terraform'
         }
         (Get-TypeData TerraformGraph.BundleEntry).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('ProviderAddress', 'Version', 'DocsVersion', 'SchemaVersion', 'ClassifierVersion', 'HarvestedOn')
         (Get-TypeData TerraformGraph.BundleCheck).DefaultDisplayPropertySet.ReferencedProperties | Should -Be @('Item', 'Status', 'RecommendedAction')
-        $shipped = Get-TerraformGraphBundle -Path (Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'data' 'bundle.json') -Document -ErrorAction Stop
+        $shipped = Get-TerraformGraphBundle -Path (Join-Path $PSScriptRoot '..' 'src' 'Graph.Emitter.Terraform' 'data' 'bundle.json') -Document -ErrorAction Stop
         $shipped.FormatVersion | Should -Be 1
         $shipped.Tiers | Should -Be @('official')
         $shipped.Providers | Should -Be @('registry.terraform.io/microsoft/azuredevops', 'registry.terraform.io/vmware/vsphere')
@@ -2846,7 +2846,7 @@ Describe "Bundle" {
     }
 
     It "takes unbound -Tier, -Provider and -Exclude from the bundled manifest, and reads the user copy first" {
-        $bundled = InModuleScope TerraformGraph { $script:TerraformGraphBundleBundledPath }
+        $bundled = InModuleScope Graph.Emitter.Terraform { $script:TerraformGraphBundleBundledPath }
         $null = New-TerraformGraphBundle -Tier official -Provider acme/widget -Exclude awscc -OutputPath $bundled -ErrorAction Stop
         (Get-TerraformGraphBundle -ErrorAction Stop).ProviderAddress | Should -Be @('registry.terraform.io/acme/widget', 'registry.terraform.io/hashicorp/aws', 'registry.terraform.io/hashicorp/null')
 
@@ -2897,7 +2897,7 @@ Describe "Bundle" {
         $registry = Get-Content -LiteralPath $RegistryFixture -Raw | ConvertFrom-TerraformJson
         $registry.harvestedOn = '2026-10-08T00:00:00Z'
         ($registry.providers | Where-Object name -eq 'null' | Where-Object namespace -eq 'hashicorp').latest = '3.3.0'
-        $userRegistry = InModuleScope TerraformGraph { $script:TerraformRegistryUserCachePath }
+        $userRegistry = InModuleScope Graph.Emitter.Terraform { $script:TerraformRegistryUserCachePath }
         New-Item -ItemType Directory -Path (Split-Path $userRegistry -Parent) -Force | Out-Null
         $registry | ConvertTo-TerraformJson | Set-Content -LiteralPath $userRegistry
         Remove-Item -LiteralPath $docPath
@@ -2913,7 +2913,7 @@ Describe "Bundle" {
         foreach ($row in $rows) {
             $row.RecommendedAction | Should -Not -BeNullOrEmpty -Because "'$($row.Item)' is $($row.Status)"
             $row.InspectAction | Should -Not -BeNullOrEmpty -Because "'$($row.Item)' is $($row.Status)"
-            $row.InspectAction | Should -Not -BeLike '*src\TerraformGraph*-OutputPath*' -Because 'InspectAction never writes to src'
+            $row.InspectAction | Should -Not -BeLike '*src\Graph.Emitter.Terraform*-OutputPath*' -Because 'InspectAction never writes to src'
         }
         # Not the bundled manifest: the actions write the user's own copy, never Invoke-Build.
         $rows[0].RecommendedAction | Should -Be "New-TerraformGraphBundle -Tier @() -Provider 'registry.terraform.io/hashicorp/null' -Exclude @() -OutputPath '$path'"
@@ -2926,7 +2926,7 @@ Describe "Bundle" {
     }
 
     It "returns the same -Scope Repo rows with a populated user cache as with an empty one" {
-        # A checkout: bundle.json with its registry.json beside it, as src/TerraformGraph/data has.
+        # A checkout: bundle.json with its registry.json beside it, as src/Graph.Emitter.Terraform/data has.
         $repo = Join-Path $Root 'repo'
         New-Item -ItemType Directory -Path $repo | Out-Null
         Copy-Item -LiteralPath $RegistryFixture -Destination (Join-Path $repo 'registry.json')
@@ -2940,7 +2940,7 @@ Describe "Bundle" {
         $machinePopulated = & $rowText @(Test-TerraformGraphBundle -BundlePath $path -DistPath $dist -Scope Machine -ErrorAction Stop)
 
         # Every user cache emptied: docs, schemas, classifiers and the registry cache.
-        InModuleScope TerraformGraph -Parameters @{ Empty = (Join-Path $Root 'empty') } {
+        InModuleScope Graph.Emitter.Terraform -Parameters @{ Empty = (Join-Path $Root 'empty') } {
             param($Empty)
             $script:TerraformDocCacheRoot = Join-Path $Empty 'docs'
             $script:TerraformSchemaCacheRoot = Join-Path $Empty 'schemas'
@@ -2986,7 +2986,7 @@ Describe "Bundle" {
     }
 
     It "counts the shipped bundle's packed, classified and registry-only entries in -Document" {
-        $shipped = Get-TerraformGraphBundle -Path (Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'data' 'bundle.json') -Document -ErrorAction Stop
+        $shipped = Get-TerraformGraphBundle -Path (Join-Path $PSScriptRoot '..' 'src' 'Graph.Emitter.Terraform' 'data' 'bundle.json') -Document -ErrorAction Stop
         $shipped.PackedEntryCount | Should -Be @($shipped.Entries | Where-Object SchemaVersion).Count
         $shipped.RegistryOnlyEntryCount | Should -Be ($shipped.EntryCount - $shipped.PackedEntryCount)
         $shipped.ClassifiedEntryCount | Should -Be @($shipped.Entries | Where-Object ClassifierVersion).Count
@@ -2999,7 +2999,7 @@ Describe "Bundle" {
     It "checks each bundled classifier's mapVersion against map.json" {
         $path = Join-Path $Root 'out' 'bundle.json'
         $null = New-TerraformGraphBundle -Tier @() -Provider hashicorp/null -Exclude @() -OutputPath $path -ErrorAction Stop
-        $classifiers = InModuleScope TerraformGraph { $script:TerraformClassifierBundledRoot }
+        $classifiers = InModuleScope Graph.Emitter.Terraform { $script:TerraformClassifierBundledRoot }
         New-Item -ItemType Directory -Path $classifiers | Out-Null
         '{ "provider": "registry.terraform.io/hashicorp/null", "version": "3.2.3", "mapVersion": "000000000000", "types": [], "findings": [] }' |
             Set-Content -LiteralPath (Join-Path $classifiers 'registry.terraform.io-hashicorp-null.3.2.3.json')
@@ -3014,11 +3014,11 @@ Describe "Bundle" {
     It "harvests a bundle provider by provider: a failure is a warning and a Failed row, and -Resume skips cached versions offline" {
         $path = Join-Path $Root 'out' 'bundle.json'
         $null = New-TerraformGraphBundle -Tier @() -Provider hashicorp/null, hashicorp/aws -Exclude @() -OutputPath $path -ErrorAction Stop
-        Mock -ModuleName TerraformGraph Find-TerraformProviderDocVersion {
+        Mock -ModuleName Graph.Emitter.Terraform Find-TerraformProviderDocVersion {
             if ($Name -eq 'aws') { throw 'registry said no' }
             [pscustomobject]@{ Version = $Version; VersionId = '42' }
         }
-        Mock -ModuleName TerraformGraph Get-TerraformProviderDocHarvest {
+        Mock -ModuleName Graph.Emitter.Terraform Get-TerraformProviderDocHarvest {
             [pscustomobject]@{ Category = 'overview'; Title = 'null'; Subcategory = $null; Slug = 'index'; Content = 'o' }
             [pscustomobject]@{ Category = 'resources'; Title = 'resource'; Subcategory = 'Utility'; Slug = 'resource'; Content = 'r' }
         }
@@ -3044,8 +3044,8 @@ Describe "Bundle" {
 
         $resumed = Update-TerraformProviderDocCache -BundlePath $path -Resume -WarningAction SilentlyContinue -ErrorAction Stop
         ($resumed.Providers | Where-Object ProviderAddress -like '*/null').Status | Should -Be 'Cached'
-        Should -Invoke -ModuleName TerraformGraph Find-TerraformProviderDocVersion -Times 1 -Exactly -ParameterFilter { $Name -eq 'null' }
-        Should -Invoke -ModuleName TerraformGraph Get-TerraformProviderDocHarvest -Times 1 -Exactly
+        Should -Invoke -ModuleName Graph.Emitter.Terraform Find-TerraformProviderDocVersion -Times 1 -Exactly -ParameterFilter { $Name -eq 'null' }
+        Should -Invoke -ModuleName Graph.Emitter.Terraform Get-TerraformProviderDocHarvest -Times 1 -Exactly
 
         { Update-TerraformProviderDocCache -Provider hashicorp/aws -ErrorAction Stop } | Should -Throw 'registry said no List the versions with*'
         { Update-TerraformProviderDocCache -Provider hashicorp/null -Resume -Force -ErrorAction Stop } | Should -Throw '*pass one or the other*'
@@ -3055,8 +3055,8 @@ Describe "Bundle" {
         $path = Join-Path $Root 'out' 'bundle.json'
         $null = New-TerraformGraphBundle -Tier @() -Provider hashicorp/null, hashicorp/aws -Exclude @() -OutputPath $path -ErrorAction Stop
         & $UseFakeRegistry 2 0
-        InModuleScope TerraformGraph { $script:TerraformRegistryClimbAfter = 2 }
-        Mock -ModuleName TerraformGraph Start-Sleep { }
+        InModuleScope Graph.Emitter.Terraform { $script:TerraformRegistryClimbAfter = 2 }
+        Mock -ModuleName Graph.Emitter.Terraform Start-Sleep { }
 
         $summary = Update-TerraformProviderDocCache -BundlePath $path -WarningAction SilentlyContinue -ErrorAction Stop
         $summary.FailureCount | Should -Be 0
@@ -3064,15 +3064,15 @@ Describe "Bundle" {
         $summary.RateLimitHits | Should -Be 2
         $summary.SecondsBlocked | Should -Be 90
         $summary.PartialResumes | Should -Be 0
-        Should -Invoke -ModuleName TerraformGraph Start-Sleep -Times 2 -Exactly
-        Should -Invoke -ModuleName TerraformGraph Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 30000 }
-        Should -Invoke -ModuleName TerraformGraph Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 60000 }
+        Should -Invoke -ModuleName Graph.Emitter.Terraform Start-Sleep -Times 2 -Exactly
+        Should -Invoke -ModuleName Graph.Emitter.Terraform Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 30000 }
+        Should -Invoke -ModuleName Graph.Emitter.Terraform Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 60000 }
 
         # Workers per dispatched chunk. aws: its version lookup is refused twice (one worker
         # each, a wait after each), then succeeds; the listing; then its six pages climb from
         # one worker by one per two successes: 1, 1, 2, 3. null starts where aws left off (4
         # workers, not the ThrottleLimit of 6), reaches 6 and leaves the climb.
-        $history = InModuleScope TerraformGraph { @($script:TerraformRegistryThrottle.History) }
+        $history = InModuleScope Graph.Emitter.Terraform { @($script:TerraformRegistryThrottle.History) }
         $history | Should -Be @(1, 1, 1, 1, 1, 1, 2, 3, 1, 1, 4, 6)
         $log = @(Get-Content -LiteralPath $summary.LogPath)
         @($log | Where-Object { $_ -like '*Z 429 https://registry.terraform.io/v2/providers/hashicorp/aws?include=provider-versions' }).Count | Should -Be 2
@@ -3099,7 +3099,7 @@ Describe "Bundle" {
         $row.Status | Should -Be 'Harvested'
         $row.DocCount | Should -Be 6
         $row.ResumedPages | Should -Be 3
-        $pages = InModuleScope TerraformGraph { @($script:FakeRegistry.Calls | Where-Object { $_ -like '*/v2/provider-docs/*' }) }
+        $pages = InModuleScope Graph.Emitter.Terraform { @($script:FakeRegistry.Calls | Where-Object { $_ -like '*/v2/provider-docs/*' }) }
         $pages | Should -Be @('https://registry.terraform.io/v2/provider-docs/200-3', 'https://registry.terraform.io/v2/provider-docs/200-4', 'https://registry.terraform.io/v2/provider-docs/200-5')
         Test-Path -LiteralPath $partial | Should -BeFalse
         @(Get-TerraformProviderDoc -Provider null | ForEach-Object Content) | Should -Be @('page 200-0', 'page 200-1', 'page 200-2', 'page 200-3', 'page 200-4', 'page 200-5')
@@ -3112,7 +3112,7 @@ Describe "Bundle" {
         $row = Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -Force -PassThru -WarningAction SilentlyContinue -ErrorAction Stop
         $row.Status | Should -Be 'Updated'
         $row.ResumedPages | Should -Be 0
-        InModuleScope TerraformGraph { @($script:FakeRegistry.Calls | Where-Object { $_ -like '*/v2/provider-docs/*' }).Count } | Should -Be 6
+        InModuleScope Graph.Emitter.Terraform { @($script:FakeRegistry.Calls | Where-Object { $_ -like '*/v2/provider-docs/*' }).Count } | Should -Be 6
         Test-Path -LiteralPath $partial | Should -BeFalse
     }
 
@@ -3133,11 +3133,11 @@ Describe "Bundle" {
         $sources[5].Urls.Count | Should -Be 0
         foreach ($source in $sources) {
             foreach ($url in @($source.Urls) + @($source.RelatedUrls)) { $url | Should -Match '^https://' }
-            foreach ($name in @($source.HarvestedBy | Where-Object { $_ })) { (Get-Command $name).Module.Name | Should -Be 'TerraformGraph' }
+            foreach ($name in @($source.HarvestedBy | Where-Object { $_ })) { (Get-Command $name).Module.Name | Should -Be 'Graph.Emitter.Terraform' }
         }
         (Get-TerraformGraphBundle -Path $path -Document).Sources.Kind | Should -Be @($sources.Kind)
 
-        $shipped = @(Get-TerraformGraphBundle -Path (Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'data' 'bundle.json') -Sources -ErrorAction Stop)
+        $shipped = @(Get-TerraformGraphBundle -Path (Join-Path $PSScriptRoot '..' 'src' 'Graph.Emitter.Terraform' 'data' 'bundle.json') -Sources -ErrorAction Stop)
         @($shipped.Kind) | Should -Be @('registry', 'schemas', 'docs', 'classifiers', 'skills', 'cmdb')
         $shipped[0].LastPulled | Should -Not -BeNullOrEmpty
     }
@@ -3146,10 +3146,10 @@ Describe "Bundle" {
 Describe "Classifier precedence" {
 
     BeforeAll {
-        Set-Variable -Name SavedRoots -Scope Script -Value (InModuleScope TerraformGraph {
+        Set-Variable -Name SavedRoots -Scope Script -Value (InModuleScope Graph.Emitter.Terraform {
                 @{ User = $script:TerraformClassifierUserRoot; Bundled = $script:TerraformClassifierBundledRoot }
             })
-        Set-Variable -Name CurrentMap -Scope Script -Value (InModuleScope TerraformGraph { Get-TerraformClassifierCurrentMapVersion })
+        Set-Variable -Name CurrentMap -Scope Script -Value (InModuleScope Graph.Emitter.Terraform { Get-TerraformClassifierCurrentMapVersion })
 
         # One classifier file: the head the lookup reads, no types.
         $write = {
@@ -3164,7 +3164,7 @@ Describe "Classifier precedence" {
     }
 
     AfterAll {
-        InModuleScope TerraformGraph -Parameters @{ S = $SavedRoots } {
+        InModuleScope Graph.Emitter.Terraform -Parameters @{ S = $SavedRoots } {
             param($S)
             $script:TerraformClassifierUserRoot = $S.User
             $script:TerraformClassifierBundledRoot = $S.Bundled
@@ -3173,7 +3173,7 @@ Describe "Classifier precedence" {
 
     BeforeEach {
         $root = Join-Path $TestDrive "precedence-$([guid]::NewGuid().ToString('n'))"
-        InModuleScope TerraformGraph -Parameters @{ Root = $root } {
+        InModuleScope Graph.Emitter.Terraform -Parameters @{ Root = $root } {
             param($Root)
             $script:TerraformClassifierUserRoot = Join-Path $Root 'user'
             $script:TerraformClassifierBundledRoot = Join-Path $Root 'bundled'
@@ -3284,7 +3284,7 @@ Describe "Contracts" {
             $findAll = { param($predicate) foreach ($ast in $asts) { $ast.FindAll($predicate, $true) } }
             $where = { param($node) "$(Split-Path -Path $node.Extent.File -Leaf) line $($node.Extent.StartLineNumber)" }
             $helper = 'Stop-TerraformGraphCommand'
-            $exported = @((Get-Module TerraformGraph).ExportedFunctions.Keys)
+            $exported = @((Get-Module Graph.Emitter.Terraform).ExportedFunctions.Keys)
             $enclosing = {
                 param($node)
                 for ($p = $node.Parent; $p; $p = $p.Parent) {
@@ -3369,11 +3369,11 @@ Describe "Contracts" {
     }
 
     It "names a documented fixing command for every terminating error id in the assembled dist psm1" -Tag RequiresBuild -Skip:(-not $HasModuleBuild) {
-        & $AssertErrorIdContract -Path (Get-TerraformGraphSourceFile -Assembled -Destination (Join-Path $TestDrive 'errors' 'TerraformGraph'))
+        & $AssertErrorIdContract -Path (Get-TerraformGraphSourceFile -Assembled -Destination (Join-Path $TestDrive 'errors' 'Graph.Emitter.Terraform'))
     }
 
     It "every Public file defines exactly the function it is named for" {
-        $public = Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'Public'
+        $public = Join-Path $PSScriptRoot '..' 'src' 'Graph.Emitter.Terraform' 'Public'
         foreach ($file in Get-ChildItem -LiteralPath $public -File) {
             $file.Extension | Should -BeExactly '.ps1' -Because "$($file.Name): Public holds only function files"
             $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$null)
@@ -3386,8 +3386,8 @@ Describe "Contracts" {
     }
 
     It "every Private file defines exactly one function and it is not exported" {
-        $private = Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph' 'Private'
-        $exported = @((Get-Module TerraformGraph).ExportedFunctions.Keys)
+        $private = Join-Path $PSScriptRoot '..' 'src' 'Graph.Emitter.Terraform' 'Private'
+        $exported = @((Get-Module Graph.Emitter.Terraform).ExportedFunctions.Keys)
         foreach ($file in Get-ChildItem -LiteralPath $private -File) {
             $file.Extension | Should -BeExactly '.ps1' -Because "$($file.Name): Private holds only function files"
             $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$null)
@@ -3401,11 +3401,11 @@ Describe "Contracts" {
     }
 
     It "psd1 FunctionsToExport equals the Public/ listing" {
-        $moduleRoot = Join-Path $PSScriptRoot '..' 'src' 'TerraformGraph'
-        $manifest = Import-PowerShellDataFile -Path (Join-Path $moduleRoot 'TerraformGraph.psd1')
+        $moduleRoot = Join-Path $PSScriptRoot '..' 'src' 'Graph.Emitter.Terraform'
+        $manifest = Import-PowerShellDataFile -Path (Join-Path $moduleRoot 'Graph.Emitter.Terraform.psd1')
         $public = @(Get-ChildItem -LiteralPath (Join-Path $moduleRoot 'Public') -Filter '*.ps1' -File | ForEach-Object BaseName | Sort-Object -Culture '')
         [string[]]@($manifest.FunctionsToExport | Sort-Object -Culture '') | Should -BeExactly ([string[]]$public)
-        [string[]]@((Get-Module TerraformGraph).ExportedFunctions.Keys | Sort-Object -Culture '') | Should -BeExactly ([string[]]$public)
+        [string[]]@((Get-Module Graph.Emitter.Terraform).ExportedFunctions.Keys | Sort-Object -Culture '') | Should -BeExactly ([string[]]$public)
     }
 
     It "no function is defined twice across the tree, and the psm1 defines none" {
@@ -3416,12 +3416,12 @@ Describe "Contracts" {
             }
         }
         @($names | Group-Object Name | Where-Object Count -gt 1 | ForEach-Object { "$($_.Name) in $(@($_.Group.File) -join ', ')" }) | Should -BeNullOrEmpty
-        @($names | Where-Object File -eq 'TerraformGraph.psm1' | ForEach-Object Name) | Should -BeNullOrEmpty -Because 'the psm1 is wiring only; function code lives in the file named for the function'
+        @($names | Where-Object File -eq 'Graph.Emitter.Terraform.psm1' | ForEach-Object Name) | Should -BeNullOrEmpty -Because 'the psm1 is wiring only; function code lives in the file named for the function'
     }
 
     It "lists in the psd1 FileList exactly what tools/Copy-TerraformGraphModule.ps1 assembles" {
         $repoRoot = Split-Path $PSScriptRoot -Parent
-        $manifest = Import-PowerShellDataFile -Path (Join-Path $repoRoot 'src' 'TerraformGraph' 'TerraformGraph.psd1')
+        $manifest = Import-PowerShellDataFile -Path (Join-Path $repoRoot 'src' 'Graph.Emitter.Terraform' 'Graph.Emitter.Terraform.psd1')
         $plan = @(& (Join-Path $repoRoot 'tools' 'Copy-TerraformGraphModule.ps1') -RepoRoot $repoRoot -ListOnly)
         [string[]]@($manifest.FileList | Sort-Object -Culture '') | Should -Be ([string[]]@($plan | Sort-Object -Culture ''))
         $plan | Should -Not -Contain 'lib/TerraformGraph.dll.old'
@@ -3430,12 +3430,12 @@ Describe "Contracts" {
 
     It "assembles a tree that holds exactly the FileList and passes Test-ModuleManifest" -Tag RequiresBuild -Skip:(-not $HasModuleBuild) {
         $repoRoot = Split-Path $PSScriptRoot -Parent
-        $tree = Join-Path $TestDrive 'module' 'TerraformGraph'
+        $tree = Join-Path $TestDrive 'module' 'Graph.Emitter.Terraform'
         $null = & (Join-Path $repoRoot 'tools' 'Copy-TerraformGraphModule.ps1') -RepoRoot $repoRoot -OutputPath $tree
-        $manifest = Import-PowerShellDataFile -Path (Join-Path $tree 'TerraformGraph.psd1')
+        $manifest = Import-PowerShellDataFile -Path (Join-Path $tree 'Graph.Emitter.Terraform.psd1')
         $written = @(Get-ChildItem -LiteralPath $tree -File -Recurse | ForEach-Object { [System.IO.Path]::GetRelativePath($tree, $_.FullName).Replace('\', '/') } | Sort-Object -Culture '')
         [string[]]$written | Should -Be ([string[]]@($manifest.FileList | Sort-Object -Culture ''))
-        { Test-ModuleManifest -Path (Join-Path $tree 'TerraformGraph.psd1') -ErrorAction Stop } | Should -Not -Throw
+        { Test-ModuleManifest -Path (Join-Path $tree 'Graph.Emitter.Terraform.psd1') -ErrorAction Stop } | Should -Not -Throw
     }
 
     It "keeps the generated function tables in CLAUDE.md and SKILL.md in step with the module" {
@@ -3443,7 +3443,7 @@ Describe "Contracts" {
         $stale = @(& (Join-Path $repoRoot 'tools' 'Update-TerraformGraphDocTables.ps1') -RepoRoot $repoRoot -Check)
         $stale | Should -BeNullOrEmpty -Because 'Invoke-Build GenerateDocTables rewrites them from Get-Command and the comment-based help'
         $installed = Join-Path $repoRoot '.claude' 'skills' 'terraformgraph' 'SKILL.md'
-        $canonical = Join-Path $repoRoot 'src' 'TerraformGraph' 'skills' 'terraformgraph' 'SKILL.md'
+        $canonical = Join-Path $repoRoot 'src' 'Graph.Emitter.Terraform' 'skills' 'terraformgraph' 'SKILL.md'
         (Get-FileHash -LiteralPath $installed).Hash | Should -Be (Get-FileHash -LiteralPath $canonical).Hash -Because 'the .claude copy is regenerated with Install-TerraformGraphSkill -Path . -Tool Claude -Force'
     }
 
@@ -3454,9 +3454,9 @@ Describe "Contracts" {
         # $env:TERRAFORMGRAPH_DRAWERS_PATH points the test at another drawers.json
         # (manual-check-list 16.5).
         $repoRoot = Split-Path $PSScriptRoot -Parent
-        $manifest = Import-PowerShellDataFile -Path (Join-Path $repoRoot 'src' 'TerraformGraph' 'TerraformGraph.psd1')
+        $manifest = Import-PowerShellDataFile -Path (Join-Path $repoRoot 'src' 'Graph.Emitter.Terraform' 'Graph.Emitter.Terraform.psd1')
         $current = [version]$manifest.ModuleVersion
-        $currentPath = if ($env:TERRAFORMGRAPH_DRAWERS_PATH) { $env:TERRAFORMGRAPH_DRAWERS_PATH } else { Join-Path $repoRoot 'src' 'TerraformGraph' 'classifiers' 'drawers.json' }
+        $currentPath = if ($env:TERRAFORMGRAPH_DRAWERS_PATH) { $env:TERRAFORMGRAPH_DRAWERS_PATH } else { Join-Path $repoRoot 'src' 'Graph.Emitter.Terraform' 'classifiers' 'drawers.json' }
 
         $previous = $null
         $previousText = $null
@@ -3464,8 +3464,11 @@ Describe "Contracts" {
             $tags = @(git -C $repoRoot tag --list 'v*' 2>$null | Where-Object { $_ -match '^v(\d+\.\d+\.\d+)$' } | ForEach-Object { [version]$_.Substring(1) } | Where-Object { $_ -lt $current } | Sort-Object)
             if ($tags.Count) {
                 $previous = $tags[-1]
-                $previousText = (git -C $repoRoot show "v$($previous):src/TerraformGraph/classifiers/drawers.json" 2>$null) -join "`n"
-                if ($LASTEXITCODE -ne 0) { $previousText = $null }
+                # Releases before 0.17.0 kept the module under src/TerraformGraph (the old repo name).
+                foreach ($moduleFolder in 'Graph.Emitter.Terraform', 'TerraformGraph') {
+                    $text = (git -C $repoRoot show "v$($previous):src/$moduleFolder/classifiers/drawers.json" 2>$null) -join "`n"
+                    if ($LASTEXITCODE -eq 0 -and $text) { $previousText = $text; break }
+                }
             }
         }
         if (-not $previousText) {
@@ -3487,7 +3490,7 @@ Describe "Contracts" {
 Describe "Survey" {
 
     BeforeAll {
-        Set-Variable -Name SavedPaths -Scope Script -Value (InModuleScope TerraformGraph {
+        Set-Variable -Name SavedPaths -Scope Script -Value (InModuleScope Graph.Emitter.Terraform {
                 @{
                     RegistryBundled = $script:TerraformRegistryBundledPath
                     RegistryUser    = $script:TerraformRegistryUserCachePath
@@ -3509,7 +3512,7 @@ Describe "Survey" {
     }
 
     AfterAll {
-        InModuleScope TerraformGraph -Parameters @{ S = $SavedPaths } {
+        InModuleScope Graph.Emitter.Terraform -Parameters @{ S = $SavedPaths } {
             param($S)
             $script:TerraformRegistryBundledPath = $S.RegistryBundled
             $script:TerraformRegistryUserCachePath = $S.RegistryUser
@@ -3520,7 +3523,7 @@ Describe "Survey" {
 
     BeforeEach {
         $root = Join-Path $TestDrive "survey-$([guid]::NewGuid().ToString('n'))"
-        InModuleScope TerraformGraph -Parameters @{ Root = $root; Registry = (Join-Path $PSScriptRoot 'fixtures' 'registry.sample.json'); Docs = $SurveyDocs } {
+        InModuleScope Graph.Emitter.Terraform -Parameters @{ Root = $root; Registry = (Join-Path $PSScriptRoot 'fixtures' 'registry.sample.json'); Docs = $SurveyDocs } {
             param($Root, $Registry, $Docs)
             $script:TerraformRegistryBundledPath = $Registry
             $script:TerraformRegistryUserCachePath = Join-Path $Root 'user' 'registry.json'
@@ -3575,7 +3578,7 @@ Describe "Ontology" {
         $script:AssertOntologyTerms = {
             param([string[]]$Path)
             $repoRoot = Split-Path $PSScriptRoot -Parent
-            $moduleRoot = Join-Path $repoRoot 'src' 'TerraformGraph'
+            $moduleRoot = Join-Path $repoRoot 'src' 'Graph.Emitter.Terraform'
             $text = Get-Content -LiteralPath (Join-Path $repoRoot 'ONTOLOGY.md') -Raw
             $section = [regex]::Match($text, '(?ms)^## Terminology\s*$(.*?)(?=^## )').Groups[1].Value
             $rows = @([regex]::Matches($section, '(?m)^\|(?!\s*-)(?!\s*Term\s*\|)\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|') | ForEach-Object { [pscustomobject]@{ Term = $_.Groups[1].Value; Names = $_.Groups[2].Value } })
@@ -3594,7 +3597,7 @@ Describe "Ontology" {
                 if (-not $typed.ContainsKey($typeName)) { $typed[$typeName] = [System.Collections.Generic.HashSet[string]]::new() }
                 foreach ($key in $keys) { $null = $typed[$typeName].Add($key) }
             }
-            $exported = @((Get-Module TerraformGraph).ExportedFunctions.Keys)
+            $exported = @((Get-Module Graph.Emitter.Terraform).ExportedFunctions.Keys)
 
             foreach ($row in $rows) {
                 $names = @([regex]::Matches($row.Names, '`([^`]+)`') | ForEach-Object { $_.Groups[1].Value })
@@ -3616,7 +3619,7 @@ Describe "Ontology" {
     }
 
     It "resolves every term in ONTOLOGY.md's terminology table against the assembled dist psm1" -Tag RequiresBuild -Skip:(-not $HasModuleBuild) {
-        & $AssertOntologyTerms -Path (Get-TerraformGraphSourceFile -Assembled -Destination (Join-Path $TestDrive 'ontology' 'TerraformGraph'))
+        & $AssertOntologyTerms -Path (Get-TerraformGraphSourceFile -Assembled -Destination (Join-Path $TestDrive 'ontology' 'Graph.Emitter.Terraform'))
     }
 
     It "keeps the two doors: README's first line points to ONTOLOGY.md and ONTOLOGY.md links back first" {

@@ -18,7 +18,7 @@ function Update-TerraformRegistryCache {
         Providers are sorted by address; versions newest first, pre-releases included. Each
         provider's latest is its newest version that is not a pre-release.
 
-        This is the only TerraformGraph command that reads the registry list over the
+        This is the only Graph.Emitter.Terraform command that reads the registry list over the
         network. Get-TerraformRegistryProvider, the -Provider wildcards of
         Get-TerraformProviderSchema and the argument completers only read the cache.
 

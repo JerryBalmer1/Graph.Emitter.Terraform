@@ -1,6 +1,6 @@
 ---
 name: readme
-description: Keep README.md, the sysadmin door to TerraformGraph, in step with the code. Use whenever a public function, parameter, parameter set, pack, bundled data file, or Invoke-Build task is added, changed, or removed, and before reporting any task that touched one.
+description: Keep README.md, the sysadmin door to Graph.Emitter.Terraform, in step with the code. Use whenever a public function, parameter, parameter set, pack, bundled data file, or Invoke-Build task is added, changed, or removed, and before reporting any task that touched one.
 ---
 
 # README
@@ -29,10 +29,10 @@ If the task touches none of these, leave the file alone.
 
 ## Procedure
 
-1. Read the psd1 `FunctionsToExport` and the parameter blocks of whatever changed. Function code is one function per file, named for the function: `src/TerraformGraph/Public/<Verb-Noun>.ps1` for an exported command, `src/TerraformGraph/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `TerraformGraph.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships.
+1. Read the psd1 `FunctionsToExport` and the parameter blocks of whatever changed. Function code is one function per file, named for the function: `src/Graph.Emitter.Terraform/Public/<Verb-Noun>.ps1` for an exported command, `src/Graph.Emitter.Terraform/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `Graph.Emitter.Terraform.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships.
 2. Edit the matching README section. Run every example you add or change in a fresh `pwsh -NoProfile` process and paste only output you saw.
 3. Check that line 1 is still the `>` callout linking `ONTOLOGY.md`: `Get-Content README.md -TotalCount 1`.
-4. Run `Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json` and read the rows that are not Fresh. If the README quotes bundled data that is stale, say so in your report instead of quoting it as current. Follow "Promote or leave" below for each such row.
+4. Run `Test-TerraformGraphBundle -BundlePath .\src\Graph.Emitter.Terraform\data\bundle.json` and read the rows that are not Fresh. If the README quotes bundled data that is stale, say so in your report instead of quoting it as current. Follow "Promote or leave" below for each such row.
 5. Stage README.md. Do not commit.
 6. In your report, list the README sections you changed, one line each, and the Test-TerraformGraphBundle counts (Fresh, Stale, Missing).
 

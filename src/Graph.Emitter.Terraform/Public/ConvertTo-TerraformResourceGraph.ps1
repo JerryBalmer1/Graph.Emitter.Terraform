@@ -149,7 +149,7 @@ function ConvertTo-TerraformResourceGraph {
         Get-TerraformSchemaCache
 
     .LINK
-        https://github.com/JerryBalmer1/TerraformGraph
+        https://github.com/JerryBalmer1/Graph.Emitter.Terraform
     #>
     [CmdletBinding(DefaultParameterSetName = 'SchemaGraph')]
     param(

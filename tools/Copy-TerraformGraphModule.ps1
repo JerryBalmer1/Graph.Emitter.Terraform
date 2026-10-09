@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    Assembles the publishable TerraformGraph module tree, or lists what it would contain.
+    Assembles the publishable Graph.Emitter.Terraform module tree, or lists what it would contain.
 
 .DESCRIPTION
     The one definition of what ships. Invoke-Build AssembleModule calls it to build
-    dist/module/TerraformGraph, and Pester compares its -ListOnly output with the psd1
+    dist/module/Graph.Emitter.Terraform, and Pester compares its -ListOnly output with the psd1
     FileList, so the manifest, the tree and this script cannot drift apart.
 
     The tree holds the manifest, the psm1, the format file, LICENSE and NOTICE (from the repo
@@ -12,9 +12,9 @@
     (Invoke-Build BuildJson), and every file under data/, classifiers/ and skills/. Nothing
     else: no lib/*.old, no C header, no TerraformGraph.Json.cs, no tests or repo docs.
 
-    The psm1 that ships is built, not copied. src/TerraformGraph/TerraformGraph.psm1 is wiring
+    The psm1 that ships is built, not copied. src/Graph.Emitter.Terraform/Graph.Emitter.Terraform.psm1 is wiring
     only and dot-sources Classes/, Private/ and Public/ (one function per file) between the
-    '#region TerraformGraph source files' markers; the assembled psm1 is that wiring with the
+    '#region Graph.Emitter.Terraform source files' markers; the assembled psm1 is that wiring with the
     region's body replaced by the files' contents, in that order (each file sorted by name and
     headed by a '# <folder>/<file>' line), so the published module is one psm1 and no folders.
 
@@ -22,7 +22,7 @@
     Repository root. Default: the parent of this script's folder.
 
 .PARAMETER OutputPath
-    Module folder to create, such as dist/module/TerraformGraph. Deleted first when it exists.
+    Module folder to create, such as dist/module/Graph.Emitter.Terraform. Deleted first when it exists.
 
 .PARAMETER ListOnly
     Return the relative paths the tree would hold (sorted, '/' separators) and copy nothing.
@@ -32,7 +32,7 @@
     ./tools/Copy-TerraformGraphModule.ps1 -ListOnly
 
 .EXAMPLE
-    ./tools/Copy-TerraformGraphModule.ps1 -OutputPath ./dist/module/TerraformGraph
+    ./tools/Copy-TerraformGraphModule.ps1 -OutputPath ./dist/module/Graph.Emitter.Terraform
 #>
 [CmdletBinding(DefaultParameterSetName = 'Copy')]
 param(
@@ -49,11 +49,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$source = Join-Path $RepoRoot 'src' 'TerraformGraph'
+$source = Join-Path $RepoRoot 'src' 'Graph.Emitter.Terraform'
 
 # Relative destination path -> absolute source path.
 $plan = [System.Collections.Generic.SortedDictionary[string, string]]::new([System.StringComparer]::Ordinal)
-foreach ($name in 'TerraformGraph.psd1', 'TerraformGraph.psm1', 'TerraformGraph.Format.ps1xml') {
+foreach ($name in 'Graph.Emitter.Terraform.psd1', 'Graph.Emitter.Terraform.psm1', 'Graph.Emitter.Terraform.Format.ps1xml') {
     $plan[$name] = Join-Path $source $name
 }
 foreach ($name in 'LICENSE', 'NOTICE') {
@@ -86,12 +86,12 @@ if ($missing.Count) {
 }
 
 # The shipped psm1: the wiring with the dot-source region replaced by the source files.
-$begin = '#region TerraformGraph source files'
-$end = '#endregion TerraformGraph source files'
-$wiring = [System.IO.File]::ReadAllText($plan['TerraformGraph.psm1']) -replace "`r`n", "`n"
+$begin = '#region Graph.Emitter.Terraform source files'
+$end = '#endregion Graph.Emitter.Terraform source files'
+$wiring = [System.IO.File]::ReadAllText($plan['Graph.Emitter.Terraform.psm1']) -replace "`r`n", "`n"
 $start = $wiring.IndexOf($begin)
 $stop = $wiring.IndexOf($end)
-if ($start -lt 0 -or $stop -lt $start) { throw "$($plan['TerraformGraph.psm1']) has no '$begin' ... '$end' region to replace." }
+if ($start -lt 0 -or $stop -lt $start) { throw "$($plan['Graph.Emitter.Terraform.psm1']) has no '$begin' ... '$end' region to replace." }
 $sources = foreach ($folder in 'Classes', 'Private', 'Public') {
     $folderPath = Join-Path $source $folder
     if (-not (Test-Path -LiteralPath $folderPath -PathType Container)) { continue }
@@ -106,7 +106,7 @@ if (Test-Path -LiteralPath $destination) { Remove-Item -LiteralPath $destination
 foreach ($item in $plan.GetEnumerator()) {
     $target = Join-Path $destination $item.Key
     $null = New-Item -ItemType Directory -Path (Split-Path -Path $target -Parent) -Force
-    if ($item.Key -eq 'TerraformGraph.psm1') {
+    if ($item.Key -eq 'Graph.Emitter.Terraform.psm1') {
         [System.IO.File]::WriteAllText($target, $assembled, [System.Text.UTF8Encoding]::new($false))
     }
     else {

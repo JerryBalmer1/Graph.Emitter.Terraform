@@ -1,9 +1,9 @@
 # AGENTS.md
 
 <!-- terraformgraph-skill -->
-## TerraformGraph skill
+## Graph.Emitter.Terraform skill
 
-This repository has the TerraformGraph agent skill (PowerShell module for parsing Terraform and graphing modules, variables, provider schemas and resources). Load it from:
+This repository has the Graph.Emitter.Terraform agent skill (PowerShell module for parsing Terraform and graphing modules, variables, provider schemas and resources). Load it from:
 
 - `.claude/skills/terraformgraph/SKILL.md`
 

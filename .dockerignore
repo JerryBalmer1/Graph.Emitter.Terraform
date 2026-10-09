@@ -3,7 +3,7 @@
 dist/
 tests/
 infra/
-src/TerraformGraph/lib/
+src/Graph.Emitter.Terraform/lib/
 src/json/bin/
 src/json/obj/
 **/.terraform

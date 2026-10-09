@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Runs the TerraformGraph Pester suite in the current process.
+    Runs the Graph.Emitter.Terraform Pester suite in the current process.
 
 .DESCRIPTION
     The default run excludes tests tagged Live (registry calls and terraform init that

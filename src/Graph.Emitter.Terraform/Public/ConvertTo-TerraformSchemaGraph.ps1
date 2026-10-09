@@ -136,7 +136,7 @@ function ConvertTo-TerraformSchemaGraph {
         Get-TerraformSchemaPack
 
     .LINK
-        https://github.com/JerryBalmer1/TerraformGraph
+        https://github.com/JerryBalmer1/Graph.Emitter.Terraform
     #>
     # Cache is the default set so that -Provider alone binds to it; piped or positional
     # -Schema still selects Document.

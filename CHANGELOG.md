@@ -1,6 +1,16 @@
 # Changelog
 
-TerraformGraph release notes, newest first. The psd1 `ReleaseNotes` holds only the current version and links here.
+Graph.Emitter.Terraform (formerly TerraformGraph) release notes, newest first. The psd1 `ReleaseNotes` holds only the current version and links here.
+
+## 0.17.0
+
+Renamed from TerraformGraph; module and manifest follow the repo name; no functional change. The repository is now https://github.com/JerryBalmer1/Graph.Emitter.Terraform and the module `Graph.Emitter.Terraform`: the same 26 commands with the same parameters, parameter sets, output types and error ids; messages and help that named the module now say Graph.Emitter.Terraform.
+
+- The module folder is `src/Graph.Emitter.Terraform` and its files are `Graph.Emitter.Terraform.psd1`, `Graph.Emitter.Terraform.psm1` and `Graph.Emitter.Terraform.Format.ps1xml`; `Import-Module Graph.Emitter.Terraform`, `Install-Module Graph.Emitter.Terraform` (once published), `InModuleScope Graph.Emitter.Terraform`. `Invoke-Build AssembleModule` writes `dist/module/Graph.Emitter.Terraform` and `Package` writes `dist/Graph.Emitter.Terraform.<version>.zip`. The test file is `tests/Graph.Emitter.Terraform.Tests.ps1`.
+- Kept on purpose: function names (`Install-TerraformGraphSkill`, `New-TerraformGraphBundle` and the rest), PSTypeNames (`TerraformGraph.*`), the C# and Go names (`TerraformGraph.Json`, `TerraformGraph.Utf8Parser`, `TerraformGraph.dll`), `TERRAFORMGRAPH_*` variables, error ids, the skill `terraformgraph`, the Docker image and container names, and the cache, log and temp folders (`$env:LOCALAPPDATA\TerraformGraph`, `$env:TEMP\TerraformGraph`), so existing caches keep working.
+- URLs point at the renamed repository: the default schema and docs pack `-Source`, the psd1 ProjectUri and LicenseUri, and the bundle sources (`$script:TerraformGraphBundleSources`, `data/bundle.json`).
+- Pester "drawers are semver-safe" reads the previous release's drawers.json from `src/Graph.Emitter.Terraform`, else from `src/TerraformGraph` (tags before 0.17.0).
+- Planned features move one release: view 0.18.0, compare 0.19.0, eras 0.20.0.
 
 ## 0.16.0
 

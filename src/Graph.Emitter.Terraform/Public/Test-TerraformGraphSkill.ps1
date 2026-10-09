@@ -1,7 +1,7 @@
 function Test-TerraformGraphSkill {
     <#
     .SYNOPSIS
-        Reports which agent tools a repository uses and whether the TerraformGraph skill is installed for them.
+        Reports which agent tools a repository uses and whether the Graph.Emitter.Terraform skill is installed for them.
 
     .DESCRIPTION
         Test-TerraformGraphSkill checks -Path for each agent tool: Detected when the tool's

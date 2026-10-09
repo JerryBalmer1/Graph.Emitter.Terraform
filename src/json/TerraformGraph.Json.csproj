@@ -2,7 +2,7 @@
 
   <!--
     Invoke-Build BuildJson compiles TerraformGraph.Json.cs (the source the psm1 falls back to
-    with Add-Type) into src/TerraformGraph/lib/TerraformGraph.Json.dll, so an import loads an
+    with Add-Type) into src/Graph.Emitter.Terraform/lib/TerraformGraph.Json.dll, so an import loads an
     assembly instead of compiling C# (about half a second). net8.0 is the runtime of
     PowerShell 7.4, the module's minimum; System.Management.Automation is referenced for
     compiling only, never copied: the host PowerShell provides it.
@@ -22,7 +22,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="../TerraformGraph/TerraformGraph.Json.cs" />
+    <Compile Include="../Graph.Emitter.Terraform/TerraformGraph.Json.cs" />
   </ItemGroup>
 
   <ItemGroup>

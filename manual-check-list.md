@@ -1,4 +1,4 @@
-# TerraformGraph manual check list
+# Graph.Emitter.Terraform manual check list
 
 Module version: 0.16.0
 Last updated: 2026-10-08
@@ -10,16 +10,16 @@ Last updated: 2026-10-08
 Imports the module from source and lists its version and exported commands.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
-(Get-Module TerraformGraph).Version.ToString()
-(Get-Command -Module TerraformGraph).Name
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
+(Get-Module Graph.Emitter.Terraform).Version.ToString()
+(Get-Command -Module Graph.Emitter.Terraform).Name
 ```
 
-Expect: `0.15.0`, then twenty-six names (none added in 0.15.0; since 0.15.0 each is defined in src\TerraformGraph\Public\<name>.ps1), and no other output: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformClassifier, Get-TerraformClassifierFinding, Get-TerraformDocCache, Get-TerraformDocPack, Get-TerraformGraphBundle, Get-TerraformModuleGraph, Get-TerraformProviderDoc, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformSubcategorySurvey, Get-TerraformVariableTrace, Install-TerraformGraphSkill, New-TerraformClassifier, New-TerraformGraphBundle, Test-TerraformGraphBundle, Test-TerraformGraphSkill, Update-TerraformProviderDocCache, Update-TerraformRegistryCache.
+Expect: `0.15.0`, then twenty-six names (none added in 0.15.0; since 0.15.0 each is defined in src\Graph.Emitter.Terraform\Public\<name>.ps1), and no other output: ConvertFrom-TerraformJson, ConvertTo-TerraformJson, ConvertTo-TerraformResourceGraph, ConvertTo-TerraformSchemaGraph, ConvertTo-TerraformVariableGraph, Get-TerraformAST, Get-TerraformClassifier, Get-TerraformClassifierFinding, Get-TerraformDocCache, Get-TerraformDocPack, Get-TerraformGraphBundle, Get-TerraformModuleGraph, Get-TerraformProviderDoc, Get-TerraformProviderSchema, Get-TerraformRegistryProvider, Get-TerraformSchemaCache, Get-TerraformSchemaPack, Get-TerraformSubcategorySurvey, Get-TerraformVariableTrace, Install-TerraformGraphSkill, New-TerraformClassifier, New-TerraformGraphBundle, Test-TerraformGraphBundle, Test-TerraformGraphSkill, Update-TerraformProviderDocCache, Update-TerraformRegistryCache.
 
-Pester: "is exported", "resolves to the TerraformGraph module", "are exported", "is exported from TerraformGraph", "exports both variable graph functions from TerraformGraph", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from TerraformGraph", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from TerraformGraph", "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from TerraformGraph", "exports the four docs commands from TerraformGraph", "exports the three classifier commands from TerraformGraph", "exports the bundle commands and ships a bundled manifest with the official tier and two extras"
+Pester: "is exported", "resolves to the Graph.Emitter.Terraform module", "are exported", "is exported from Graph.Emitter.Terraform", "exports both variable graph functions from Graph.Emitter.Terraform", "exports Install-TerraformGraphSkill and Test-TerraformGraphSkill from Graph.Emitter.Terraform", "exports Update-TerraformRegistryCache and Get-TerraformRegistryProvider from Graph.Emitter.Terraform", "exports Get-TerraformSchemaPack and Get-TerraformSchemaCache from Graph.Emitter.Terraform", "exports the four docs commands from Graph.Emitter.Terraform", "exports the three classifier commands from Graph.Emitter.Terraform", "exports the bundle commands and ships a bundled manifest with the official tier and two extras"
 
 ## 1 Get-TerraformAST
 
@@ -28,9 +28,9 @@ Pester: "is exported", "resolves to the TerraformGraph module", "are exported", 
 Parses the .tf files in one directory; subdirectories are skipped. Shows the default display.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformAST -Path .\infra
 ```
 
@@ -43,9 +43,9 @@ Pester: "parses infra with -Path"
 Parses the directory and every subdirectory.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformAST -Path .\infra -Recurse |
     Group-Object { Resolve-Path -Relative $_.TypeRange.Filename } |
     Select-Object Count, Name
@@ -60,9 +60,9 @@ Pester: "parses infra with -Path -Recurse and includes nested modules"
 Parses one .tf file.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformAST -FilePath .\infra\main.tf
 ```
 
@@ -75,9 +75,9 @@ Pester: "parses a file with -FilePath"
 FileInfo objects bind to -FilePath through the FullName alias.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-ChildItem .\infra -Filter *.tf | Get-TerraformAST | Group-Object File | Select-Object Count, Name
 ```
 
@@ -90,9 +90,9 @@ Pester: "binds pipeline FileInfo input to -FilePath"
 A -FilePath that does not exist fails parameter validation.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformAST -FilePath .\does-not-exist.tf
 ```
 
@@ -105,9 +105,9 @@ Pester: "rejects a missing file"
 A -FilePath without a .tf extension fails parameter validation.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformAST -FilePath .\README.md
 ```
 
@@ -120,9 +120,9 @@ Pester: "rejects a non-.tf FilePath"
 A -Path that does not exist fails parameter validation.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformAST -Path .\does-not-exist-dir
 ```
 
@@ -135,9 +135,9 @@ Pester: "rejects a missing directory" (Get-TerraformAST context)
 An existing directory with nothing to parse writes a non-terminating error.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-empty'
 New-Item -ItemType Directory -Path $dir -Force | Out-Null
 try {
@@ -157,9 +157,9 @@ Pester: "writes a non-terminating error for a directory with no .tf files"
 A file the HCL parser rejects surfaces the parser diagnostic with the file path.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-badhcl'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {' -Force | Out-Null
 try {
@@ -181,9 +181,9 @@ Pester: "writes a non-terminating parse error for an unclosed block"
 Indented JSON with two spaces; HTML characters are not escaped.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 [pscustomobject]@{ a = 1; b = '<x & y>' } | ConvertTo-TerraformJson
 ```
 
@@ -196,9 +196,9 @@ Pester: "writes indented JSON without escaping HTML characters"
 Writes the JSON on one line.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 [ordered]@{ a = 1; b = @(1, 2) } | ConvertTo-TerraformJson -Compress
 ```
 
@@ -211,9 +211,9 @@ Pester: "writes one line with -Compress"
 More than one pipeline input, or -AsArray, writes a JSON array.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 1, 2 | ConvertTo-TerraformJson -Compress
 1 | ConvertTo-TerraformJson -Compress -AsArray
 ```
@@ -227,9 +227,9 @@ Pester: "writes multiple pipeline inputs or -AsArray as an array"
 An object nested deeper than -Depth throws instead of truncating.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $deep = [pscustomobject]@{ value = 'leaf' }
 1..200 | ForEach-Object { $deep = [pscustomobject]@{ child = $deep } }
 $deep | ConvertTo-TerraformJson -Depth 50
@@ -244,9 +244,9 @@ Pester: "throws when nesting exceeds -Depth"
 A self-referencing object throws.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $a = [pscustomobject]@{ name = 'a' }
 $a | Add-Member -NotePropertyName self -NotePropertyValue $a
 $a | ConvertTo-TerraformJson
@@ -261,9 +261,9 @@ Pester: "throws on a circular reference"
 A 200-level object round-trips intact; ConvertTo-Json stops at 100.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $deep = [pscustomobject]@{ value = 'leaf' }
 1..200 | ForEach-Object { $deep = [pscustomobject]@{ child = $deep } }
 $node = $deep | ConvertTo-TerraformJson | ConvertFrom-TerraformJson
@@ -280,9 +280,9 @@ Pester: "round-trips an object deeper than ConvertTo-Json allows"
 Serializes parsed blocks and reads them back.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $json = Get-TerraformAST -FilePath .\infra\main.tf | ConvertTo-TerraformJson
 ($json | ConvertFrom-TerraformJson).Type -join ', '
 ```
@@ -298,9 +298,9 @@ Pester: "serializes Get-TerraformAST output"
 Objects become PSCustomObjects; numbers keep the narrowest exact type.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $o = '{"n":123456789012345678901234567890,"i":2,"f":1.5,"s":"x","a":[1,2]}' | ConvertFrom-TerraformJson
 $o.PSObject.Properties | Format-Table Name, Value, @{ n = 'Type'; e = { $_.Value.GetType().Name } }
 ```
@@ -314,9 +314,9 @@ Pester: "keeps large integers exact"
 Returns ordered, case-sensitive dictionaries.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $h = '{"Name":1,"name":2}' | ConvertFrom-TerraformJson -AsHashtable
 $h.GetType().FullName
 $h
@@ -331,9 +331,9 @@ Pester: "parses -AsHashtable with case-sensitive keys"
 Keys that differ only by case cannot become a PSCustomObject.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 '{"Name":1,"name":2}' | ConvertFrom-TerraformJson
 ```
 
@@ -346,9 +346,9 @@ Pester: "throws on case-colliding keys without -AsHashtable"
 A top-level array is enumerated unless -NoEnumerate is set.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 @('[1,2,3]' | ConvertFrom-TerraformJson).Count
 @('[1,2,3]' | ConvertFrom-TerraformJson -NoEnumerate).Count
 ```
@@ -362,9 +362,9 @@ Pester: "enumerates top-level arrays unless -NoEnumerate"
 Strings from the pipeline are joined before parsing, as Get-Content without -Raw sends them.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 "{", '  "a": 1', "}" | ConvertFrom-TerraformJson
 ```
 
@@ -377,9 +377,9 @@ Pester: "joins Get-Content lines from the pipeline"
 JSON nested deeper than -Depth throws.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 '[[[[1]]]]' | ConvertFrom-TerraformJson -Depth 2
 ```
 
@@ -394,9 +394,9 @@ Pester: "throws when JSON nesting exceeds -Depth"
 Runs terraform init on a temp directory that uses only the builtin terraform provider, then reads its schema.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-schema'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
 try {
@@ -420,9 +420,9 @@ Pester: "returns nested ordered dictionaries by default"
 Same temp setup; returns indented JSON text.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-schema-json'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
 try {
@@ -445,9 +445,9 @@ Pester: "returns indented JSON with -OutputFormat Json"
 Same temp setup, run from inside the directory with no -Path.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-schema-cwd'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
 Push-Location $dir
@@ -470,9 +470,9 @@ Pester: "defaults -Path to the current location"
 A configuration that needs a downloaded provider, without terraform init.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-schema-noinit'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "null_resource" "x" {}' -Force | Out-Null
 try {
@@ -492,9 +492,9 @@ Pester: "throws when providers are not installed"
 A -Path that does not exist fails parameter validation.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformProviderSchema -Path .\does-not-exist-dir
 ```
 
@@ -507,9 +507,9 @@ Pester: "rejects a missing directory" (Get-TerraformProviderSchema context)
 Fetches the latest hashicorp/null schema with no configuration and removes the working directory afterwards. Needs registry access.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $schema = Get-TerraformProviderSchema -Provider null -Cleanup
 $schema.provider_schemas.Keys
 $schema.provider_schemas['registry.terraform.io/hashicorp/null'].resource_schemas.Keys
@@ -525,9 +525,9 @@ Pester: "removes the working directory with -Cleanup and still returns the schem
 The default working directory is kept, so the second identical call skips terraform init. The block removes the directory at the end.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'TerraformGraph\providers\hashicorp-null-__3.2.3'
 try {
     Measure-Command { Get-TerraformProviderSchema -Provider hashicorp/null -Version '= 3.2.3' -Verbose } | Select-Object TotalSeconds
@@ -547,9 +547,9 @@ Pester: "writes the resolved version with -Verbose", "skips terraform init when 
 -Force deletes the lock file and runs terraform init again even though the working directory is already initialized.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-schema-force'
 try {
     $null = Get-TerraformProviderSchema -Provider null -Version '= 3.2.3' -WorkingDirectory $dir
@@ -572,9 +572,9 @@ Pester: "re-runs terraform init with -Force"
 A malformed provider address fails parameter validation before terraform runs.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformProviderSchema -Provider 'not//valid'
 ```
 
@@ -587,9 +587,9 @@ Pester: "rejects an invalid -Provider before running terraform"
 terraform init fails; its stderr is in the error and -Cleanup still removes the working directory.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-schema-missing'
 try {
     Get-TerraformProviderSchema -Provider hashicorp/definitely-not-a-provider-xyz -WorkingDirectory $dir -Cleanup
@@ -610,16 +610,16 @@ Pester: "throws terraform's stderr for a nonexistent provider and cleans up"
 Root and its direct module calls; children are resolved but not parsed. Shows the three default displays: graph, node table and edge table.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra
 $graph | Format-Table
 $graph.Nodes | Format-Table
 $graph.Edges | Format-Table
 ```
 
-Expect: graph row `C:\__Code\TerraformGraph\infra  Call  2  1  0`; node table headed `Id  Kind  SourceKind  Depth  Resolved  Dir` with `root` (Module, Root, Depth 0) and `module.network` (Module, Local, Depth 1, Dir ...\infra\modules\network), both Resolved True; edge table headed `From  To  Kind  Call  File  Line` with one row `root  module.network  Calls  module.network  main.tf  38`.
+Expect: graph row `C:\__Code\Graph.Emitter.Terraform\infra  Call  2  1  0`; node table headed `Id  Kind  SourceKind  Depth  Resolved  Dir` with `root` (Module, Root, Depth 0) and `module.network` (Module, Local, Depth 1, Dir ...\infra\modules\network), both Resolved True; edge table headed `From  To  Kind  Call  File  Line` with one row `root  module.network  Calls  module.network  main.tf  38`.
 
 Pester: "stops at direct children without -Recurse", "sets the default display properties"
 
@@ -628,9 +628,9 @@ Pester: "stops at direct children without -Recurse", "sets the default display p
 Follows every call down the tree and parses each child.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra -Recurse
 $graph | Format-Table
 $graph.Nodes | Format-Table Id, Kind, Depth, ParentKey, Resolved, @{ n = 'Blocks'; e = { @($_.Blocks).Count } }
@@ -646,9 +646,9 @@ Pester: "follows nested calls with -Recurse", "links edges by Id and records the
 One node per module source, Id `source:` plus the source relative to the root module; Callers names the calls each node stands for, and ModuleAddress is unchanged.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra -Recurse -GroupBy Source
 $graph.Nodes | Format-Table Id, ModuleAddress, Callers
 $graph.Edges | Format-Table
@@ -663,9 +663,9 @@ Pester: "uses source: and the root-relative source as Id with -GroupBy Source an
 A local source that points at a missing directory.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-missing-local'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'module "gone" { source = "./does-not-exist" }' -Force | Out-Null
 try {
@@ -688,9 +688,9 @@ Pester: "marks a missing local source as LocalPathMissing"
 A registry source with no .terraform/modules/modules.json; terraform init is not run.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-registry'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'module "vpc" { source = "terraform-aws-modules/vpc/aws" }' -Force | Out-Null
 try {
@@ -712,9 +712,9 @@ Pester: "marks a registry source without .terraform as NotInitialized"
 root calls ./x, x calls ../y, y calls ../x back into its own ancestor; the walk stops there.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-cycle'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'module "x" { source = "./x" }' -Force | Out-Null
 New-Item -ItemType File -Path (Join-Path $dir 'x\main.tf') -Value 'module "y" { source = "../y" }' -Force | Out-Null
@@ -738,9 +738,9 @@ Pester: "stops at a call whose Dir is one of its own ancestors"
 A -Path that does not exist fails parameter validation.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformModuleGraph -Path .\does-not-exist-dir
 ```
 
@@ -753,9 +753,9 @@ Pester: "rejects a missing directory" (Get-TerraformModuleGraph context)
 Two calls to the same local source, written two ways, collapse into one node; Ids stay unique under both modes, and edges stay one per call.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-duplicate-source'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value "module `"a`" {`n  source = `"./shared`"`n}`nmodule `"b`" {`n  source = `"./shared/`"`n}" -Force | Out-Null
 New-Item -ItemType File -Path (Join-Path $dir 'shared\main.tf') -Value 'module "leaf" { source = "./leaf" }' -Force | Out-Null
@@ -784,9 +784,9 @@ Pester: "keeps Ids unique under both -GroupBy modes when one source is called tw
 Converts the builtin terraform provider schema into a graph and counts nodes by Kind.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-schemagraph'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
 try {
@@ -809,9 +809,9 @@ Pester: "lists only the built-in provider", "summarizes counts by Kind", "gives 
 Lists the attribute nodes of the terraform_remote_state data source with their rendered Type and flags.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-schemagraph'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
 try {
@@ -833,9 +833,9 @@ Pester: "builds the terraform_data Attribute nodes with types and flags", "puts 
 Filters to a provider that is in the document, then to one that is not.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-schemagraph'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
 try {
@@ -858,9 +858,9 @@ Pester: "returns the same graph with -Provider 'terraform.io/builtin/terraform'"
 Pipes the -OutputFormat Json text, and the same text through ConvertFrom-TerraformJson, into the converter.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-schemagraph'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
 try {
@@ -884,9 +884,9 @@ Pester: "gives the same NodeCount for -OutputFormat Json text and for its PSCust
 Input without a top-level provider_schemas is rejected.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 @{} | ConvertTo-TerraformSchemaGraph
 ```
 
@@ -899,9 +899,9 @@ Pester: "throws when the input has no provider_schemas"
 Converts the hashicorp/tls schema and lists the nodes built from the provider's own configuration block. Needs registry access.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $graph = Get-TerraformProviderSchema -Provider tls -Version '= 4.0.6' -Cleanup | ConvertTo-TerraformSchemaGraph
 $graph.Nodes | Where-Object Id -like 'registry.terraform.io/hashicorp/tls/config/*' | Format-Table Id, Kind, Path, Type, Depth
 ```
@@ -917,15 +917,15 @@ Pester: "adds the proxy config Block under the Provider node", "adds the proxy c
 Builds the variable graph for the whole infra tree and counts nodes by Kind.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
 $graph | Format-Table
 $graph.Summary
 ```
 
-Expect: Root `C:\__Code\TerraformGraph\infra`, NodeCount 20, EdgeCount 8, UnresolvedCount 0; Summary lists Variable 13, Local 2, Output 5 in that order.
+Expect: Root `C:\__Code\Graph.Emitter.Terraform\infra`, NodeCount 20, EdgeCount 8, UnresolvedCount 0; Summary lists Variable 13, Local 2, Output 5 in that order.
 
 Pester: "has one node per variable, local and output in root, network and endpoint", "gives every edge a From and To that exist in Nodes", "has no Unresolved or Skipped entries for infra"
 
@@ -934,9 +934,9 @@ Pester: "has one node per variable, local and output in root, network and endpoi
 Lists the child module variables whose value comes from the parent's module call.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
 $graph.Nodes | Where-Object Binding -eq 'Argument' | Format-Table Module, Name, @{ n = 'Argument'; e = { $_.ArgumentExpr.Raw } }, ArgumentLiteral
 ```
@@ -950,9 +950,9 @@ Pester: "binds module.network var.aws_region to the root call argument", "keeps 
 A module call passes an argument the child does not declare.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-vargraph'
 New-Item -ItemType File -Path (Join-Path $dir 'm\main.tf') -Value 'variable "known" {}' -Force | Out-Null
 Set-Content -Path (Join-Path $dir 'main.tf') -Value "module `"m`" {`n  source = `"./m`"`n  known  = 1`n  nope   = 2`n}"
@@ -975,9 +975,9 @@ Pester: "reports an argument the child does not declare as UndeclaredArgument"
 Traces where the network module's aws_region comes from.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
 ($graph | Get-TerraformVariableTrace -Id 'module.network/var/aws_region' -Direction Upstream).Nodes | Format-Table
 ```
@@ -991,9 +991,9 @@ Pester: "traces module.network var.aws_region upstream to the root variable at D
 Traces what the root aws_region variable feeds.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
 ($graph | Get-TerraformVariableTrace -Id 'root/var/aws_region' -Direction Downstream).Nodes | Format-Table
 ```
@@ -1007,9 +1007,9 @@ Pester: "traces root var.aws_region downstream to the root output and the networ
 An Id that is not in the graph is rejected with the same-named nodes.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformVariableGraph
 $graph | Get-TerraformVariableTrace -Id 'module.network.module.endpoint/var/aws_region'
 ```
@@ -1025,16 +1025,16 @@ Pester: "throws for an unknown Id and names the same-named nodes"
 Lists every resource and data source in the infra tree with its resolved provider.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph
 $graph | Format-Table
 $graph.Nodes | Format-Table Kind, ResourceAddress, ProviderAddress, SchemaMatched, Reason
 $graph.Providers
 ```
 
-Expect: Root `C:\__Code\TerraformGraph\infra`, NodeCount 5, MatchedCount 0, UnmatchedCount 5, Findings 0; five rows null_resource.marker, terraform_data.placeholder, data.local_file.readme (DataSource), module.network.null_resource.subnet, module.network.module.endpoint.terraform_data.listener, all SchemaMatched False with Reason NoSchemaGraph; Providers lists registry.terraform.io/hashicorp/null 2, terraform.io/builtin/terraform 2, registry.terraform.io/hashicorp/local 1.
+Expect: Root `C:\__Code\Graph.Emitter.Terraform\infra`, NodeCount 5, MatchedCount 0, UnmatchedCount 5, Findings 0; five rows null_resource.marker, terraform_data.placeholder, data.local_file.readme (DataSource), module.network.null_resource.subnet, module.network.module.endpoint.terraform_data.listener, all SchemaMatched False with Reason NoSchemaGraph; Providers lists registry.terraform.io/hashicorp/null 2, terraform.io/builtin/terraform 2, registry.terraform.io/hashicorp/local 1.
 
 Pester: "has one node per resource and data block in infra, in module then source order", "marks every node NoSchemaGraph without -SchemaGraph", "counts nodes per provider address"
 
@@ -1043,9 +1043,9 @@ Pester: "has one node per resource and data block in infra, in module then sourc
 Joins infra with the built-in provider schema and lists the nodes that did not match, with the Reason.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-resgraph-builtin'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value 'resource "terraform_data" "x" {}' -Force | Out-Null
 try {
@@ -1069,9 +1069,9 @@ Pester: "matches terraform_data.placeholder to the builtin schema", "reports nul
 A resource sets an argument the schema does not declare.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-resgraph-finding'
 New-Item -ItemType File -Path (Join-Path $dir 'main.tf') -Value "resource `"terraform_data`" `"x`" {`n  bogus = 1`n}" -Force | Out-Null
 try {
@@ -1097,9 +1097,9 @@ Pester: "lists an attribute the schema does not declare in UnknownAttributes"
 Copies the bundled skill into a fake repo that uses Claude.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-skill'
 New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
 try {
@@ -1120,9 +1120,9 @@ Pester: "installs SKILL.md for Claude identical to the bundled file"
 Reports every tool for a repo that has .claude and .cursor, with the skill installed for Claude only.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-skill'
 New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $dir '.cursor') -Force | Out-Null
@@ -1144,9 +1144,9 @@ Pester: "reports Claude Detected, Installed and not Stale after install", "repor
 Installs twice; the second run writes nothing.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-skill'
 New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
 try {
@@ -1167,9 +1167,9 @@ Pester: "returns Unchanged on a second install without -Force"
 Edits the installed copy, shows it as Stale, then restores it.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-skill'
 New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
 try {
@@ -1194,9 +1194,9 @@ Pester: "reports an edited copy as Stale, skips it without -Force and restores i
 Installs twice into a repo that already has an AGENTS.md.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-skill'
 New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
 Set-Content -LiteralPath (Join-Path $dir 'AGENTS.md') -Value '# Existing rules'
@@ -1211,7 +1211,7 @@ finally {
 }
 ```
 
-Expect: `1`, then AGENTS.md: `# Existing rules`, a blank line, `<!-- terraformgraph-skill -->`, `## TerraformGraph skill`, the load sentence, `- .claude/skills/terraformgraph/SKILL.md` (in backticks) and the re-run sentence.
+Expect: `1`, then AGENTS.md: `# Existing rules`, a blank line, `<!-- terraformgraph-skill -->`, `## Graph.Emitter.Terraform skill`, the load sentence, `- .claude/skills/terraformgraph/SKILL.md` (in backticks) and the re-run sentence.
 
 Pester: "creates AGENTS.md with the marker and never appends it twice", "appends to an existing AGENTS.md without changing its content"
 
@@ -1220,20 +1220,20 @@ Pester: "creates AGENTS.md with the marker and never appends it twice", "appends
 Imports the module in a new process from a directory with .claude and no skill.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-skill'
 New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
 try {
-    pwsh -NoProfile -Command "Remove-Item Env:TERRAFORMGRAPH_SKILL_HINT -ErrorAction SilentlyContinue; Set-Location -LiteralPath '$dir'; Import-Module C:\__Code\TerraformGraph\src\TerraformGraph\TerraformGraph.psd1"
+    pwsh -NoProfile -Command "Remove-Item Env:TERRAFORMGRAPH_SKILL_HINT -ErrorAction SilentlyContinue; Set-Location -LiteralPath '$dir'; Import-Module C:\__Code\Graph.Emitter.Terraform\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1"
 }
 finally {
     Remove-Item -LiteralPath $dir -Recurse -Force
 }
 ```
 
-Expect: One line: `TerraformGraph: detected Claude in this directory. Run Install-TerraformGraphSkill -Tool Claude to give them the TerraformGraph skill.`
+Expect: One line: `Graph.Emitter.Terraform: detected Claude in this directory. Run Install-TerraformGraphSkill -Tool Claude to give them the Graph.Emitter.Terraform skill.`
 
 Pester: "prints the install hint on import where .claude exists without the skill"
 
@@ -1242,20 +1242,20 @@ Pester: "prints the install hint on import where .claude exists without the skil
 Same directory with TERRAFORMGRAPH_SKILL_HINT set to 0.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-skill'
 New-Item -ItemType Directory -Path (Join-Path $dir '.claude') -Force | Out-Null
 try {
-    pwsh -NoProfile -Command "`$env:TERRAFORMGRAPH_SKILL_HINT = '0'; Set-Location -LiteralPath '$dir'; Import-Module C:\__Code\TerraformGraph\src\TerraformGraph\TerraformGraph.psd1; 'imported'"
+    pwsh -NoProfile -Command "`$env:TERRAFORMGRAPH_SKILL_HINT = '0'; Set-Location -LiteralPath '$dir'; Import-Module C:\__Code\Graph.Emitter.Terraform\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1; 'imported'"
 }
 finally {
     Remove-Item -LiteralPath $dir -Recurse -Force
 }
 ```
 
-Expect: Only `imported`; no TerraformGraph line.
+Expect: Only `imported`; no Graph.Emitter.Terraform line.
 
 Pester: "prints nothing on import when TERRAFORMGRAPH_SKILL_HINT is 0"
 
@@ -1269,9 +1269,9 @@ egistry.json` it is read instead, and counts and versions can differ.
 Bare-name wildcard across every namespace.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformRegistryProvider aws*
 ```
 
@@ -1284,9 +1284,9 @@ Pester: "matches a wildcard against the bare name in every namespace", "computes
 A name with no slash matches that name in any namespace.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformRegistryProvider google | Format-Table ProviderAddress, Source, Tier, Latest
 ```
 
@@ -1299,9 +1299,9 @@ Pester: "matches a bare name in any namespace", "matches namespace/name and the 
 Counts official providers, then filters them by namespace/name.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformRegistryProvider -Tier official | Measure-Object | Select-Object -ExpandProperty Count
 Get-TerraformRegistryProvider -Tier official -Name 'hashicorp/a*'
 ```
@@ -1315,9 +1315,9 @@ Pester: "filters by -Tier"
 A wildcard -Provider that matches several providers stops before terraform runs.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformProviderSchema -Provider 'aws*'
 ```
 
@@ -1330,9 +1330,9 @@ Pester: "throws for an ambiguous pattern and lists every match, official first",
 Run the block, then follow the keystrokes in its comments in the same interactive pwsh window. The last lines print the same completions without a keyboard.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 # Interactive: in this same pwsh window, type the text below without pressing Enter,
 # then press Ctrl+Space (or Tab to cycle):
 #   Get-TerraformProviderSchema -Provider aws
@@ -1354,12 +1354,12 @@ Pester: "completes -Provider with cached addresses, official first", "completes 
 A child process whose LOCALAPPDATA has no cache, reading without the bundled file.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $empty = Join-Path $env:TEMP 'tg-check-no-appdata'
 try {
-    pwsh -NoProfile -Command "`$env:LOCALAPPDATA = '$empty'; Import-Module C:\__Code\TerraformGraph\src\TerraformGraph\TerraformGraph.psd1; `$r = @(Get-TerraformRegistryProvider -NoBundledData); 'Providers: ' + `$r.Count"
+    pwsh -NoProfile -Command "`$env:LOCALAPPDATA = '$empty'; Import-Module C:\__Code\Graph.Emitter.Terraform\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1; `$r = @(Get-TerraformRegistryProvider -NoBundledData); 'Providers: ' + `$r.Count"
 }
 finally {
     Remove-Item -LiteralPath $empty -Recurse -Force -ErrorAction SilentlyContinue
@@ -1375,9 +1375,9 @@ Pester: "warns and returns nothing with -NoBundledData and no user cache"
 Harvests official and partner providers from registry.terraform.io (network, about 15 to 30 seconds).
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $dir = Join-Path $env:TEMP 'tg-check-registry'
 try {
     Update-TerraformRegistryCache -Path (Join-Path $dir 'registry.json') -PassThru | Format-List ProviderCount, VersionCount, Scope, Elapsed
@@ -1401,9 +1401,9 @@ These items write to the real schema cache, `$env:LOCALAPPDATA\TerraformGraph\sc
 Fetches the schema with terraform and also writes it to the cache at the version from the lock file.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformProviderSchema -Provider hashicorp/null -Version 3.2.3 -SaveToCache -Cleanup -Verbose | Out-Null
 Get-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'TerraformGraph\schemas\registry.terraform.io-hashicorp-null\3.2.3.json.gz') | Format-Table Name, Length
 ```
@@ -1417,9 +1417,9 @@ Pester: "writes one file into the redirected cache for hashicorp/null 3.2.3", "w
 Lists cached schemas, then shows every property of one provider.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $null = Get-TerraformProviderSchema -Provider hashicorp/null -Version 3.2.3 -SaveToCache -Cleanup
 Get-TerraformSchemaCache
 Get-TerraformSchemaCache -Provider null | Format-List *
@@ -1434,9 +1434,9 @@ Pester: "lists cached schemas with Get-TerraformSchemaCache"
 Builds the schema graph from the cache, with no schema document in the pipeline.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $null = Get-TerraformProviderSchema -Provider hashicorp/null -Version 3.2.3 -SaveToCache -Cleanup
 $graph = ConvertTo-TerraformSchemaGraph -Provider null -Version 3.2.3
 $graph
@@ -1452,9 +1452,9 @@ Pester: "builds the same graph from ConvertTo-TerraformSchemaGraph -Provider nul
 Joins infra with whatever the cache holds for the providers it resolves to. Nothing is downloaded.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $null = Get-TerraformProviderSchema -Provider hashicorp/null -Version 3.2.3 -SaveToCache -Cleanup
 $graph = Get-TerraformModuleGraph -Path .\infra -Recurse | ConvertTo-TerraformResourceGraph -AutoSchema
 $graph
@@ -1470,16 +1470,16 @@ Pester: "loads every cached provider with -AutoSchema", "matches nothing with -A
 Installs the vsphere pack from the folder BuildSchemaPack writes, forces it again, then asks for a provider the manifest does not have. Builds the folder first (as in 12.6) if it is missing.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 if (-not (Test-Path -LiteralPath .\dist\schema-packs\manifest.json)) { Invoke-Build BuildSchemaPack }
 Get-TerraformSchemaPack -Provider vsphere -Source .\dist\schema-packs -PassThru
 Get-TerraformSchemaPack -Provider vsphere -Source .\dist\schema-packs -Force -PassThru
 Get-TerraformSchemaPack -Provider hashicorp/aws -Source .\dist\schema-packs
 ```
 
-Expect: `registry.terraform.io/vmware/vsphere 2.17.1 Cached 34740` (BuildSchemaPack already cached it), then the same row with Status `Updated`, then the error `Get-TerraformSchemaPack found no pack for registry.terraform.io/hashicorp/aws in 'C:\__Code\TerraformGraph\dist\schema-packs' (packs: registry.terraform.io/hashicorp/azurerm 5.8.0, registry.terraform.io/microsoft/azuredevops 1.16.0, registry.terraform.io/vmware/vsphere 2.17.1). Harvest it locally instead with Get-TerraformProviderSchema -Provider hashicorp/aws -SaveToCache.`
+Expect: `registry.terraform.io/vmware/vsphere 2.17.1 Cached 34740` (BuildSchemaPack already cached it), then the same row with Status `Updated`, then the error `Get-TerraformSchemaPack found no pack for registry.terraform.io/hashicorp/aws in 'C:\__Code\Graph.Emitter.Terraform\dist\schema-packs' (packs: registry.terraform.io/hashicorp/azurerm 5.8.0, registry.terraform.io/microsoft/azuredevops 1.16.0, registry.terraform.io/vmware/vsphere 2.17.1). Harvest it locally instead with Get-TerraformProviderSchema -Provider hashicorp/aws -SaveToCache.`
 
 Pester: "downloads a pack from a directory Source, then reports Cached, then Updated with -Force", "throws for a provider with no manifest entry and names Get-TerraformSchemaPack and Get-TerraformProviderSchema -SaveToCache", "throws on a sha256 mismatch and leaves nothing in the cache"
 
@@ -1488,9 +1488,9 @@ Pester: "downloads a pack from a directory Source, then reports Cached, then Upd
 Harvests hashicorp/azurerm, microsoft/azuredevops and vmware/vsphere at their latest version in the registry cache and writes dist\schema-packs. Needs the network; the first run downloads about 220 MB for azurerm.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Invoke-Build BuildSchemaPack
 Get-ChildItem .\dist\schema-packs | Format-Table Name, Length
 ```
@@ -1504,13 +1504,13 @@ Pester: none
 Downloads the vsphere schema pack from the latest GitHub release again. With no GH_TOKEN this uses the anonymous releases/latest/download URL. This repository is public, so no token is needed. With $env:GH_TOKEN (or $env:GITHUB_TOKEN) set, it goes through the GitHub releases API, which is what a private fork needs. Needs the network.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformSchemaPack -Provider vsphere -Force -PassThru
 ```
 
-Expect: One row, `registry.terraform.io/vmware/vsphere 2.17.1 Updated 34740` (Status `Downloaded` if vsphere was not cached before). With GH_TOKEN set and -Verbose, the WebRequest lines show api.github.com/repos/JerryBalmer1/TerraformGraph/releases/latest, then two releases/assets/<id> downloads.
+Expect: One row, `registry.terraform.io/vmware/vsphere 2.17.1 Updated 34740` (Status `Downloaded` if vsphere was not cached before). With GH_TOKEN set and -Verbose, the WebRequest lines show api.github.com/repos/JerryBalmer1/Graph.Emitter.Terraform/releases/latest, then two releases/assets/<id> downloads.
 
 Pester: "uses the releases API with a Bearer token when GH_TOKEN is set", "uses the anonymous download URL when no token is set", "names GH_TOKEN for a private fork on a 404 without a token"
 
@@ -1523,9 +1523,9 @@ Docs live in $env:LOCALAPPDATA\TerraformGraph\docs\<address-slug>\<version>.json
 Harvests the hashicorp/null 3.2.3 docs from the registry and matches them against the cached null schema. Needs the network.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3 -Force -PassThru
 ```
 
@@ -1536,9 +1536,9 @@ Pester: "harvests hashicorp/null 3.2.3 into the redirected docs cache"
 ### 13.2 Get-TerraformProviderDoc -Type wildcard
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3
 Get-TerraformProviderDoc -Provider null -Type 'null_*'
 ```
@@ -1550,9 +1550,9 @@ Pester: "gets docs by -Id, -Type wildcard and -Category"
 ### 13.3 Get-TerraformProviderDoc -Examples
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3
 Get-TerraformProviderDoc -Provider null -Type null_resource -Examples | Format-List Id, ExampleCount, Content
 ```
@@ -1566,9 +1566,9 @@ Pester: "returns only hcl and terraform code blocks with -Examples"
 The resource graph's nodes piped into Get-TerraformProviderDoc: the pages for the types infra uses, once each, from the caches only. The first two lines fill the null and local schema cache with terraform only when it is missing.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 if (-not (Get-TerraformSchemaCache -Provider hashicorp/null)) { $null = Get-TerraformProviderSchema -Provider hashicorp/null -Version '= 3.2.3' -SaveToCache -Cleanup }
 if (-not (Get-TerraformSchemaCache -Provider hashicorp/local)) { $null = Get-TerraformProviderSchema -Provider hashicorp/local -Version '= 2.5.2' -SaveToCache -Cleanup }
 Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3
@@ -1586,9 +1586,9 @@ Pester: "returns one doc per distinct matched null/local schema type for a Resou
 Needs dist\schema-packs from item 13.6 (or 12.6).
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformDocPack -Provider vsphere -Source .\dist\schema-packs -Force -PassThru | Format-Table
 Get-TerraformDocCache -Provider vsphere | Format-Table
 ```
@@ -1602,9 +1602,9 @@ Pester: "downloads only the docs entry with Get-TerraformDocPack from a manifest
 Replaces the Expect of 12.6 from 0.11.0: each provider now gets a schema pack and a docs pack. Needs the network.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Invoke-Build BuildSchemaPack
 Get-ChildItem .\dist\schema-packs | Format-Table Name, Length
 ```
@@ -1615,16 +1615,16 @@ Pester: none
 
 ## 14 Classifiers: New-TerraformClassifier, Get-TerraformClassifier, Get-TerraformClassifierFinding, -Classify
 
-Classifiers group resource and data source types into drawers from the providers' own doc subcategories through src\TerraformGraph\classifiers\map.json. The module ships classifiers for azurerm, azuredevops and vsphere. New-TerraformClassifier writes to $env:LOCALAPPDATA\TerraformGraph\classifiers, which is searched before the bundled folder. Items 14.1 to 14.3 and 14.5 need the azurerm, azuredevops and vsphere schemas and docs cached (Get-TerraformSchemaPack and Get-TerraformDocPack, or item 13.6). Items 14.2 and 14.4 write into the real user classifier folder.
+Classifiers group resource and data source types into drawers from the providers' own doc subcategories through src\Graph.Emitter.Terraform\classifiers\map.json. The module ships classifiers for azurerm, azuredevops and vsphere. New-TerraformClassifier writes to $env:LOCALAPPDATA\TerraformGraph\classifiers, which is searched before the bundled folder. Items 14.1 to 14.3 and 14.5 need the azurerm, azuredevops and vsphere schemas and docs cached (Get-TerraformSchemaPack and Get-TerraformDocPack, or item 13.6). Items 14.2 and 14.4 write into the real user classifier folder.
 
 ### 14.1 Probe: subcategories per provider
 
 The docs cache keeps each page's subcategory. This is the probe the default classifier is built on.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 foreach ($p in 'hashicorp/azurerm', 'microsoft/azuredevops', 'vmware/vsphere') {
     $pages = Get-TerraformProviderDoc -Provider $p -Category resources, data-sources
     $labels = @($pages | Where-Object Subcategory | Group-Object Subcategory)
@@ -1640,9 +1640,9 @@ Pester: none
 ### 14.2 New-TerraformClassifier for vsphere
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 New-TerraformClassifier -Provider vmware/vsphere -PassThru
 New-TerraformClassifier -Provider vmware/vsphere -PassThru
 (Get-TerraformClassifier -Provider vsphere).Types | Group-Object Drawer | Format-Table Count, Name
@@ -1657,9 +1657,9 @@ Pester: "writes a deterministic classifier: reruns are byte-identical and Unchan
 Reads the bundled azurerm classifier (or your own, if the user folder has one).
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformClassifier -Provider azurerm
 Get-TerraformClassifierFinding -Provider azurerm | Group-Object Subcategory | Sort-Object Count -Descending | Format-Table Count, Name
 Get-TerraformClassifierFinding -Provider azurerm | Select-Object -First 3
@@ -1674,9 +1674,9 @@ Pester: "puts NoDocPage, NoSubcategory and UnmappedSubcategory types in the uncl
 The first four lines fill the null and local caches only when they are missing, like 13.4.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 if (-not (Get-TerraformSchemaCache -Provider hashicorp/null)) { $null = Get-TerraformProviderSchema -Provider hashicorp/null -Version '= 3.2.3' -SaveToCache -Cleanup }
 if (-not (Get-TerraformSchemaCache -Provider hashicorp/local)) { $null = Get-TerraformProviderSchema -Provider hashicorp/local -Version '= 2.5.2' -SaveToCache -Cleanup }
 Update-TerraformProviderDocCache -Provider hashicorp/null -Version 3.2.3
@@ -1696,12 +1696,12 @@ Pester: "leaves resource graph Ids and edges unchanged with -Classify and counts
 A copy of the bundled map with one row changed (vsphere Workload Management moved from containers to compute), classified into a temp folder and passed as -ClassifierPath. The bundled classifier is shown after it for comparison.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $work = Join-Path $env:TEMP "classifier-check-$([guid]::NewGuid().ToString('n'))"
 New-Item -ItemType Directory -Path $work | Out-Null
-$map = Get-Content .\src\TerraformGraph\classifiers\map.json -Raw | ConvertFrom-TerraformJson -AsHashtable
+$map = Get-Content .\src\Graph.Emitter.Terraform\classifiers\map.json -Raw | ConvertFrom-TerraformJson -AsHashtable
 $row = $map.rows | Where-Object { $_.provider -eq 'registry.terraform.io/vmware/vsphere' -and $_.subcategory -eq 'Workload Management' }
 $row.drawer = 'compute'; $row.reason = 'Our view: supervisors and namespaces are part of the compute estate.'; $row.addedBy = 'jerry'
 $map | ConvertTo-TerraformJson | Set-Content (Join-Path $work 'map.json')
@@ -1720,12 +1720,12 @@ Pester: "uses -ClassifierPath over the user folder, and the user folder over a n
 Regenerates the bundled classifiers from the local caches with no network, then prints the findings per provider.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
-$before = (Get-FileHash .\src\TerraformGraph\classifiers\*.json).Hash
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
+$before = (Get-FileHash .\src\Graph.Emitter.Terraform\classifiers\*.json).Hash
 Invoke-Build BuildClassifier
-"unchanged: $(-not (Compare-Object $before (Get-FileHash .\src\TerraformGraph\classifiers\*.json).Hash))"
+"unchanged: $(-not (Compare-Object $before (Get-FileHash .\src\Graph.Emitter.Terraform\classifiers\*.json).Hash))"
 ```
 
 Expect: `registry.terraform.io/hashicorp/azurerm 5.8.0 (docs 5.8.0): Unchanged, 1502 types, 34 findings`, a drawers line (network 178, compute 175, storage 121, database 122, identity 20, security 95, messaging 81, integration 86, ... unclassified 34; no serverless entry, since Logic App moved to integration) and a table of ten `UnmappedSubcategory` rows. Then `registry.terraform.io/microsoft/azuredevops 1.16.0 (docs 1.16.0): Unchanged, 177 types, 0 findings` with `drawers: identity 27, management 1, devops 149` and no table. Then `registry.terraform.io/vmware/vsphere 2.17.1 (docs 2.17.1): Unchanged, 87 types, 1 findings` with `NoDocPage 1`. About 6 s in all. Status is `Updated` only after map.json or the caches change. Then `unchanged: True`, because no file was rewritten.
@@ -1741,11 +1741,11 @@ Data for 15.1, 15.5 and 15.6 comes from the HarvestBundleDocs run of 2026-10-07;
 Reads the bundled manifest. The default view is a table of entries.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
-Get-TerraformGraphBundle -Path .\src\TerraformGraph\data\bundle.json
-Get-TerraformGraphBundle -Path .\src\TerraformGraph\data\bundle.json -Document | Format-List Tiers, Providers, Exclude, RegistryHarvestedOn, RegistryProviderCount, EntryCount
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
+Get-TerraformGraphBundle -Path .\src\Graph.Emitter.Terraform\data\bundle.json
+Get-TerraformGraphBundle -Path .\src\Graph.Emitter.Terraform\data\bundle.json -Document | Format-List Tiers, Providers, Exclude, RegistryHarvestedOn, RegistryProviderCount, EntryCount
 ```
 
 Expect: a table of 36 rows, ProviderAddress, Version, DocsVersion, SchemaVersion, ClassifierVersion, HarvestedOn, sorted by address from `registry.terraform.io/ansible/aap` to `registry.terraform.io/vmware/vsphere`. Every DocsVersion equals Version. Only azurerm 5.8.0, azuredevops 1.16.0 and vsphere 2.17.1 have SchemaVersion and ClassifierVersion. Then the list: Tiers `{official}`, Providers `{registry.terraform.io/microsoft/azuredevops, registry.terraform.io/vmware/vsphere}`, Exclude `{}`, RegistryHarvestedOn `2026-10-07T02:55:12Z`, RegistryProviderCount `428`, EntryCount `36`. Versions and dates follow the last HarvestBundleDocs run.
@@ -1757,9 +1757,9 @@ Pester: "exports the bundle commands and ships a bundled manifest with the offic
 Resolves a wildcard and an exclusion against the bundled registry cache, rewrites byte-identically, and rejects a pattern that matches nothing. Never touches the network.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $out = Join-Path $env:TEMP 'tg-bundle-15-2.json'
 New-TerraformGraphBundle -Tier @() -Provider 'hashicorp/azure*', vmware/vsphere -Exclude hashicorp/azurestack -OutputPath $out -PassThru | Format-List Tiers, Providers, Exclude, EntryCount
 Get-TerraformGraphBundle -Path $out | Format-Table ProviderAddress, Version, DocsVersion, SchemaVersion, ClassifierVersion
@@ -1770,7 +1770,7 @@ New-TerraformGraphBundle -Tier @() -Provider 'nosuchnamespace/x*' -OutputPath $o
 Remove-Item $out
 ```
 
-Expect: Tiers `{}`, Providers listing the four addresses the wildcard and vsphere matched (azuread, azurerm, azurestack, vsphere: `providers` keeps the expansion, the exclusion applies when resolving), Exclude `{hashicorp/azurestack}`, EntryCount `3`. Then three rows: azuread 3.10.0 with DocsVersion 3.10.0 and no schema or classifier, azurerm 5.8.0 and vsphere 2.17.1 with all four versions. Then `True` (the rewrite is byte-identical). Then the error `'nosuchnamespace/x*' matches no provider in the registry cache C:\__Code\TerraformGraph\src\TerraformGraph\data\registry.json (harvested 2026-10-07T02:55:12Z). Run Update-TerraformRegistryCache, or fix the pattern.`
+Expect: Tiers `{}`, Providers listing the four addresses the wildcard and vsphere matched (azuread, azurerm, azurestack, vsphere: `providers` keeps the expansion, the exclusion applies when resolving), Exclude `{hashicorp/azurestack}`, EntryCount `3`. Then three rows: azuread 3.10.0 with DocsVersion 3.10.0 and no schema or classifier, azurerm 5.8.0 and vsphere 2.17.1 with all four versions. Then `True` (the rewrite is byte-identical). Then the error `'nosuchnamespace/x*' matches no provider in the registry cache C:\__Code\Graph.Emitter.Terraform\src\Graph.Emitter.Terraform\data\registry.json (harvested 2026-10-07T02:55:12Z). Run Update-TerraformRegistryCache, or fix the pattern.`
 
 Pester: "resolves tiers, extra providers and exclusions against the registry cache in New-TerraformGraphBundle"
 
@@ -1779,9 +1779,9 @@ Pester: "resolves tiers, extra providers and exclusions against the registry cac
 A bundle of just azuredevops and vsphere, both already cached, so -Resume makes no network call.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $out = Join-Path $env:TEMP 'tg-bundle-15-3.json'
 New-TerraformGraphBundle -Tier @() -Provider microsoft/azuredevops, vmware/vsphere -Exclude @() -OutputPath $out
 $summary = Update-TerraformProviderDocCache -BundlePath $out -Resume
@@ -1799,9 +1799,9 @@ Pester: "harvests a bundle provider by provider: a failure is a warning and a Fa
 One row per label from the docs cache only.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformSubcategorySurvey -Provider vsphere
 ```
 
@@ -1814,10 +1814,10 @@ Pester: "returns one row per provider and label, with a NoSubcategory row for un
 Reads the bundled classifier directly, so a classifier in your user folder cannot shadow it.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
-$devops = Get-TerraformClassifier -Provider microsoft/azuredevops -ClassifierPath .\src\TerraformGraph\classifiers
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
+$devops = Get-TerraformClassifier -Provider microsoft/azuredevops -ClassifierPath .\src\Graph.Emitter.Terraform\classifiers
 $devops | Format-List Version, Source, TypeCount, FindingCount
 $devops.Types | Group-Object Drawer | Sort-Object Count -Descending | Format-Table Count, Name
 $devops.Types | Where-Object Type -like 'azuredevops_git*' | Format-Table Type, Kind, Drawer, Source
@@ -1832,15 +1832,15 @@ Pester: "keeps every bundled prefix row matching a type of its provider's bundle
 The release gate on the shipped data, then on a copy with one deliberate change. Run from the repo root so dist\schema-packs is checked too.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
-Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json -Strict | Group-Object Status | Format-Table Count, Name
-Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json | Where-Object Item -like '*azuredevops*' | Format-Table -AutoSize -Wrap
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
+Test-TerraformGraphBundle -BundlePath .\src\Graph.Emitter.Terraform\data\bundle.json -Strict | Group-Object Status | Format-Table Count, Name
+Test-TerraformGraphBundle -BundlePath .\src\Graph.Emitter.Terraform\data\bundle.json | Where-Object Item -like '*azuredevops*' | Format-Table -AutoSize -Wrap
 $stale = Join-Path $env:TEMP 'tg-bundle-15-6.json'
-(Get-Content .\src\TerraformGraph\data\bundle.json -Raw).Replace('"providerCount": 428', '"providerCount": 427') | Set-Content $stale
+(Get-Content .\src\Graph.Emitter.Terraform\data\bundle.json -Raw).Replace('"providerCount": 428', '"providerCount": 427') | Set-Content $stale
 Test-TerraformGraphBundle -BundlePath $stale -Strict | Out-Null
-pwsh -NoProfile -Command "Import-Module .\src\TerraformGraph\TerraformGraph.psd1; Test-TerraformGraphBundle -BundlePath $stale -Strict | Out-Null"; "exit $LASTEXITCODE"
+pwsh -NoProfile -Command "Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1; Test-TerraformGraphBundle -BundlePath $stale -Strict | Out-Null"; "exit $LASTEXITCODE"
 Remove-Item $stale
 ```
 
@@ -1853,11 +1853,11 @@ Pester: "reports Fresh, Stale and Missing rows in Test-TerraformGraphBundle and 
 With -Resume and every provider cached this takes seconds and shows the task's full output. Without -Resume it harvests all 36 providers again (network). It ends by refreshing data\bundle.json and writing dist\survey\subcategories.json, both byte-identical when nothing changed.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Invoke-Build HarvestBundleDocs -Resume
-git status --short -- src\TerraformGraph\data
+git status --short -- src\Graph.Emitter.Terraform\data
 ```
 
 Expect: 36 rows, all `Cached`, the largest awscc 1.104.0 4521, aws 6.67.0 2414, google and google-beta 8.6.0 1685, azurerm 5.8.0 1518 and ibm 2.6.2 1445. The task first prints `Harvest log: ...\TerraformGraph\logs\harvest-<yyyyMMdd-HHmmss>.log`. Then `Providers 36, pages 14,686, unmatched 3, failures 0, rate-limit hits 0 (0 s blocked), partial resumes 0, elapsed 00:00:03`, `Log: ...harvest-<timestamp>.log`, `Refreshed ...data\bundle.json`, `Survey: 36 providers (0 missing), 661 distinct labels, 893 rows, 28 providers with unlabelled pages`, and the top 20 labels, led by nine labels with providerCount 3 (Agent Registry, API Gateway, Base, Cloud IAM, Cloud Platform, Container Registry, License Manager, Service Networking, Storage). About 25 s (2026-10-07). git status shows no change to data\ beyond what is already staged: the rewrite is byte-identical, `sources` included. Measured full runs on 2026-10-07: without -Resume, 12 min 28 s, 3,374 pages, 17 providers failed with 429 (backoff before 0.13.0); then -Resume with the 0.13.0 backoff, 12 min 17 s, the 17 harvested, 0 failures.
@@ -1873,9 +1873,9 @@ Cross-cutting checks for 0.14.0. Each block is self-contained; the network is us
 A harvest stopped part-way keeps its pages in `<version>.partial.json`; `-Resume` fetches only the rest and removes the file. Uses local 2.9.0 so the bundled 2.9.1 docs are not touched, and removes 2.9.0 again at the end. Do not run it while another harvest is going.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $folder = Join-Path $env:LOCALAPPDATA 'TerraformGraph\docs\registry.terraform.io-hashicorp-local'
 # 1. Harvest local 2.9.0 and stop it after its first page.
 #    By hand: run  Update-TerraformProviderDocCache -Provider hashicorp/local -Version 2.9.0 -ThrottleLimit 1 -Force -Verbose
@@ -1885,8 +1885,8 @@ $folder = Join-Path $env:LOCALAPPDATA 'TerraformGraph\docs\registry.terraform.io
 #    the process, does not run the cleanup that writes the file; only the every-100-pages
 #    checkpoint survives that.)
 $ps = [powershell]::Create().AddScript({
-        Set-Location 'C:\__Code\TerraformGraph'
-        Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+        Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+        Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
         Update-TerraformProviderDocCache -Provider hashicorp/local -Version 2.9.0 -ThrottleLimit 1 -Force -Verbose
     })
 $run = $ps.BeginInvoke()
@@ -1910,11 +1910,11 @@ Pester: "keeps the pages of a harvest killed after page 3 of 6 in a partial file
 A stale user copy of a bundled classifier at the same version loses to the bundled one, with a warning, and `-Shadowed` lists the collision. Writes one file to your user classifiers folder and removes it.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 # A stale user copy of the bundled vsphere 2.17.1 classifier: built from an older map, a day earlier.
-$bundled = Join-Path (Split-Path (Get-Module TerraformGraph).Path) 'classifiers\registry.terraform.io-vmware-vsphere.2.17.1.json'
+$bundled = Join-Path (Split-Path (Get-Module Graph.Emitter.Terraform).Path) 'classifiers\registry.terraform.io-vmware-vsphere.2.17.1.json'
 $userFolder = Join-Path $env:LOCALAPPDATA 'TerraformGraph\classifiers'
 $null = New-Item -ItemType Directory -Path $userFolder -Force
 $stale = Join-Path $userFolder 'registry.terraform.io-vmware-vsphere.2.17.1.json'
@@ -1930,7 +1930,7 @@ Get-TerraformClassifier -Shadowed
 'after cleanup: no rows above this line'
 ```
 
-Expect: `WARNING: Classifier registry.terraform.io/vmware/vsphere 2.17.1: using ...\src\TerraformGraph\classifiers\registry.terraform.io-vmware-vsphere.2.17.1.json (mapVersion 8edf85177cf6 matches map.json); ...\AppData\Local\TerraformGraph\classifiers\registry.terraform.io-vmware-vsphere.2.17.1.json (mapVersion 000000000000, generatedOn 2026-10-01T00:00:00Z) is shadowed. Remove-Item -LiteralPath '...' removes it.` Then the classifier row (87 types) with the bundled Path. Then one `-Shadowed` row: `registry.terraform.io/vmware/vsphere 2.17.1 Bundled mapVersion 8edf85177cf6 matches map.json`, ShadowedPath the user file, and after the cleanup no rows before the last line.
+Expect: `WARNING: Classifier registry.terraform.io/vmware/vsphere 2.17.1: using ...\src\Graph.Emitter.Terraform\classifiers\registry.terraform.io-vmware-vsphere.2.17.1.json (mapVersion 8edf85177cf6 matches map.json); ...\AppData\Local\TerraformGraph\classifiers\registry.terraform.io-vmware-vsphere.2.17.1.json (mapVersion 000000000000, generatedOn 2026-10-01T00:00:00Z) is shadowed. Remove-Item -LiteralPath '...' removes it.` Then the classifier row (87 types) with the bundled Path. Then one `-Shadowed` row: `registry.terraform.io/vmware/vsphere 2.17.1 Bundled mapVersion 8edf85177cf6 matches map.json`, ShadowedPath the user file, and after the cleanup no rows before the last line.
 
 Pester: "uses the bundled classifier over an older-map user classifier of the same version, warns naming the shadowed file, and lists it with -Shadowed", "uses the newer generatedOn when both match the map, keeps an older user version over a newer bundled one, and lets -ClassifierPath win"
 
@@ -1939,15 +1939,15 @@ Pester: "uses the bundled classifier over an older-map user classifier of the sa
 A temp bundle whose registry cache moved on after it was written: Stale rows carry a pasteable InspectAction and RecommendedAction; running them shows the diff, then fixes it.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 # A temp bundle for hashicorp/null resolved against a registry.json beside it; then that
 # registry cache "moves on" (its harvestedOn changes) and the bundle is not refreshed.
 $tmp = Join-Path $env:TEMP 'tg-bundle-16-3'
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction Ignore
 $null = New-Item -ItemType Directory -Path $tmp
-Copy-Item -LiteralPath .\src\TerraformGraph\data\registry.json -Destination $tmp
+Copy-Item -LiteralPath .\src\Graph.Emitter.Terraform\data\registry.json -Destination $tmp
 New-TerraformGraphBundle -Tier @() -Provider hashicorp/null -Exclude @() -OutputPath "$tmp\bundle.json"
 $registry = "$tmp\registry.json"
 (Get-Content -LiteralPath $registry -Raw).Replace('"harvestedOn": "2026-10-07T02:55:12Z"', '"harvestedOn": "2026-10-08T00:00:00Z"') | Set-Content -LiteralPath $registry
@@ -1969,9 +1969,9 @@ Pester: "reports Fresh, Stale and Missing rows in Test-TerraformGraphBundle and 
 Where each kind of bundled data comes from, from the shipped manifest.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Get-TerraformGraphBundle -Sources
 Get-TerraformGraphBundle -Sources | Where-Object Kind -eq docs | Format-List Kind, Urls, RelatedUrls, HarvestedBy, LastPulled
 ```
@@ -1985,11 +1985,11 @@ Pester: "names the sources of a bundle: written by New-TerraformGraphBundle, sho
 The Pester test "drawers are semver-safe" passes an added drawer and fails a renamed one at 0.15.0. `$env:TERRAFORMGRAPH_DRAWERS_PATH` points the test at a temp copy of drawers.json.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $drawers = Join-Path $env:TEMP 'tg-drawers-16-5.json'
-$json = Get-Content -LiteralPath .\src\TerraformGraph\classifiers\drawers.json -Raw
+$json = Get-Content -LiteralPath .\src\Graph.Emitter.Terraform\classifiers\drawers.json -Raw
 # An added drawer (before unclassified): minor, passes.
 $json.Replace('    { "name": "unclassified"', "    { `"name`": `"desktop`", `"label`": `"Desktop`", `"description`": `"Virtual desktops.`" },`n    { `"name`": `"unclassified`"") | Set-Content -LiteralPath $drawers
 $env:TERRAFORMGRAPH_DRAWERS_PATH = $drawers
@@ -2014,9 +2014,9 @@ Pester: "drawers are semver-safe"
 A non-ASCII string literal comes back unchanged, and a folder with a non-ASCII name parses.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $value = (Get-TerraformAST -FilePath .\tests\fixtures\hcl\utf8\main.tf).Body.Attributes.description.Expr.Value
 $value
 $value -ceq "caf$([char]0xE9) $([char]0x2013) $([char]0x6771)$([char]0x4EAC)"
@@ -2034,19 +2034,19 @@ Pester: "returns a non-ASCII string literal unchanged", "parses -Path on a folde
 What a Linux or Windows ARM user sees: the parser commands stop with ParserUnavailable, the rest of the module works.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
-& (Get-Module TerraformGraph) {
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
+& (Get-Module Graph.Emitter.Terraform) {
     $script:TerraformGraphParserAvailable = $false
-    $script:TerraformGraphParserUnavailableReason = "TerraformGraph's HCL parser ships for Windows x64 only; Test OS Arm64 detected. Schema, registry, docs, classifier and bundle commands work without it."
+    $script:TerraformGraphParserUnavailableReason = "Graph.Emitter.Terraform's HCL parser ships for Windows x64 only; Test OS Arm64 detected. Schema, registry, docs, classifier and bundle commands work without it."
 }
 try { Get-TerraformAST -Path .\infra -ErrorAction Stop } catch { $_.FullyQualifiedErrorId; $_.Exception.Message }
 (Get-TerraformRegistryProvider -Name hashicorp/null).ProviderAddress
-Remove-Module TerraformGraph -Force
+Remove-Module Graph.Emitter.Terraform -Force
 ```
 
-Expect: `ParserUnavailable,Get-TerraformAST`, then `TerraformGraph's HCL parser ships for Windows x64 only; Test OS Arm64 detected. Schema, registry, docs, classifier and bundle commands work without it.`, then `registry.terraform.io/hashicorp/null`.
+Expect: `ParserUnavailable,Get-TerraformAST`, then `Graph.Emitter.Terraform's HCL parser ships for Windows x64 only; Test OS Arm64 detected. Schema, registry, docs, classifier and bundle commands work without it.`, then `registry.terraform.io/hashicorp/null`.
 
 Pester: "throws ParserUnavailable from Get-TerraformAST and Get-TerraformModuleGraph", "leaves the commands that do not parse working"
 
@@ -2055,9 +2055,9 @@ Pester: "throws ParserUnavailable from Get-TerraformAST and Get-TerraformModuleG
 The default run needs no network and no terraform: RequiresTerraform tests are skipped, not failed, and Live tests are excluded.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $path = (($env:PATH -split ';') | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'terraform.exe')) }) -join ';'
 pwsh -NoProfile -Command "`$env:PATH = '$path'; 'terraform on PATH: ' + [bool](Get-Command terraform -ErrorAction SilentlyContinue); .\tests\Invoke-Tests.ps1" 2>&1 | Select-String 'terraform on PATH|Tests Passed'
 "exit code $LASTEXITCODE"
@@ -2072,12 +2072,12 @@ Pester: none (the item is the suite itself)
 Repo scope reads no user cache, so its rows are identical with the cache and without it; Machine scope differs.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $empty = Join-Path $env:TEMP 'tg-check-emptycache'
 $null = New-Item -ItemType Directory -Path $empty -Force
-$rows = { param($Scope) pwsh -NoProfile -Command "Import-Module .\src\TerraformGraph\TerraformGraph.psd1; Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json -Scope $Scope | ForEach-Object { `$_.Item + '|' + `$_.Status + '|' + `$_.Detail }" }
+$rows = { param($Scope) pwsh -NoProfile -Command "Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1; Test-TerraformGraphBundle -BundlePath .\src\Graph.Emitter.Terraform\data\bundle.json -Scope $Scope | ForEach-Object { `$_.Item + '|' + `$_.Status + '|' + `$_.Detail }" }
 $repoWith = & $rows Repo; $machineWith = & $rows Machine
 $saved = $env:LOCALAPPDATA; $env:LOCALAPPDATA = $empty
 $repoWithout = & $rows Repo; $machineWithout = & $rows Machine
@@ -2097,18 +2097,18 @@ Pester: "returns the same -Scope Repo rows with a populated user cache as with a
 The publishable tree holds exactly the files the psd1 FileList names, and Test-ModuleManifest passes on it.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Invoke-Build AssembleModule
-$tree = '.\dist\module\TerraformGraph'
+$tree = '.\dist\module\Graph.Emitter.Terraform'
 $files = Get-ChildItem $tree -File -Recurse | ForEach-Object { [IO.Path]::GetRelativePath((Resolve-Path $tree), $_.FullName).Replace('\', '/') } | Sort-Object
-$list = (Import-PowerShellDataFile "$tree\TerraformGraph.psd1").FileList | Sort-Object
+$list = (Import-PowerShellDataFile "$tree\Graph.Emitter.Terraform.psd1").FileList | Sort-Object
 "tree $($files.Count) files, FileList $($list.Count), identical $(-not (Compare-Object $files $list))"
 $files
 ```
 
-Expect: `Assembled TerraformGraph 0.15.0: 16 files, ...` (14,029,070 bytes on 2026-10-07) and `Build succeeded`, then `tree 16 files, FileList 16, identical True`, then the 16 paths: six under classifiers/, data/bundle.json, data/registry.json, lib/TerraformGraph.dll, lib/TerraformGraph.Json.dll, LICENSE, NOTICE, skills/terraformgraph/SKILL.md, TerraformGraph.Format.ps1xml, TerraformGraph.psd1, TerraformGraph.psm1. No .old, .h or .cs file.
+Expect: `Assembled Graph.Emitter.Terraform 0.15.0: 16 files, ...` (14,029,070 bytes on 2026-10-07) and `Build succeeded`, then `tree 16 files, FileList 16, identical True`, then the 16 paths: six under classifiers/, data/bundle.json, data/registry.json, lib/TerraformGraph.dll, lib/TerraformGraph.Json.dll, LICENSE, NOTICE, skills/terraformgraph/SKILL.md, Graph.Emitter.Terraform.Format.ps1xml, Graph.Emitter.Terraform.psd1, Graph.Emitter.Terraform.psm1. No .old, .h or .cs file.
 
 Pester: "lists in the psd1 FileList exactly what tools/Copy-TerraformGraphModule.ps1 assembles", "assembles a tree that holds exactly the FileList and passes Test-ModuleManifest"
 
@@ -2117,11 +2117,11 @@ Pester: "lists in the psd1 FileList exactly what tools/Copy-TerraformGraphModule
 Three fresh imports, with lib\TerraformGraph.Json.dll from Invoke-Build BuildJson (without it the module compiles TerraformGraph.Json.cs, about half a second more).
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
-Test-Path .\src\TerraformGraph\lib\TerraformGraph.Json.dll
-1..3 | ForEach-Object { pwsh -NoProfile -Command '$sw = [Diagnostics.Stopwatch]::StartNew(); Import-Module .\src\TerraformGraph\TerraformGraph.psd1; "{0} ms" -f $sw.ElapsedMilliseconds' }
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
+Test-Path .\src\Graph.Emitter.Terraform\lib\TerraformGraph.Json.dll
+1..3 | ForEach-Object { pwsh -NoProfile -Command '$sw = [Diagnostics.Stopwatch]::StartNew(); Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1; "{0} ms" -f $sw.ElapsedMilliseconds' }
 ```
 
 Expect: `True`, then three times of about half a second (537, 449 and 524 ms on 2026-10-07). Without lib\TerraformGraph.Json.dll the same runs took 1,521 to 3,236 ms on a busier machine the same day.
@@ -2130,16 +2130,16 @@ Pester: none
 
 ### 17.7 Publish-PSResource to a temporary local repository
 
-A dry run of the Gallery publish: the package holds the assembled tree and no `.old` or `.h` file. Run 17.5 first (it needs dist\module\TerraformGraph).
+A dry run of the Gallery publish: the package holds the assembled tree and no `.old` or `.h` file. Run 17.5 first (it needs dist\module\Graph.Emitter.Terraform).
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 $repo = Join-Path $env:TEMP 'tg-check-psrepo'
 $null = New-Item -ItemType Directory -Path $repo -Force
 Register-PSResourceRepository -Name TGCheckLocal -Uri $repo -Trusted
-Publish-PSResource -Path .\dist\module\TerraformGraph -Repository TGCheckLocal
+Publish-PSResource -Path .\dist\module\Graph.Emitter.Terraform -Repository TGCheckLocal
 $package = Get-ChildItem $repo -Filter *.nupkg
 "$($package.Name) $($package.Length) bytes"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -2151,7 +2151,7 @@ Unregister-PSResourceRepository -Name TGCheckLocal
 Remove-Item -LiteralPath $repo -Recurse -Force
 ```
 
-Expect: `TerraformGraph.0.15.0.nupkg` of about 3.4 MB (3,446,066 bytes on 2026-10-07), the same 16 paths as 17.5, then `old or h files: 0`. The repository is unregistered and the folder removed at the end.
+Expect: `Graph.Emitter.Terraform.<version>.nupkg` of about 3.4 MB (TerraformGraph.0.15.0.nupkg was 3,446,066 bytes on 2026-10-07), the same 16 paths as 17.5, then `old or h files: 0`. The repository is unregistered and the folder removed at the end.
 
 Pester: none
 
@@ -2162,21 +2162,21 @@ Pester: none
 The surface and the code are the same before and after the split: every exported command's parameter sets, parameters, types, positions, pipeline binding and aliases, then a SHA-256 of every function body in the module (public and private), from three fresh processes: the v0.14.1 psm1 (from git) in a copy of the assembled tree, the split src tree, and the assembled dist tree.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Invoke-Build AssembleModule | Out-Null
 $work = Join-Path $env:TEMP 'tg-check-split'
 Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
-Copy-Item .\dist\module\TerraformGraph -Destination (Join-Path $work 'TerraformGraph') -Recurse
-git show v0.14.1:src/TerraformGraph/TerraformGraph.psm1 | Set-Content -LiteralPath (Join-Path $work 'TerraformGraph' 'TerraformGraph.psm1') -Encoding utf8NoBOM
+Copy-Item .\dist\module\Graph.Emitter.Terraform -Destination (Join-Path $work 'Graph.Emitter.Terraform') -Recurse
+git show v0.14.1:src/TerraformGraph/TerraformGraph.psm1 | Set-Content -LiteralPath (Join-Path $work 'Graph.Emitter.Terraform' 'Graph.Emitter.Terraform.psm1') -Encoding utf8NoBOM
 $surface = Join-Path $env:TEMP 'tg-check-surface.ps1'
 Set-Content -LiteralPath $surface -Encoding utf8NoBOM -Value @'
 param($Psd1)
 $env:TERRAFORMGRAPH_SKILL_HINT = '0'
 $module = Import-Module $Psd1 -PassThru
 $common = [System.Management.Automation.Cmdlet]::CommonParameters + [System.Management.Automation.Cmdlet]::OptionalCommonParameters
-foreach ($command in Get-Command -Module TerraformGraph | Sort-Object Name) {
+foreach ($command in Get-Command -Module Graph.Emitter.Terraform | Sort-Object Name) {
     foreach ($set in $command.ParameterSets | Sort-Object Name) {
         foreach ($p in $set.Parameters | Where-Object Name -notin $common | Sort-Object Name) {
             "$($command.Name) $($set.Name) default=$($set.IsDefault) -$($p.Name) [$($p.ParameterType.Name)] mandatory=$($p.IsMandatory) position=$($p.Position) pipeline=$($p.ValueFromPipeline)/$($p.ValueFromPipelineByPropertyName) aliases=$(@($p.Aliases | Sort-Object) -join ',')"
@@ -2184,16 +2184,16 @@ foreach ($command in Get-Command -Module TerraformGraph | Sort-Object Name) {
     }
 }
 & $module {
-    Get-ChildItem Function: | Where-Object { $_.Module.Name -eq 'TerraformGraph' } | Sort-Object Name | ForEach-Object {
+    Get-ChildItem Function: | Where-Object { $_.Module.Name -eq 'Graph.Emitter.Terraform' } | Sort-Object Name | ForEach-Object {
         $bytes = [Text.Encoding]::UTF8.GetBytes(($_.ScriptBlock.Ast.Extent.Text -replace "`r`n", "`n"))
         "function $($_.Name) $([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)))"
     }
 }
 '@
 try {
-    $v0141 = pwsh -NoProfile -File $surface (Join-Path $work 'TerraformGraph' 'TerraformGraph.psd1')
-    $src = pwsh -NoProfile -File $surface (Resolve-Path .\src\TerraformGraph\TerraformGraph.psd1).Path
-    $dist = pwsh -NoProfile -File $surface (Resolve-Path .\dist\module\TerraformGraph\TerraformGraph.psd1).Path
+    $v0141 = pwsh -NoProfile -File $surface (Join-Path $work 'Graph.Emitter.Terraform' 'Graph.Emitter.Terraform.psd1')
+    $src = pwsh -NoProfile -File $surface (Resolve-Path .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1).Path
+    $dist = pwsh -NoProfile -File $surface (Resolve-Path .\dist\module\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1).Path
     "lines: v0.14.1 $($v0141.Count), src $($src.Count), dist $($dist.Count); functions $(@($src -like 'function *').Count)"
     "v0.14.1 vs src:  $(@(Compare-Object $v0141 $src -SyncWindow 0).Count) differences"
     "v0.14.1 vs dist: $(@(Compare-Object $v0141 $dist -SyncWindow 0).Count) differences"
@@ -2205,7 +2205,7 @@ finally {
 }
 ```
 
-Expect: the AssembleModule line (`Assembled TerraformGraph 0.16.0: 16 files, ...`), then `lines: v0.14.1 239, src 239, dist 239; functions 108`, then `2 differences` on the two v0.14.1 lines and `0 differences` on `src vs dist` (seen on 2026-10-08, the block run as a temp `.ps1` with `pwsh -NoProfile -File`). The two differences are the old and new hash of `Get-TerraformModuleGraph`, whose body 0.16.0 changed; the parameter surface is identical. At 0.15.0 all three lines read `0 differences`. The temp script and folder are removed at the end. The full proof of the split (the default test run, the AssembleModule file list and the module-scope variables as well) is in dist\split-proof from the 0.15.0 task; the only differences there are the shipped psm1's size and the six new tests.
+Expect: the AssembleModule line (`Assembled Graph.Emitter.Terraform 0.16.0: 16 files, ...`), then `lines: v0.14.1 239, src 239, dist 239; functions 108`, then `2 differences` on the two v0.14.1 lines and `0 differences` on `src vs dist` (seen on 2026-10-08, the block run as a temp `.ps1` with `pwsh -NoProfile -File`). The two differences are the old and new hash of `Get-TerraformModuleGraph`, whose body 0.16.0 changed; the parameter surface is identical. At 0.15.0 all three lines read `0 differences`. The temp script and folder are removed at the end. The full proof of the split (the default test run, the AssembleModule file list and the module-scope variables as well) is in dist\split-proof from the 0.15.0 task; the only differences there are the shipped psm1's size and the six new tests.
 
 Pester: "names a documented fixing command for every terminating error id in the assembled dist psm1", "resolves every term in ONTOLOGY.md's terminology table against the assembled dist psm1"
 
@@ -2214,11 +2214,11 @@ Pester: "names a documented fixing command for every terminating error id in the
 Three fresh imports each of the split source tree (108 files dot-sourced) and the assembled module (one psm1), with lib\TerraformGraph.Json.dll present.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Invoke-Build AssembleModule | Out-Null
-foreach ($psd1 in '.\src\TerraformGraph\TerraformGraph.psd1', '.\dist\module\TerraformGraph\TerraformGraph.psd1') {
+foreach ($psd1 in '.\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1', '.\dist\module\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1') {
     1..3 | ForEach-Object { pwsh -NoProfile -Command "`$env:TERRAFORMGRAPH_SKILL_HINT = '0'; `$sw = [Diagnostics.Stopwatch]::StartNew(); Import-Module '$psd1'; '{0}  {1} ms' -f '$psd1', `$sw.ElapsedMilliseconds" }
 }
 ```
@@ -2232,14 +2232,14 @@ Pester: none
 One file per function: 26 under Public (the exported commands), 82 under Private, no Classes folder, and a psm1 that is wiring only. Every exported command is defined in a Public file.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
-Get-ChildItem .\src\TerraformGraph\Public | Measure-Object | ForEach-Object Count
-Get-ChildItem .\src\TerraformGraph\Private | Measure-Object | ForEach-Object Count
-Test-Path .\src\TerraformGraph\Classes
-(Get-Content .\src\TerraformGraph\TerraformGraph.psm1).Count
-@(Get-Command -Module TerraformGraph | Where-Object { $_.ScriptBlock.File -notlike '*\Public\*' }).Count
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
+Get-ChildItem .\src\Graph.Emitter.Terraform\Public | Measure-Object | ForEach-Object Count
+Get-ChildItem .\src\Graph.Emitter.Terraform\Private | Measure-Object | ForEach-Object Count
+Test-Path .\src\Graph.Emitter.Terraform\Classes
+(Get-Content .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psm1).Count
+@(Get-Command -Module Graph.Emitter.Terraform | Where-Object { $_.ScriptBlock.File -notlike '*\Public\*' }).Count
 ```
 
 Expect: `26`, `82`, `False`, `464` (the psm1's lines), `0` (exported commands defined outside Public).
@@ -2248,19 +2248,19 @@ Pester: "every Public file defines exactly the function it is named for", "every
 
 ### 18.4 The default test run against the assembled module
 
-The whole default suite, importing dist\module\TerraformGraph instead of src (TERRAFORMGRAPH_TEST_MANIFEST). Takes about a minute and a half.
+The whole default suite, importing dist\module\Graph.Emitter.Terraform instead of src (TERRAFORMGRAPH_TEST_MANIFEST). Takes about a minute and a half.
 
 ```powershell
-Set-Location 'C:\__Code\TerraformGraph'
-Remove-Module TerraformAST, TerraformGraph -Force -ErrorAction SilentlyContinue
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force
+Set-Location 'C:\__Code\Graph.Emitter.Terraform'
+Remove-Module TerraformAST, TerraformGraph, Graph.Emitter.Terraform -Force -ErrorAction SilentlyContinue
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force
 Invoke-Build AssembleModule | Out-Null
-$env:TERRAFORMGRAPH_TEST_MANIFEST = (Resolve-Path .\dist\module\TerraformGraph\TerraformGraph.psd1).Path
+$env:TERRAFORMGRAPH_TEST_MANIFEST = (Resolve-Path .\dist\module\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1).Path
 pwsh -NoProfile -File (Resolve-Path ./tests/Invoke-Tests.ps1).Path
 "exit $LASTEXITCODE"
 Remove-Item Env:TERRAFORMGRAPH_TEST_MANIFEST
 ```
 
-Expect: the AssembleModule line (`Assembled TerraformGraph 0.16.0: 16 files, ...`), Pester's summary `Tests Passed: 241, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 17`, then `exit 0`, the child pwsh's own exit code (Invoke-Tests.ps1 exits 1 on any failure; checked on 2026-10-07 by setting `$LASTEXITCODE = 99` before the child call and seeing it become 0; re-run on 2026-10-08 as a temp `.ps1` with `pwsh -NoProfile -File`).
+Expect: the AssembleModule line (`Assembled Graph.Emitter.Terraform 0.16.0: 16 files, ...`), Pester's summary `Tests Passed: 241, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 17`, then `exit 0`, the child pwsh's own exit code (Invoke-Tests.ps1 exits 1 on any failure; checked on 2026-10-07 by setting `$LASTEXITCODE = 99` before the child call and seeing it become 0; re-run on 2026-10-08 as a temp `.ps1` with `pwsh -NoProfile -File`).
 
 Pester: none (this runs Pester)

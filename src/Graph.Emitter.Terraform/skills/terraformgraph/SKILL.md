@@ -1,17 +1,17 @@
 ---
 name: terraformgraph
-description: Load when working with Terraform code or provider schemas in PowerShell using the TerraformGraph module (parse .tf files, graph module calls, variables, provider schemas and resources).
+description: Load when working with Terraform code or provider schemas in PowerShell using the Graph.Emitter.Terraform module (parse .tf files, graph module calls, variables, provider schemas and resources).
 ---
 
-# TerraformGraph
+# Graph.Emitter.Terraform
 
 PowerShell 7.4+ module that parses Terraform `.tf` files into an HCL AST (HashiCorp HCL v2, through a native DLL) and builds graphs of module calls, variables, provider schemas and resources on top of it. The parser DLL is a Windows x64 build: elsewhere the module still imports and every command except `Get-TerraformAST` and `Get-TerraformModuleGraph` (which throw `ParserUnavailable`) works.
 
 ## Import
 
 ```powershell
-Import-Module TerraformGraph                                  # installed copy
-Import-Module .\src\TerraformGraph\TerraformGraph.psd1 -Force # from a clone of the repo
+Import-Module Graph.Emitter.Terraform                                  # installed copy
+Import-Module .\src\Graph.Emitter.Terraform\Graph.Emitter.Terraform.psd1 -Force # from a clone of the repo
 ```
 
 Fresh-process rule: the parser DLL is loaded with P/Invoke and stays pinned for the life of the process. After the DLL is rebuilt, an open shell keeps running the old parser, so run tests in a new process:
@@ -47,8 +47,8 @@ pwsh -NoProfile -File .\tests\Invoke-Tests.ps1         # default run, no network
 - `Get-TerraformSubcategorySurvey` — Counts the doc subcategory labels each provider publishes: one row per provider and label. Bundle (default): `[-BundlePath] [-OutputPath] [-PassThru]`; Provider: `-Provider [-Version] [-OutputPath] [-PassThru]`. Output: `TerraformGraph.SubcategorySurveyRow`.
 - `ConvertTo-TerraformJson` — Converts objects to indented JSON using System.Text.Json. `-InputObject [-Depth] [-Compress] [-AsArray]`. Output: `System.String`.
 - `ConvertFrom-TerraformJson` — Converts JSON to PowerShell objects using System.Text.Json. `-InputObject [-Depth] [-AsHashtable] [-NoEnumerate]`. Output: `System.Management.Automation.PSCustomObject`, `System.Collections.Specialized.OrderedDictionary`.
-- `Install-TerraformGraphSkill` — Copies the TerraformGraph agent skill into a repository for one or more agent tools. `[-Path] [-Tool] [-Force] [-PassThru]`. Output: `TerraformGraph.SkillInstall`.
-- `Test-TerraformGraphSkill` — Reports which agent tools a repository uses and whether the TerraformGraph skill is installed for them. `[-Path] [-Tool]`. Output: `TerraformGraph.SkillStatus`.
+- `Install-TerraformGraphSkill` — Copies the Graph.Emitter.Terraform agent skill into a repository for one or more agent tools. `[-Path] [-Tool] [-Force] [-PassThru]`. Output: `TerraformGraph.SkillInstall`.
+- `Test-TerraformGraphSkill` — Reports which agent tools a repository uses and whether the Graph.Emitter.Terraform skill is installed for them. `[-Path] [-Tool]`. Output: `TerraformGraph.SkillStatus`.
 <!-- /generated:functions -->
 
 Each line is the command's synopsis, its parameter sets (`[-Name]` is optional) and its output types; `Get-Help <command> -Full` has the rest. Behaviour worth knowing before you call them:
@@ -113,7 +113,7 @@ Harvests and `New-*` commands write to the user caches under `$env:LOCALAPPDATA\
 
 ## Changing the module
 
-When the task is to change TerraformGraph itself (a clone of its repository): Function code is one function per file, named for the function: `src/TerraformGraph/Public/<Verb-Noun>.ps1` for an exported command, `src/TerraformGraph/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `TerraformGraph.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships. A new function is a new file in the folder for its kind; a new exported command also goes in the psd1 `FunctionsToExport`, and Pester fails until the two agree.
+When the task is to change Graph.Emitter.Terraform itself (a clone of its repository): Function code is one function per file, named for the function: `src/Graph.Emitter.Terraform/Public/<Verb-Noun>.ps1` for an exported command, `src/Graph.Emitter.Terraform/Private/<Verb-Noun>.ps1` for a helper. Edit the file named for the function, never `Graph.Emitter.Terraform.psm1`: it is wiring only, and `Invoke-Build AssembleModule` builds the single psm1 that ships. A new function is a new file in the folder for its kind; a new exported command also goes in the psd1 `FunctionsToExport`, and Pester fails until the two agree.
 
 ## Canonical Ids
 

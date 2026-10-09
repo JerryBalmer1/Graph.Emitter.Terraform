@@ -1,7 +1,7 @@
 @{
 
-    RootModule           = 'TerraformGraph.psm1'
-    ModuleVersion        = '0.16.0'
+    RootModule           = 'Graph.Emitter.Terraform.psm1'
+    ModuleVersion        = '0.17.0'
     GUID                 = '852206b0-33a6-4dc3-91eb-e9fd6166b17d'
     Author               = 'Jerry Balmer'
     CompanyName          = 'Jerry Balmer'
@@ -11,23 +11,23 @@
     CompatiblePSEditions = @('Core')
 
     FunctionsToExport = @('Get-TerraformAST', 'ConvertTo-TerraformJson', 'ConvertFrom-TerraformJson', 'Get-TerraformProviderSchema', 'Get-TerraformModuleGraph', 'ConvertTo-TerraformSchemaGraph', 'ConvertTo-TerraformVariableGraph', 'Get-TerraformVariableTrace', 'ConvertTo-TerraformResourceGraph', 'Install-TerraformGraphSkill', 'Test-TerraformGraphSkill', 'Update-TerraformRegistryCache', 'Get-TerraformRegistryProvider', 'Get-TerraformSchemaPack', 'Get-TerraformSchemaCache', 'Update-TerraformProviderDocCache', 'Get-TerraformProviderDoc', 'Get-TerraformDocPack', 'Get-TerraformDocCache', 'New-TerraformClassifier', 'Get-TerraformClassifier', 'Get-TerraformClassifierFinding', 'Get-TerraformGraphBundle', 'New-TerraformGraphBundle', 'Test-TerraformGraphBundle', 'Get-TerraformSubcategorySurvey')
-    FormatsToProcess  = @('TerraformGraph.Format.ps1xml')
+    FormatsToProcess  = @('Graph.Emitter.Terraform.Format.ps1xml')
     CmdletsToExport   = @()
     VariablesToExport = @()
     AliasesToExport   = @()
 
     # What the published module holds: exactly the tree tools/Copy-TerraformGraphModule.ps1
-    # assembles (Invoke-Build AssembleModule -> dist/module/TerraformGraph); Pester checks the
+    # assembles (Invoke-Build AssembleModule -> dist/module/Graph.Emitter.Terraform); Pester checks the
     # two agree. LICENSE and NOTICE come from the repo root and the two DLLs are build outputs,
-    # so Test-ModuleManifest passes on the assembled tree, not on src/TerraformGraph.
+    # so Test-ModuleManifest passes on the assembled tree, not on src/Graph.Emitter.Terraform.
     # lib/TerraformGraph.Json.dll is loaded by the psm1, not RequiredAssemblies: a source
     # checkout without it compiles TerraformGraph.Json.cs instead of failing to import.
     FileList          = @(
         'LICENSE'
         'NOTICE'
-        'TerraformGraph.Format.ps1xml'
-        'TerraformGraph.psd1'
-        'TerraformGraph.psm1'
+        'Graph.Emitter.Terraform.Format.ps1xml'
+        'Graph.Emitter.Terraform.psd1'
+        'Graph.Emitter.Terraform.psm1'
         'classifiers/DECISIONS.md'
         'classifiers/drawers.json'
         'classifiers/map.json'
@@ -48,9 +48,9 @@
     PrivateData = @{
         PSData = @{
             Tags                       = @('Terraform', 'HCL', 'Graph', 'AST', 'PowerShell', 'PowerShell74', 'Windows')
-            ProjectUri                 = 'https://github.com/JerryBalmer1/TerraformGraph'
-            LicenseUri                 = 'https://github.com/JerryBalmer1/TerraformGraph/blob/main/LICENSE'
-            ReleaseNotes               = '0.16.0: The module graph contract. TerraformGraph.ModuleNode has Id first and Kind ''Module'' second, plus Callers; TerraformGraph.ModuleEdge has From, To, Kind ''Calls'', Call, Label, File and Line; both have table views. Ids are unique under both -GroupBy modes: Call uses ModuleAddress, Source uses source:<normalised source> with one node per source (Callers lists its calls) and source:<ModuleAddress> for a non-literal source. ModuleGraph gains Findings, the same list as Unresolved. Planned features move one release: view 0.17.0, compare 0.18.0, eras 0.19.0. Full history: https://github.com/JerryBalmer1/TerraformGraph/blob/main/CHANGELOG.md'
+            ProjectUri                 = 'https://github.com/JerryBalmer1/Graph.Emitter.Terraform'
+            LicenseUri                 = 'https://github.com/JerryBalmer1/Graph.Emitter.Terraform/blob/main/LICENSE'
+            ReleaseNotes               = '0.17.0: Renamed from TerraformGraph; module and manifest follow the repo name (Graph.Emitter.Terraform); no functional change. Function names, type names, error ids, the terraformgraph skill and the LOCALAPPDATA\TerraformGraph caches are unchanged. Planned features move one release: view 0.18.0, compare 0.19.0, eras 0.20.0. Full history: https://github.com/JerryBalmer1/Graph.Emitter.Terraform/blob/main/CHANGELOG.md'
             RequireLicenseAcceptance   = $false
             ExternalModuleDependencies = @()
         }

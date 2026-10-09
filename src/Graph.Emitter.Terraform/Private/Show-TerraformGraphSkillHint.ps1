@@ -9,9 +9,9 @@ function Show-TerraformGraphSkillHint {
             Where-Object { $_.Detected -and -not $_.Installed } |
             ForEach-Object Tool)
         if ($missing.Count -eq 0) { return }
-        Write-Host "TerraformGraph: detected $($missing -join ', ') in this directory. Run Install-TerraformGraphSkill -Tool $($missing -join ',') to give them the TerraformGraph skill."
+        Write-Host "Graph.Emitter.Terraform: detected $($missing -join ', ') in this directory. Run Install-TerraformGraphSkill -Tool $($missing -join ',') to give them the Graph.Emitter.Terraform skill."
     }
     catch {
-        Write-Verbose "TerraformGraph skill hint skipped: $($_.Exception.Message)"
+        Write-Verbose "Graph.Emitter.Terraform skill hint skipped: $($_.Exception.Message)"
     }
 }

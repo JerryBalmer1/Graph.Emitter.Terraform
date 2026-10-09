@@ -30,7 +30,7 @@
     {
       "kind": "schemas",
       "urls": [
-        "https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download/manifest.json"
+        "https://github.com/JerryBalmer1/Graph.Emitter.Terraform/releases/latest/download/manifest.json"
       ],
       "relatedUrls": [
         "https://developer.hashicorp.com/terraform/cli/commands/providers/schema",
@@ -54,10 +54,10 @@
     {
       "kind": "classifiers",
       "urls": [
-        "https://github.com/JerryBalmer1/TerraformGraph/tree/main/src/TerraformGraph/classifiers"
+        "https://github.com/JerryBalmer1/Graph.Emitter.Terraform/tree/main/src/Graph.Emitter.Terraform/classifiers"
       ],
       "relatedUrls": [
-        "https://github.com/JerryBalmer1/TerraformGraph/blob/main/src/TerraformGraph/classifiers/DECISIONS.md"
+        "https://github.com/JerryBalmer1/Graph.Emitter.Terraform/blob/main/src/Graph.Emitter.Terraform/classifiers/DECISIONS.md"
       ],
       "harvestedBy": "New-TerraformClassifier",
       "lastPulled": "2026-10-07T05:22:55Z"
@@ -65,7 +65,7 @@
     {
       "kind": "skills",
       "urls": [
-        "https://github.com/JerryBalmer1/TerraformGraph/tree/main/src/TerraformGraph/skills"
+        "https://github.com/JerryBalmer1/Graph.Emitter.Terraform/tree/main/src/Graph.Emitter.Terraform/skills"
       ],
       "relatedUrls": [
         "https://agentskills.io",

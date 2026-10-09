@@ -1,7 +1,7 @@
 function Install-TerraformGraphSkill {
     <#
     .SYNOPSIS
-        Copies the TerraformGraph agent skill into a repository for one or more agent tools.
+        Copies the Graph.Emitter.Terraform agent skill into a repository for one or more agent tools.
 
     .DESCRIPTION
         Install-TerraformGraphSkill copies the skills folder that ships with the module
@@ -134,9 +134,9 @@ function Install-TerraformGraphSkill {
     if ($null -eq $existing -or -not $existing.Contains($marker)) {
         $section = @(
             $marker
-            '## TerraformGraph skill'
+            '## Graph.Emitter.Terraform skill'
             ''
-            'This repository has the TerraformGraph agent skill (PowerShell module for parsing Terraform and graphing modules, variables, provider schemas and resources). Load it from:'
+            'This repository has the Graph.Emitter.Terraform agent skill (PowerShell module for parsing Terraform and graphing modules, variables, provider schemas and resources). Load it from:'
             ''
             foreach ($name in $tools) { "- ``$($script:TerraformGraphSkillTools[$name].SkillsDir)/terraformgraph/SKILL.md``" }
             ''
@@ -149,7 +149,7 @@ function Install-TerraformGraphSkill {
             $separator = if ($existing.Length -eq 0) { '' } elseif ($existing.EndsWith("`n")) { "`n" } else { "`n`n" }
             [System.IO.File]::AppendAllText($agentsPath, "$separator$section`n")
         }
-        Write-Verbose "Wrote the TerraformGraph section to $agentsPath"
+        Write-Verbose "Wrote the Graph.Emitter.Terraform section to $agentsPath"
     }
 
     if ($PassThru) { $results.ToArray() }

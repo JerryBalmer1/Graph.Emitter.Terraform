@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Table views for typed objects whose default display has more than four properties, which
      PowerShell would otherwise show as a list. Everything else uses DefaultDisplayPropertySet
-     from Update-TypeData in TerraformGraph.psm1. -->
+     from Update-TypeData in Graph.Emitter.Terraform.psm1. -->
 <Configuration>
   <ViewDefinitions>
     <View>

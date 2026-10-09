@@ -38,8 +38,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$manifestPath = Join-Path $RepoRoot 'src' 'TerraformGraph' 'TerraformGraph.psd1'
-if (-not (Get-Module TerraformGraph)) {
+$manifestPath = Join-Path $RepoRoot 'src' 'Graph.Emitter.Terraform' 'Graph.Emitter.Terraform.psd1'
+if (-not (Get-Module Graph.Emitter.Terraform)) {
     $env:TERRAFORMGRAPH_SKILL_HINT = '0'
     Import-Module $manifestPath -Verbose:$false
 }
@@ -59,7 +59,7 @@ $common = [System.Management.Automation.Cmdlet]::CommonParameters + [System.Mana
 $tick = '`'
 $describe = {
     param([string]$Name)
-    $command = Get-Command -Name $Name -Module TerraformGraph
+    $command = Get-Command -Name $Name -Module Graph.Emitter.Terraform
     # Comment-based help straight from the AST: no help system, so no Update-Help prompt.
     $help = $command.ScriptBlock.Ast.GetHelpContent()
     $synopsis = ($help.Synopsis -replace '\s+', ' ').Trim()
@@ -84,7 +84,7 @@ $describe = {
 
 $tables = [ordered]@{
     (Join-Path $RepoRoot 'CLAUDE.md')                                                = @($exported | ForEach-Object { & $describe $_ })
-    (Join-Path $RepoRoot 'src' 'TerraformGraph' 'skills' 'terraformgraph' 'SKILL.md') = @(@($pipelineOrder | Where-Object { $_ -in $exported }) + @($exported | Where-Object { $_ -notin $pipelineOrder }) | ForEach-Object { & $describe $_ })
+    (Join-Path $RepoRoot 'src' 'Graph.Emitter.Terraform' 'skills' 'terraformgraph' 'SKILL.md') = @(@($pipelineOrder | Where-Object { $_ -in $exported }) + @($exported | Where-Object { $_ -notin $pipelineOrder }) | ForEach-Object { & $describe $_ })
 }
 
 $begin = '<!-- generated:functions (Invoke-Build GenerateDocTables) -->'

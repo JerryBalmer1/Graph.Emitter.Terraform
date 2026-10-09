@@ -64,7 +64,7 @@ function Update-TerraformProviderDocCache {
         registry cache, else the newest version that is not a pre-release on the registry.
 
     .PARAMETER BundlePath
-        A bundle manifest (src\TerraformGraph\data\bundle.json, or a copy written by
+        A bundle manifest (src\Graph.Emitter.Terraform\data\bundle.json, or a copy written by
         New-TerraformGraphBundle). Harvests every provider in its set and returns a summary.
 
     .PARAMETER ThrottleLimit
@@ -96,7 +96,7 @@ function Update-TerraformProviderDocCache {
         schema node Id, then harvest the docs at the latest version.
 
     .EXAMPLE
-        $summary = Update-TerraformProviderDocCache -BundlePath .\src\TerraformGraph\data\bundle.json -Resume
+        $summary = Update-TerraformProviderDocCache -BundlePath .\src\Graph.Emitter.Terraform\data\bundle.json -Resume
         $summary.Failures | Format-Table ProviderAddress, Version, Error
 
         Harvest every provider in the bundled set that is not cached yet, then list the

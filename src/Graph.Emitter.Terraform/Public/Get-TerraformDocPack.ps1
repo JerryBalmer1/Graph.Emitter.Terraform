@@ -26,7 +26,7 @@ function Get-TerraformDocPack {
 
     .PARAMETER Source
         Where manifest.json and the pack files are: an http(s) URL or a local directory.
-        Default: https://github.com/JerryBalmer1/TerraformGraph/releases/latest/download.
+        Default: https://github.com/JerryBalmer1/Graph.Emitter.Terraform/releases/latest/download.
 
     .PARAMETER Force
         Download and replace a version that is already cached.

@@ -74,7 +74,7 @@ function Test-TerraformGraphBundle {
         What is out of date, offline.
 
     .EXAMPLE
-        Test-TerraformGraphBundle -BundlePath .\src\TerraformGraph\data\bundle.json -Online -Strict
+        Test-TerraformGraphBundle -BundlePath .\src\Graph.Emitter.Terraform\data\bundle.json -Online -Strict
 
         The release gate, including the live registry.
 

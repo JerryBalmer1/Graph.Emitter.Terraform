@@ -1,4 +1,4 @@
-> **TerraformGraph is an ontology layer for AI agents over Terraform.** One Id names a thing in your code, in the provider's schema, in its docs and in its drawer.
+> **Graph.Emitter.Terraform is an ontology layer for AI agents over Terraform.** One Id names a thing in your code, in the provider's schema, in its docs and in its drawer.
 
 Here for the PowerShell module, install steps and examples? Read [README.md](README.md).
 
@@ -10,7 +10,7 @@ Every Terraform provider publishes a typed schema for every version it releases:
 
 So your infrastructure code is already a set of instances. `resource "azurerm_key_vault" "main"` is one individual of exactly one class, `azurerm_key_vault`, at exactly one schema version, checked against that class by the tool before anything is deployed. The classes, their properties, their versions and their instances exist and are kept correct every day, by the people who ship providers and by the people who run plans.
 
-Nobody built a Terraform ontology because nobody had to: it was already there. What was missing was the join. TerraformGraph adds one Id that names the same thing in your code, in the schema, in the docs and in a reviewable grouping, and a record of where each fact came from and how fresh it is. The rest of this page is that join.
+Nobody built a Terraform ontology because nobody had to: it was already there. What was missing was the join. Graph.Emitter.Terraform adds one Id that names the same thing in your code, in the schema, in the docs and in a reviewable grouping, and a record of where each fact came from and how fresh it is. The rest of this page is that join.
 
 ## What this is
 
@@ -30,7 +30,7 @@ The resource node's `SchemaId` is the schema node's `Id`, which is the doc page'
 - **Typed.** Every resource, data source, block and attribute a provider accepts is declared with a type, required/optional/computed flags and nesting rules. The vocabulary is a schema, not prose.
 - **Versioned.** Each provider version publishes its own schema and docs. `azurerm 5.8.0` means one exact vocabulary; a change is a new version, not a silent edit.
 - **Registry-published.** registry.terraform.io lists every provider, tier, version and publish date, and serves each version's docs. Everything downstream (lock files, `required_providers`, modules) pins to those addresses and versions, so the ontology's keys are the ones your code already uses.
-- **Already joined in practice.** A `resource "azurerm_key_vault"` block is an instance of exactly one schema type at exactly one provider version. TerraformGraph only has to make that edge explicit (`InstanceOf`).
+- **Already joined in practice.** A `resource "azurerm_key_vault"` block is an instance of exactly one schema type at exactly one provider version. Graph.Emitter.Terraform only has to make that edge explicit (`InstanceOf`).
 
 ## What agents get
 
@@ -38,7 +38,7 @@ Named things, not guesses:
 
 - **Stable Ids.** Schema `<address>/resource/<type>`, `<address>/data/<type>`, `<address>/config/<name>`, `<parent Id>/<block or attribute>`; code `<module>/resource/<type>.<name>`, `<module>/var/<name>`, `<module>/local/<name>`, `<module>/output/<name>`; docs on the schema Id, `<address>/guide/<slug>`, `<address>/unmatched/<category>/<slug>`.
 - **Stable error ids.** Terminating errors carry a `FullyQualifiedErrorId` you can branch on, never a message to parse: `SchemaNotCached`, `ProviderDocNotCached`, `ProviderDocHarvestFailed`, `RegistryProviderNotResolved`, `ClassifierMapInvalid`, `ClassifierNotFound`, `BundleNotFound`, `BundleInvalid`, `BundleNotFresh`, `ParserUnavailable`, among others (42 in 0.14.1; `HclParseError` is the one non-terminating id, one per file that does not parse). Each message names the command that fixes it; every one is raised through a single helper, and Pester keeps the full list of ids with their fixing commands and fails on an id that is not in it or on any bare `throw`.
-- **Exit codes.** Gates are one line: `pwsh -NoProfile -Command "Import-Module TerraformGraph; Test-TerraformGraphBundle -Strict | Out-Null"` exits 1 when anything is stale; a depth or findings check exits with whatever `exit` you give it. PowerShell 7.4+ is required so a failure is terminating and visible.
+- **Exit codes.** Gates are one line: `pwsh -NoProfile -Command "Import-Module Graph.Emitter.Terraform; Test-TerraformGraphBundle -Strict | Out-Null"` exits 1 when anything is stale; a depth or findings check exits with whatever `exit` you give it. PowerShell 7.4+ is required so a failure is terminating and visible.
 - **Findings, not errors.** What the data cannot place is data: a resource whose type is not in the schema (`Reason` `TypeNotInProvider`), an unknown argument (`UnknownAttributes`), a doc page with no schema type (`unmatched`), a type no drawer takes (`NoDocPage`, `NoSubcategory`, `UnmappedSubcategory`). Graphs still build; findings are counted.
 - **Provenance on bundled data.** The registry cache carries `harvestedOn`; schema and docs packs carry sha256 in `manifest.json`; docs carry `harvestedOn` and the `schemaVersion` their Ids were checked against; classifiers carry `docsVersion` and `mapVersion` (a hash of the map rows); `data/bundle.json` records which versions of each were present and, in `sources`, the upstream endpoints each kind of data comes from, the pages that document them, the command that pulls it and when it last did; `Test-TerraformGraphBundle` says which are Fresh, Stale or Missing, and every row that is not Fresh carries a command that shows the change (`InspectAction`) and one that makes it (`RecommendedAction`).
 - **Promote or leave.** Harvests write to the user's caches; the module's shipped data changes only through a build task. An agent that finds stale data shows the diff and refreshes it only when its task is about that data.
@@ -76,8 +76,8 @@ Named things, not guesses:
 
 | Planned | What it adds | Target |
 |---|---|---|
-| view | A collapsed graph: drawers as nodes, types and instances folded inside, for diagrams and agent context windows. | 0.17.0 |
-| compare | Two schema versions side by side: added, removed and changed types and attributes, as findings. | 0.18.0 |
-| eras | Provider version spans as first-class nodes, derived from compares (an era ends where a compare finds a breaking change), so "which schema era does this repository target" is a query. | 0.19.0 |
+| view | A collapsed graph: drawers as nodes, types and instances folded inside, for diagrams and agent context windows. | 0.18.0 |
+| compare | Two schema versions side by side: added, removed and changed types and attributes, as findings. | 0.19.0 |
+| eras | Provider version spans as first-class nodes, derived from compares (an era ends where a compare finds a breaking change), so "which schema era does this repository target" is a query. | 0.20.0 |
 
 Shipped in 0.14.0: the harvest and sources contract. Registry harvests survive the registry's rate limit and resume from a partial file, `data/bundle.json` names its sources, and every stale bundle check names the command that fixes it. Shipped in 0.14.1: the error contract made true (every terminating error through one helper, checked by Pester), `Test-TerraformGraphBundle -Scope Repo` as the release gate, and a module that imports on any platform, with the parser commands throwing `ParserUnavailable` off Windows x64. Shipped in 0.15.0, the release before view: the module source split one function per file, with no change to any command, Id, node, edge or error. Shipped in 0.16.0: the module graph contract. `ModuleNode` has `Id` first and `Kind` `Module` second, `ModuleEdge` has `From`, `To`, `Kind` `Calls` and a `File`, Ids are unique under both `-GroupBy` modes (`-GroupBy Source` collapses calls to one source into one `source:` node with `Callers`), and the envelope carries `Findings`; property tables in [docs/graph-shape.md](docs/graph-shape.md).
