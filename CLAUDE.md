@@ -34,6 +34,8 @@ README.md               Sysadmin door; line 1 is the `>` banner linking ONTOLOGY
 ONTOLOGY.md             Agent/ontology door; banner, then backlink to README (repo skill ontology-doc)
 .claude/skills/terraformgraph/  Generated copy of the skill (Install-TerraformGraphSkill)
 .claude/skills/readme, ontology-doc, manual-check-list  Repo-development skills (not shipped)
+.claude/skills/graph-node, run-report, git-guard  Copied read-only from Graph (C:\__Code\Graph\.claude\skills\<name>); never edit; tests/CopiedSkills.Tests.ps1 checks version: and full text against Graph's committed copy
+.claude/settings.json   Permissions, and git-guard's PreToolUse hook (refuses commit, push and tag from an agent's Bash or PowerShell call)
 AGENTS.md               Generated pointer section (Install-TerraformGraphSkill) plus a hand-kept Repository skills section
 infra/                  Fixture modules used by tests and README examples
 docs/graph-shape.md     Graph property contract: ModuleGraph, ModuleNode, ModuleEdge tables and the Id rules per -GroupBy mode

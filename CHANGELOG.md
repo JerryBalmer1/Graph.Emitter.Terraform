@@ -2,6 +2,13 @@
 
 Graph.Emitter.Terraform (formerly TerraformGraph) release notes, newest first. The psd1 `ReleaseNotes` holds only the current version and links here.
 
+## 0.17.1
+
+0.17.1: git-guard hook; run-report 0.2.2; graph-node 0.2.1. No functional change.
+
+- Agent skills recopied from Graph's HEAD (`C:\__Code\Graph\.claude\skills\<name>`): `git-guard` 0.1.0 (new; its PreToolUse entry is merged into `.claude/settings.json` beside the existing permissions), `run-report` 0.2.2, `graph-node` 0.2.1.
+- `tests/CopiedSkills.Tests.ps1`: each skill's `version:` and the full text of every file against Graph's committed copy, the hook's exit codes 0, 0, 2, 2, 2, 2 for git status, git add, git commit, git push, git tag, gh pr merge, and the settings.json entry. It replaces Pester "graph-node skill (copied from GraphNode, read-only here)", which compared the skill with GraphNode's ModuleVersion, a rule Graph dropped in 0.2.7.
+
 ## 0.17.0
 
 Renamed from TerraformGraph; module and manifest follow the repo name; no functional change. The repository is now https://github.com/JerryBalmer1/Graph.Emitter.Terraform and the module `Graph.Emitter.Terraform`: the same 26 commands with the same parameters, parameter sets, output types and error ids; messages and help that named the module now say Graph.Emitter.Terraform.

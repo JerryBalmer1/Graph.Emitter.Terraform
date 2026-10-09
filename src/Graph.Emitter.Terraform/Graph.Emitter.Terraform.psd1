@@ -1,7 +1,7 @@
 @{
 
     RootModule           = 'Graph.Emitter.Terraform.psm1'
-    ModuleVersion        = '0.17.0'
+    ModuleVersion        = '0.17.1'
     GUID                 = '852206b0-33a6-4dc3-91eb-e9fd6166b17d'
     Author               = 'Jerry Balmer'
     CompanyName          = 'Jerry Balmer'
@@ -50,7 +50,7 @@
             Tags                       = @('Terraform', 'HCL', 'Graph', 'AST', 'PowerShell', 'PowerShell74', 'Windows')
             ProjectUri                 = 'https://github.com/JerryBalmer1/Graph.Emitter.Terraform'
             LicenseUri                 = 'https://github.com/JerryBalmer1/Graph.Emitter.Terraform/blob/main/LICENSE'
-            ReleaseNotes               = '0.17.0: Renamed from TerraformGraph; module and manifest follow the repo name (Graph.Emitter.Terraform); no functional change. Function names, type names, error ids, the terraformgraph skill and the LOCALAPPDATA\TerraformGraph caches are unchanged. Planned features move one release: view 0.18.0, compare 0.19.0, eras 0.20.0. Full history: https://github.com/JerryBalmer1/Graph.Emitter.Terraform/blob/main/CHANGELOG.md'
+            ReleaseNotes               = '0.17.1: git-guard hook; run-report 0.2.2; graph-node 0.2.1 (agent skills copied read-only from Graph; no functional change). Full history: https://github.com/JerryBalmer1/Graph.Emitter.Terraform/blob/main/CHANGELOG.md'
             RequireLicenseAcceptance   = $false
             ExternalModuleDependencies = @()
         }

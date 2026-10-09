@@ -29,7 +29,7 @@ Exit code 0: every module call is at depth 3 or less (the root module is depth 0
 
 There was no Terraform AST cmdlet I could drop into a pipeline, so this module exists. The native parser is a `c-shared` DLL built from [HashiCorp HCL v2](https://github.com/hashicorp/hcl) — the same language library Terraform uses — not from the `hashicorp/terraform` application repository.
 
-Source version **0.17.0**. Not yet published to the PowerShell Gallery: install from a clone (see [Install](#install)).
+Source version **0.17.1**. Not yet published to the PowerShell Gallery: install from a clone (see [Install](#install)).
 
 ---
 

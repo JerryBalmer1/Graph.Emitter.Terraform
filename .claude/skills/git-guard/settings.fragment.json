@@ -1,12 +1,4 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(git *)",
-      "Bash(docker *)",
-      "Bash(go *)",
-      "Bash(pwsh *)"
-    ]
-  },
   "hooks": {
     "PreToolUse": [
       {
