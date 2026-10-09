@@ -1,7 +1,7 @@
 # TerraformGraph manual check list
 
 Module version: 0.16.0
-Last updated: 2026-10-07
+Last updated: 2026-10-08
 
 ## 0 Setup
 
@@ -2205,7 +2205,7 @@ finally {
 }
 ```
 
-Expect: the AssembleModule line (`Assembled TerraformGraph 0.15.0: 16 files, ...`), then `lines: v0.14.1 239, src 239, dist 239; functions 108`, then `0 differences` on all three comparison lines (seen on 2026-10-07 with the surface script run by `pwsh -File`). The temp script and folder are removed at the end. The full proof of the split (the default test run, the AssembleModule file list and the module-scope variables as well) is in dist\split-proof from the 0.15.0 task; the only differences there are the shipped psm1's size and the six new tests.
+Expect: the AssembleModule line (`Assembled TerraformGraph 0.16.0: 16 files, ...`), then `lines: v0.14.1 239, src 239, dist 239; functions 108`, then `2 differences` on the two v0.14.1 lines and `0 differences` on `src vs dist` (seen on 2026-10-08, the block run as a temp `.ps1` with `pwsh -NoProfile -File`). The two differences are the old and new hash of `Get-TerraformModuleGraph`, whose body 0.16.0 changed; the parameter surface is identical. At 0.15.0 all three lines read `0 differences`. The temp script and folder are removed at the end. The full proof of the split (the default test run, the AssembleModule file list and the module-scope variables as well) is in dist\split-proof from the 0.15.0 task; the only differences there are the shipped psm1's size and the six new tests.
 
 Pester: "names a documented fixing command for every terminating error id in the assembled dist psm1", "resolves every term in ONTOLOGY.md's terminology table against the assembled dist psm1"
 
@@ -2261,6 +2261,6 @@ pwsh -NoProfile -File (Resolve-Path ./tests/Invoke-Tests.ps1).Path
 Remove-Item Env:TERRAFORMGRAPH_TEST_MANIFEST
 ```
 
-Expect: the AssembleModule line (`Assembled TerraformGraph 0.15.0: 16 files, ...`), Pester's summary `Tests Passed: 235, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 17`, then `exit 0`, the child pwsh's own exit code (Invoke-Tests.ps1 exits 1 on any failure; checked on 2026-10-07 by setting `$LASTEXITCODE = 99` before the child call and seeing it become 0).
+Expect: the AssembleModule line (`Assembled TerraformGraph 0.16.0: 16 files, ...`), Pester's summary `Tests Passed: 241, Failed: 0, Skipped: 0, Inconclusive: 0, NotRun: 17`, then `exit 0`, the child pwsh's own exit code (Invoke-Tests.ps1 exits 1 on any failure; checked on 2026-10-07 by setting `$LASTEXITCODE = 99` before the child call and seeing it become 0; re-run on 2026-10-08 as a temp `.ps1` with `pwsh -NoProfile -File`).
 
 Pester: none (this runs Pester)

@@ -50,3 +50,8 @@ src/TerraformGraph/lib/*.h
 # BuildJson intermediates
 src/json/bin/
 src/json/obj/
+
+# Local build output and secrets
+artifacts/
+build/
+.env
